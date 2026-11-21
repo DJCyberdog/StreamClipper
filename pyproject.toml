@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "streamclipper"
-version = "0.2.1"
+version = "0.3.0"
 description = "Offline gaming stream highlight finder and vertical clip exporter for Windows"
 requires-python = ">=3.11,<3.15"
 dependencies = []

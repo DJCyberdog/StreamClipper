@@ -7,7 +7,7 @@ from typing import Callable
 
 from .media import audio_levels, probe_video
 from .models import AnalysisResult, Candidate
-from .semantic import EventEvidence, fuse_events, recognize_gameplay, transcribe_reactions
+from .semantic import EventEvidence, fuse_events, recognize_gameplay, transcribe_video, transcript_cues
 
 
 def _bounds(center: float, duration: float, clip_seconds: int, preroll: float = 8.0) -> tuple[float, float]:
@@ -77,10 +77,12 @@ def analyze(path: str, clip_seconds: int = 25, max_clips: int = 8,
                                       max(24, max_clips * 4))
     evidence = [EventEvidence(c.peak_at, "audio", 0.28,
                               c.reason) for c in peak_candidates if c.score > 30]
+    transcript = []
     if speech_model:
-        evidence.extend(transcribe_reactions(video, speech_model,
+        transcript = transcribe_video(video, speech_model,
                          progress=stage(35, 35 if vision_model else 65),
-                         cancelled=cancelled))
+                         cancelled=cancelled)
+        evidence.extend(transcript_cues((s.start, s.end, s.text) for s in transcript))
     if vision_model:
         evidence.extend(recognize_gameplay(video, vision_model,
                          max_frames=max_visual_frames, progress=stage(70 if speech_model else 35,
@@ -89,4 +91,4 @@ def analyze(path: str, clip_seconds: int = 25, max_clips: int = 8,
     if progress:
         progress(100)
     return AnalysisResult(video, ranked or baseline,
-                          method="multimodal-evidence-v1")
+                          method="multimodal-evidence-v1", transcript=transcript)

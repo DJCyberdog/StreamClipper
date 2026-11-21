@@ -12,7 +12,7 @@ import math
 import re
 from typing import Callable, Iterable
 
-from .models import Candidate, VideoInfo
+from .models import Candidate, TranscriptSegment, VideoInfo
 
 Cancelled = Callable[[], bool]
 Progress = Callable[[int], None]
@@ -54,10 +54,10 @@ def transcript_cues(segments: Iterable[tuple[float, float, str]]) -> list[EventE
     return evidence
 
 
-def transcribe_reactions(video: VideoInfo, model_directory: str, *,
+def transcribe_video(video: VideoInfo, model_directory: str, *,
                          progress: Progress | None = None,
-                         cancelled: Cancelled | None = None) -> list[EventEvidence]:
-    """Use a local CTranslate2 Whisper model; never request model downloads."""
+                         cancelled: Cancelled | None = None) -> list[TranscriptSegment]:
+    """Transcribe the entire recording once using a locally installed model."""
     from .media import CancelledError
     folder = Path(model_directory).expanduser()
     if not folder.is_dir():
@@ -76,16 +76,28 @@ def transcribe_reactions(video: VideoInfo, model_directory: str, *,
     # segment is not pre-emptible, so user cancellation can take a moment.
     segments, _ = model.transcribe(video.path, beam_size=2, vad_filter=True,
                                    condition_on_previous_text=False)
-    spans = []
+    spans: list[TranscriptSegment] = []
     for seg in segments:
         if cancelled and cancelled():
             raise CancelledError("Analyse abgebrochen")
-        spans.append((float(seg.start), float(seg.end), str(seg.text)))
+        start, end = float(seg.start), float(seg.end)
+        phrase = " ".join(str(seg.text).split())
+        if math.isfinite(start) and math.isfinite(end) and 0 <= start < end and phrase:
+            spans.append(TranscriptSegment(start, end, phrase))
         if progress:
             progress(min(100, int(100 * seg.end / video.duration)))
     if progress:
         progress(100)
-    return transcript_cues(spans)
+    return spans
+
+
+def transcribe_reactions(video: VideoInfo, model_directory: str, *,
+                         progress: Progress | None = None,
+                         cancelled: Cancelled | None = None) -> list[EventEvidence]:
+    """Compatibility adapter for existing speech-highlight callers."""
+    segments = transcribe_video(video, model_directory, progress=progress,
+                                cancelled=cancelled)
+    return transcript_cues((s.start, s.end, s.text) for s in segments)
 
 
 # Paired with neutral controls. These are image-level resemblance prompts, not

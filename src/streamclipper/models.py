@@ -1,7 +1,7 @@
 """Serializable data models; no GUI dependencies."""
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 import json
 
@@ -26,10 +26,19 @@ class Candidate:
 
 
 @dataclass(frozen=True)
+class TranscriptSegment:
+    """Timestamped speech recognized by a local model (not speaker-labeled)."""
+    start: float
+    end: float
+    text: str
+
+
+@dataclass(frozen=True)
 class AnalysisResult:
     video: VideoInfo
     candidates: list[Candidate]
     method: str = "audio-rms-peaks-v1"
+    transcript: list[TranscriptSegment] = field(default_factory=list)
 
     def save_json(self, filename: str | Path) -> None:
         destination = Path(filename)

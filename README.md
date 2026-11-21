@@ -1,4 +1,4 @@
-# StreamClipper 0.2
+# StreamClipper 0.3
 
 **Lokale Windows-App für Gaming-/Twitch-Highlights mit vertikalem TikTok-Export.**
 
@@ -215,3 +215,35 @@ Wenn die KI-Bibliotheken bereits in `.venv` installiert sind, reicht:
 
 Die Modelle landen standardmäßig in `data\models` innerhalb des entpackten
 Projektordners; eine manuelle `--directory`-Angabe ist nicht mehr nötig.
+
+## Vollständige automatische Transkription (ab 0.3.0)
+
+Beim **Highlights analysieren** die Checkbox **„Sprache + Transkript (lokales Whisper)“**
+aktivieren und den vorbereiteten Whisper-Modellordner auswählen (bei portablem Setup
+gewöhnlich `data/models/whisper-small`). StreamClipper erkennt die komplette
+Tonspur, zeigt im Reiter **Transkript** alle erkannten Sätze mit Start-/Endzeit
+an und springt per Doppelklick an die entsprechende Videostelle. Die Sprache
+wird für Highlight-Hinweise zugleich genutzt; **Whisper läuft dafür nur einmal**.
+Über **Transkript speichern (SRT/TXT/VTT)** kann der Text exportiert werden.
+
+Eine reine Transkription **ohne zusätzliche Highlight- oder CLIP-Analyse** ist
+über die Kommandozeile möglich:
+
+```powershell
+.\.venv\Scripts\python.exe -m streamclipper.cli transcribe "D:\Videos\Gaming.mkv"
+# Erstellt Gaming.transkript.srt und Gaming.transkript.txt neben dem Video.
+# Individuelles Ziel (nur ein Format):
+.\.venv\Scripts\python.exe -m streamclipper.cli transcribe "D:\Videos\Gaming.mkv" --output "D:\StreamClipper\data\transcripts\Gaming.vtt"
+```
+
+**Hinweise:** Dateien werden nicht überschrieben; bei vorhandenem Dateinamen
+ein anderes Ziel wählen. SRT/VTT sind **separate Untertiteldateien**, noch
+nicht ins exportierte MP4 eingebrannt. Die Zeitstempel beziehen sich auf das
+Originalvideo. Sprecherzuordnung und wortgenaue Synchronisierung sind nicht
+enthalten. Streaming-/OBS-Aufnahmen mit mehreren Audiospuren werden für Whisper
+noch nicht separat gemischt; dabei entscheidet die von faster-whisper verwendete
+Audioauswahl. Whisper kann insbesondere bei Spielemusik und überlagerten
+Dialogen falsch transkribieren. Originalvideos bleiben unverändert.
+
+Der Transkripttext wird bei einer gespeicherten Highlight-JSON-Analyse auch
+im JSON hinterlegt; dieses JSON gegebenenfalls vertraulich behandeln.

@@ -16,13 +16,14 @@ from PySide6.QtMultimediaWidgets import QVideoWidget
 from PySide6.QtWidgets import (
     QApplication, QCheckBox, QComboBox, QFileDialog, QHBoxLayout, QLabel, QLineEdit, QMainWindow,
     QMessageBox, QProgressBar, QPushButton, QSlider, QSpinBox, QSplitter,
-    QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
+    QTableWidget, QTableWidgetItem, QTabWidget, QVBoxLayout, QWidget,
 )
 
 from .analyze import analyze
 from .media import CancelledError, export_clip, safe_destination, tool_path
 from .models import AnalysisResult, Candidate
 from .semantic import default_models_directory
+from .transcript import save_transcript
 
 
 def display_time(seconds: float) -> str:
@@ -102,7 +103,7 @@ class ExportThread(QThread):
 class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
-        self.setWindowTitle("StreamClipper – Gaming Highlights 0.2")
+        self.setWindowTitle("StreamClipper – Gaming Highlights 0.3")
         self.resize(1200, 760)
         self.source: str | None = None
         self.analysis: AnalysisResult | None = None
@@ -143,7 +144,7 @@ class MainWindow(QMainWindow):
         main.addLayout(toolbar)
 
         models = QHBoxLayout()
-        self.speech_enabled = QCheckBox("Sprache (lokales Whisper)")
+        self.speech_enabled = QCheckBox("Sprache + Transkript (lokales Whisper)")
         models.addWidget(self.speech_enabled)
         self.speech_path = QLineEdit()
         self.speech_path.setPlaceholderText("Whisper-Modellordner")
@@ -198,7 +199,11 @@ class MainWindow(QMainWindow):
         results_container = QWidget()
         results_layout = QVBoxLayout(results_container)
         results_layout.setContentsMargins(0, 0, 0, 0)
-        results_layout.addWidget(QLabel("Highlight-Vorschläge (Audio / Sprache / Spielbilder)"))
+        self.tabs = QTabWidget()
+        results_layout.addWidget(self.tabs, 1)
+        highlights_tab = QWidget()
+        highlights_layout = QVBoxLayout(highlights_tab)
+        highlights_layout.addWidget(QLabel("Highlight-Vorschläge (Audio / Sprache / Spielbilder)"))
         self.table = QTableWidget(0, 4)
         self.table.setHorizontalHeaderLabels(["Start", "Ende", "Score", "Erkennungsgrund"])
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
@@ -207,8 +212,21 @@ class MainWindow(QMainWindow):
         self.table.verticalHeader().hide()
         self.table.horizontalHeader().setStretchLastSection(True)
         self.table.itemSelectionChanged.connect(self.preview_selected)
-        results_layout.addWidget(self.table, 1)
-        results_layout.addWidget(QLabel("Score = nicht kalibrierte Evidenz-Heuristik, keine Viralitätsprognose."))
+        highlights_layout.addWidget(self.table, 1)
+        highlights_layout.addWidget(QLabel("Score = nicht kalibrierte Evidenz-Heuristik, keine Viralitätsprognose."))
+        self.tabs.addTab(highlights_tab, "Highlights")
+        transcript_tab = QWidget()
+        transcript_layout = QVBoxLayout(transcript_tab)
+        transcript_layout.addWidget(QLabel("Whisper-Transkript – Doppelklick springt zur Aufnahmezeit"))
+        self.transcript_table = QTableWidget(0, 3)
+        self.transcript_table.setHorizontalHeaderLabels(["Start", "Ende", "Erkannter Text"])
+        self.transcript_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.transcript_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.transcript_table.horizontalHeader().setStretchLastSection(True)
+        self.transcript_table.verticalHeader().hide()
+        self.transcript_table.cellDoubleClicked.connect(self.jump_to_transcript)
+        transcript_layout.addWidget(self.transcript_table)
+        self.tabs.addTab(transcript_tab, "Transkript")
         splitter.addWidget(results_container)
         splitter.setSizes([580, 620])
         main.addWidget(splitter, 1)
@@ -231,6 +249,10 @@ class MainWindow(QMainWindow):
         self.report_button.clicked.connect(self.save_report)
         self.report_button.setEnabled(False)
         actions.addWidget(self.report_button)
+        self.transcript_button = QPushButton("Transkript speichern (SRT/TXT/VTT)")
+        self.transcript_button.clicked.connect(self.save_transcript_dialog)
+        self.transcript_button.setEnabled(False)
+        actions.addWidget(self.transcript_button)
         main.addLayout(actions)
 
         self.progress = QProgressBar()
@@ -260,6 +282,7 @@ class MainWindow(QMainWindow):
         self.single_export.setEnabled(ready and bool(self.table.selectedItems()))
         self.all_export.setEnabled(ready and bool(self.analysis.candidates if self.analysis else []))
         self.report_button.setEnabled(ready)
+        self.transcript_button.setEnabled(ready and bool(self.analysis.transcript if self.analysis else []))
 
     def open_video(self) -> None:
         source, _ = QFileDialog.getOpenFileName(self, "Aufnahme öffnen", "",
@@ -270,6 +293,8 @@ class MainWindow(QMainWindow):
         self.analysis = None
         self.preview_end = None
         self.table.setRowCount(0)
+        self.transcript_table.setRowCount(0)
+        self.tabs.setCurrentIndex(0)
         self.source_label.setText(source)
         self.player.setSource(QUrl.fromLocalFile(source))
         self.progress.setValue(0)
@@ -298,6 +323,7 @@ class MainWindow(QMainWindow):
             return
         self.analysis = None
         self.table.setRowCount(0)
+        self.transcript_table.setRowCount(0)
         self.progress.setValue(0)
         self.worker = AnalysisThread(self.source, self.length.value(), self,
                                      speech_model=speech, vision_model=vision)
@@ -321,8 +347,14 @@ class MainWindow(QMainWindow):
                 self.table.setItem(row, column, item)
         if result.candidates:
             self.table.selectRow(0)
+        self.transcript_table.setRowCount(len(result.transcript))
+        for row, segment in enumerate(result.transcript):
+            for column, value in enumerate((display_time(segment.start),
+                                            display_time(segment.end), segment.text)):
+                self.transcript_table.setItem(row, column, QTableWidgetItem(value))
         self._busy(False)
-        self.statusBar().showMessage(f"{len(result.candidates)} Clip-Vorschläge gefunden")
+        self.statusBar().showMessage(
+            f"{len(result.candidates)} Clips, {len(result.transcript)} Transkript-Abschnitte")
 
     def job_failed(self, message: str) -> None:
         self._busy(False)
@@ -349,6 +381,29 @@ class MainWindow(QMainWindow):
         self.player.pause()
         self.player.setPosition(round(clip.start * 1000))
         self.single_export.setEnabled(not bool(self.worker and self.worker.isRunning()))
+
+    def jump_to_transcript(self, row: int, _column: int) -> None:
+        if not self.analysis or row < 0 or row >= len(self.analysis.transcript):
+            return
+        self.preview_end = None
+        self.player.pause()
+        self.player.setPosition(round(self.analysis.transcript[row].start * 1000))
+
+    def save_transcript_dialog(self) -> None:
+        if not self.analysis or not self.analysis.transcript:
+            return
+        default = str(Path(self.analysis.video.path).with_suffix(".transkript.srt"))
+        destination, _ = QFileDialog.getSaveFileName(
+            self, "Transkript exportieren", default,
+            "SubRip (*.srt);;WebVTT (*.vtt);;Text (*.txt)")
+        if not destination:
+            return
+        try:
+            target = save_transcript(self.analysis.transcript, destination)
+        except (FileExistsError, OSError, ValueError) as exc:
+            QMessageBox.warning(self, "Transkript konnte nicht gespeichert werden", str(exc))
+            return
+        self.statusBar().showMessage("Transkript gespeichert: " + str(target))
 
     def toggle_play(self) -> None:
         if self.player.playbackState() == QMediaPlayer.PlaybackState.PlayingState:

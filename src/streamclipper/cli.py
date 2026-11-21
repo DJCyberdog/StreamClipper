@@ -10,6 +10,8 @@ configure_portable_environment()
 
 from .analyze import analyze
 from .media import export_clip, probe_video
+from .semantic import default_models_directory, transcribe_video
+from .transcript import save_transcript
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -26,6 +28,11 @@ def main(argv: list[str] | None = None) -> None:
                    help="Lokaler Transformers-CLIP-Modellordner")
     a.add_argument("--max-visual-frames", type=int, default=180,
                    help="Höchstens so viele Videoframes klassifizieren (Standard: 180)")
+    t = commands.add_parser("transcribe", help="Whole recording -> local SRT/TXT/VTT subtitles")
+    t.add_argument("video")
+    t.add_argument("--speech-model", default=str(default_models_directory() / "whisper-small"),
+                   metavar="DIR", help="Lokales Whisper-Modell (Standard: data/models/whisper-small)")
+    t.add_argument("--output", help="Zielpfad .srt, .vtt oder .txt; Standard: SRT und TXT")
     e = commands.add_parser("export", help="Export one time range to 9:16 MP4")
     e.add_argument("video")
     e.add_argument("--start", type=float, required=True)
@@ -43,6 +50,18 @@ def main(argv: list[str] | None = None) -> None:
         print(f"\n{len(result.candidates)} Kandidaten gespeichert: {destination}")
         for c in result.candidates:
             print(f"  {c.start:.1f}–{c.end:.1f}s | {c.score:02d} | {c.reason}")
+    elif args.command == "transcribe":
+        video = probe_video(args.video)
+        segments = transcribe_video(video, args.speech_model,
+            progress=lambda p: print(f"\rTranskript: {p:3d}%", end="", flush=True))
+        if args.output:
+            destinations = [Path(args.output)]
+        else:
+            base = Path(args.video).with_suffix("")
+            destinations = [Path(f"{base}.transkript.srt"), Path(f"{base}.transkript.txt")]
+        for destination in destinations:
+            saved = save_transcript(segments, destination)
+            print(f"\nTranskript gespeichert ({len(segments)} Abschnitte): {saved}")
     else:
         video = probe_video(args.video)
         path = export_clip(video, args.start, args.end, args.output, args.mode)

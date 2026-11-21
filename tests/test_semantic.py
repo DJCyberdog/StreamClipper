@@ -7,7 +7,7 @@ import pytest
 
 from streamclipper import analyze as analyzer
 from streamclipper.media import CancelledError, probe_video, sampled_jpeg_frames
-from streamclipper.models import VideoInfo
+from streamclipper.models import TranscriptSegment, VideoInfo
 from streamclipper.semantic import (EventEvidence, fuse_events, transcript_cues,
                                     transcribe_reactions, recognize_gameplay, visual_match)
 
@@ -64,17 +64,18 @@ def test_multimodal_analyze_calls_both_detectors(monkeypatch):
     called = []
     def fake_speech(*args, **kwargs):
         called.append(("speech", args[1]))
-        return [EventEvidence(40, "speech", 0.65, "Transkript-Hinweis")]
+        return [TranscriptSegment(39, 41, "Oh mein Gott! Alter!")]
     def fake_vision(*args, **kwargs):
         called.append(("vision", args[1], kwargs["max_frames"]))
         return [EventEvidence(41, "visual", 0.60, "Bildähnlichkeit")]
-    monkeypatch.setattr(analyzer, "transcribe_reactions", fake_speech)
+    monkeypatch.setattr(analyzer, "transcribe_video", fake_speech)
     monkeypatch.setattr(analyzer, "recognize_gameplay", fake_vision)
     percentages = []
     result = analyzer.analyze("fake.mkv", speech_model="whisper-dir", vision_model="clip-dir",
                               max_visual_frames=24, progress=percentages.append)
     assert called == [("speech", "whisper-dir"), ("vision", "clip-dir", 24)]
     assert result.method == "multimodal-evidence-v1"
+    assert result.transcript == [TranscriptSegment(39, 41, "Oh mein Gott! Alter!")]
     assert result.candidates[0].score >= 70
     assert percentages and percentages[-1] == 100
     assert all(0 <= p <= 100 for p in percentages)
