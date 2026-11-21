@@ -50,13 +50,13 @@ py -3.12 -m venv .venv
 .venv\Scripts\python.exe -m streamclipper.cli export "D:\Videos\aufnahme.mkv" --start 65 --end 90 --mode blur --output "D:\Clips\clip.mp4"
 ```
 
-**Anmerkung:** Der CLI-Export überschreibt ebenfalls keine bereits vorhandene Zieldatei;
-bei gleichem Namen einen neuen Pfad angeben.
+**Anmerkung:** Der CLI-Export überschreibt niemals vorhandene Dateien; bei
+Namenskonflikten wird automatisch ein nummerierter freier Name verwendet.
 
 ## Windows EXE über GitHub Actions
 
-Nach dem ersten Push in ein neues GitHub-Repository im Reiter **Actions** den Workflow
-**Windows portable build** mit `Run workflow` manuell starten. Nach erfolgreichem Build
+Der Workflow **Windows portable build** läuft bei Pull Requests automatisch und
+kann unter **Actions** mit `Run workflow` zusätzlich manuell gestartet werden. Nach erfolgreichem Build
 wird das ZIP-Artefakt `StreamClipper-windows-portable` bereitgestellt. Darin ist die
 Windows-App mit PySide6 enthalten, **nicht** FFmpeg/FFprobe. Die beiden Programme
 müssen extern verfügbar sein (siehe Anleitung).
@@ -75,7 +75,7 @@ src/streamclipper/cli.py      testbare Kommandozeile
 AGENTS.md                    verbindliche Codex-Projektregeln
 codex/NEXT_TASK.md           nächster klar begrenzter Entwicklungsauftrag
 .github/workflows/ci.yml    Tests in Pull Requests
-.github/workflows/build-windows.yml    manuell baubare portable Windows-App
+.github/workflows/build-windows.yml    Windows-Build auf PRs und manuell
 tests/                       schnelle Unit- und echte FFmpeg-Integrationstests
 ```
 
@@ -92,8 +92,12 @@ Siehe [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md),
 - Rechenzeit wächst mit der Dauer der Aufnahme. Video-Decoding geschieht erst beim Export;
   die Analyse decodiert nur die Audiospur, ohne großen RAM-Puffer.
 - Vorhandene Clips werden nicht automatisch verworfen oder veröffentlicht; du entscheidest.
-- Während eines einzelnen laufenden FFmpeg-Exports wird ein Abbruch nach Abschluss des
-  aktuellen Clips wirksam; sofortiger Prozessabbruch ist eine Folgeaufgabe.
+- Ein laufender FFmpeg-Export ist nun auch während des Encodings abbrechbar; die
+  GUI zeigt den Clipfortschritt an. Die Ausgabe wird zuerst als `.partial.mp4`
+  in einem temporären Unterordner erzeugt, geprüft und erst danach unter einem
+  freien Namen atomar veröffentlicht. Beim Abbruch wird die temporäre Datei
+  entfernt. Auf Dateisystemen ohne atomare Hardlink-Unterstützung kann unter
+  Linux/macOS der Export mit einer verständlichen Fehlermeldung scheitern.
 - Vorschau ist Originalformat, nicht bereits gerendertes vertikales TikTok-Layout.
 - TikTok-spezifische Anforderungen können sich ändern. 1080 × 1920 H.264/AAC ist
   eine verbreitete Wahl, aber kein Versprechen einer garantierten Plattformakzeptanz.
