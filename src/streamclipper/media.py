@@ -2,8 +2,11 @@
 from __future__ import annotations
 
 from array import array
+import queue
 import json
 import math
+import tempfile
+import threading
 import os
 from pathlib import Path
 import shutil
@@ -168,26 +171,138 @@ def build_export_command(video: VideoInfo, start: float, end: float, destination
             str(destination)]
 
 
+def _stop_process(proc: subprocess.Popen) -> None:
+    """Reap a directly spawned FFmpeg process, even if it ignores terminate."""
+    if proc.poll() is None:
+        try:
+            proc.terminate()
+            proc.wait(timeout=3)
+        except (subprocess.TimeoutExpired, OSError):
+            if proc.poll() is None:
+                proc.kill()
+    proc.wait()  # Important on POSIX: never leave a zombie process.
+
+
+def _progress_seconds(key: str, value: str) -> float | None:
+    """FFmpeg emits microseconds in both out_time_us and legacy out_time_ms."""
+    try:
+        if key in {"out_time_us", "out_time_ms"}:
+            return max(0.0, int(value) / 1_000_000)
+        if key == "out_time":
+            hours, minutes, seconds = value.split(":")
+            return max(0.0, int(hours) * 3600 + int(minutes) * 60 + float(seconds))
+    except (ValueError, OverflowError):
+        pass
+    return None
+
+
+def _publish_without_overwrite(partial: Path, requested: Path) -> Path:
+    """Publish a *finished* MP4 atomically, without a check-then-move race.
+
+    Hard-link creation is an exclusive, atomic operation on the same filesystem.
+    Windows os.rename also fails when the destination already exists, so it is
+    a fallback for volumes without hard-link support (such as some shares).
+    """
+    for index in range(1, 100001):
+        if index == 1:
+            target = requested
+        else:
+            target = requested.with_name(
+                f"{requested.stem}_{index}{requested.suffix}"
+            )
+        try:
+            os.link(partial, target)
+        except FileExistsError:
+            continue
+        except OSError:
+            if os.name != "nt":
+                raise
+            try:
+                os.rename(partial, target)
+            except FileExistsError:
+                continue
+        return target
+    raise FileExistsError("Kein freier Export-Dateiname gefunden.")
+
+
 def export_clip(video: VideoInfo, start: float, end: float, destination: str | Path,
                 mode: str = "blur", width: int = 1080, height: int = 1920,
-                cancelled: Cancelled | None = None) -> Path:
+                cancelled: Cancelled | None = None,
+                progress: Progress | None = None) -> Path:
+    """Encode with cancellable progress and publish only validated, complete MP4s.
+
+    The temporary file is on the destination filesystem for atomic publication.
+    Existing outputs and the source video are never opened for writing.
+    A cancelled or failed export leaves no final MP4 and cleans its temporary dir.
+    The *returned* path can differ from destination if another export reserved it.
+    """
     output = Path(destination).resolve()
     output.parent.mkdir(parents=True, exist_ok=True)
-    cmd = build_export_command(video, start, end, output, mode, width, height, tool_path("ffmpeg"))
-    proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
-                            text=True, encoding="utf-8", errors="replace")
-    try:
-        # communicate drains stderr and avoids pipe deadlocks. For v0.1 cancellation
-        # is supported before each clip, not while an individual clip renders.
-        _stdout, stderr = proc.communicate()
-        if proc.returncode != 0:
-            if output.exists():
-                output.unlink()
-            raise RuntimeError(f"FFmpeg-Export fehlgeschlagen: {stderr[-2000:]}")
-        if cancelled and cancelled():
-            raise CancelledError("Export abgebrochen")
-        return output
-    finally:
-        if proc.poll() is None:
-            proc.kill()
-            proc.wait()
+    if cancelled and cancelled():
+        raise CancelledError("Export abgebrochen")
+    duration = end - start
+    # Validate parameters before allocating temp files or starting FFmpeg.
+    build_export_command(video, start, end, output, mode, width, height)
+
+    with tempfile.TemporaryDirectory(prefix=f".{output.stem}-", dir=output.parent) as workdir:
+        partial = Path(workdir) / f"{output.stem}.partial.mp4"
+        cmd = build_export_command(video, start, end, partial, mode, width, height,
+                                   tool_path("ffmpeg"))
+        cmd[1:1] = ["-progress", "pipe:1", "-stats_period", "0.25"]
+        with tempfile.TemporaryFile(mode="w+b") as stderr_log:
+            proc = subprocess.Popen(
+                cmd, stdout=subprocess.PIPE, stderr=stderr_log,
+                text=True, encoding="utf-8", errors="replace",
+            )
+            updates: queue.Queue[float] = queue.Queue()
+
+            def read_progress() -> None:
+                assert proc.stdout is not None
+                for line in proc.stdout:
+                    key, separator, value = line.strip().partition("=")
+                    if separator:
+                        seconds = _progress_seconds(key, value)
+                        if seconds is not None:
+                            updates.put(seconds)
+
+            reader = threading.Thread(target=read_progress, daemon=True,
+                                      name="streamclipper-ffmpeg-progress")
+            reader.start()
+            last_progress = -1
+            try:
+                while proc.poll() is None or reader.is_alive() or not updates.empty():
+                    if cancelled and cancelled():
+                        raise CancelledError("Export abgebrochen")
+                    try:
+                        seconds = updates.get(timeout=0.10)
+                    except queue.Empty:
+                        continue
+                    value = max(0, min(99, int(seconds / duration * 100)))
+                    if progress and value > last_progress:
+                        progress(value)
+                        last_progress = value
+
+                proc.wait()
+                if cancelled and cancelled():
+                    raise CancelledError("Export abgebrochen")
+                if proc.returncode != 0:
+                    stderr_log.flush()
+                    stderr_log.seek(0, os.SEEK_END)
+                    stderr_log.seek(max(0, stderr_log.tell() - 2000))
+                    error_details = stderr_log.read().decode("utf-8", errors="replace")
+                    raise RuntimeError(f"FFmpeg-Export fehlgeschlagen: {error_details}")
+                if not partial.is_file() or partial.stat().st_size == 0:
+                    raise RuntimeError("FFmpeg hat keine fertige MP4-Datei erzeugt.")
+                # Verify the container before making it visible as a final clip.
+                probe_video(partial)
+                if cancelled and cancelled():
+                    raise CancelledError("Export abgebrochen")
+                published = _publish_without_overwrite(partial, output)
+                if progress:
+                    progress(100)
+                return published
+            finally:
+                _stop_process(proc)
+                reader.join(timeout=2)
+                if proc.stdout:
+                    proc.stdout.close()
