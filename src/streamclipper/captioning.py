@@ -38,7 +38,7 @@ def _plain_ass_text(text: str, line_length: int) -> str:
 
 
 def clip_captions(segments: Sequence[TranscriptSegment], start: float, end: float,
-                  *, max_words: int = 8) -> list[tuple[float, float, str]]:
+                  *, max_words: int = 8, offset_seconds: float = 0.0) -> list[tuple[float, float, str]]:
     """Re-time Whisper segments to this export and split lengthy utterances.
 
     Segment-level Whisper timestamps do not align individual words precisely.
@@ -46,11 +46,17 @@ def clip_captions(segments: Sequence[TranscriptSegment], start: float, end: floa
     """
     if not math.isfinite(start) or not math.isfinite(end) or not 0 <= start < end:
         raise ValueError("Ungültiges Clip-Zeitfenster")
+    if not math.isfinite(offset_seconds) or abs(offset_seconds) > 5:
+        raise ValueError("Untertitelversatz muss zwischen -5 und +5 Sekunden liegen")
+    if max_words <= 0:
+        raise ValueError("max_words muss positiv sein")
     cues: list[tuple[float, float, str]] = []
     for segment in segments:
         if not all(math.isfinite(v) for v in (segment.start, segment.end)):
             continue
-        if segment.end <= start or segment.start >= end or segment.end <= segment.start:
+        if (segment.end + offset_seconds <= start or
+                segment.start + offset_seconds >= end or
+                segment.end <= segment.start):
             continue
         words = segment.text.strip().split()
         if not words:
@@ -59,8 +65,8 @@ def clip_captions(segments: Sequence[TranscriptSegment], start: float, end: floa
         for j in range(0, len(words), max_words):
             fraction_start = j / len(words)
             fraction_end = min(1., (j + max_words) / len(words))
-            a = segment.start + (segment.end - segment.start) * fraction_start
-            b = segment.start + (segment.end - segment.start) * fraction_end
+            a = segment.start + (segment.end - segment.start) * fraction_start + offset_seconds
+            b = segment.start + (segment.end - segment.start) * fraction_end + offset_seconds
             local_start = max(start, a) - start
             local_end = min(end, b) - start
             if local_end <= local_start + .06:
@@ -70,7 +76,8 @@ def clip_captions(segments: Sequence[TranscriptSegment], start: float, end: floa
 
 
 def render_ass(segments: Sequence[TranscriptSegment], start: float, end: float,
-               *, width: int = 1920, height: int = 1080) -> str:
+               *, width: int = 1920, height: int = 1080,
+               offset_seconds: float = 0.0) -> str:
     """Create a self-contained subtitle track meant to be burned by libass."""
     if width <= 0 or height <= 0:
         raise ValueError("Ungültige Exportauflösung")
@@ -93,7 +100,8 @@ def render_ass(segments: Sequence[TranscriptSegment], start: float, end: float,
         style, "", "[Events]",
         "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",
     ]
-    for a, b, text in clip_captions(segments, start, end):
+    for a, b, text in clip_captions(
+            segments, start, end, offset_seconds=offset_seconds):
         safe = _plain_ass_text(text, 36 if width >= height else 22)
         if safe:
             output.append(
