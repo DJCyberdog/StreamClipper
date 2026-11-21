@@ -404,3 +404,34 @@ anderen Projektdaten gesichert. Beim erneuten Laden über **Analyse laden
 (JSON)** sind sie wieder verfügbar. Die ursprüngliche Aufnahme wird nie
 verändert. Zuverlässigkeit mit sehr langen Aufnahmen muss noch unter
 Windows getestet werden.
+
+
+## Öffentliche Twitch-VODs per Video-URL importieren (optional)
+
+Im Hauptfenster auf **Twitch-VOD importieren** klicken, eine URL wie
+`https://www.twitch.tv/videos/1234567890` einfügen und den Speicherordner
+wählen. StreamClipper lädt das verfügbare, öffentliche **archivierte VOD**
+per `yt-dlp` herunter und lädt die fertige Datei zur Bearbeitung. Der
+Import läuft in einem Hintergrundthread mit Fortschrittsanzeige und Abbruch.
+Bei Verbindungsabbruch bleiben `.part`-Dateien erhalten; beim erneuten Import
+über dieselbe URL in denselben Ordner versucht `yt-dlp` die Fortsetzung.
+
+Die Video-Dateien werden im gewählten Ordner gespeichert, standardmäßig
+wird `data/imports/` vorgeschlagen. Für drei bis sechs Stunden VOD können
+mehrere Gigabyte freier Speicherplatz erforderlich sein. Import ist ein
+**ausdrücklicher Online-Vorgang**; lokale Videoanalyse und Export bleiben
+weiterhin offline. Live-Streams, Twitch-Clips, Sub-only/VODs mit
+Anmeldung, gelöschte/abgelaufene VODs und automatischer Twitch-Kanal-Import
+sind **noch nicht** implementiert. Keine Zugangsbeschränkungen umgehen.
+
+Für vorhandene `.venv` einmal das optionale Paket installieren:
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install -e ".[twitch]"
+```
+
+Eine frische Ausführung von `setup_windows.bat` installiert `yt-dlp` künftig
+mit; der Import selbst lädt sonst keine Python-Abhängigkeiten nach.
+Twitch bietet einen offiziellen Download eigener VODs über den Video Producer;
+`yt-dlp` ist ein unabhängiges Drittanbieterwerkzeug, dessen Funktion sich
+bei Änderungen an Twitch jederzeit ändern kann.

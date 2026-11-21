@@ -16,6 +16,7 @@ from PySide6.QtMultimediaWidgets import QVideoWidget
 from PySide6.QtWidgets import (
     QApplication, QCheckBox, QComboBox, QFileDialog, QHBoxLayout, QLabel, QLineEdit, QMainWindow,
     QMessageBox, QPlainTextEdit, QProgressBar, QPushButton, QSlider, QSpinBox,
+    QInputDialog,
     QDoubleSpinBox, QSplitter, QTableWidget, QTableWidgetItem, QTabWidget,
     QVBoxLayout, QWidget,
 )
@@ -25,6 +26,8 @@ from .media import CancelledError, export_clip, probe_video, safe_destination, t
 from .model_checks import validate_clip_model
 from .models import AnalysisResult, Candidate
 from .manual_highlights import add_manual_highlight, remove_manual_highlight
+from .twitch_import import download_twitch_vod, parse_twitch_vod_url
+from .portable import installation_directory
 from .transcript_editor import (apply_segment_changes, format_timestamp,
                                 load_analysis_report, parse_timestamp)
 from .semantic import default_models_directory
@@ -111,6 +114,30 @@ class ExportThread(QThread):
             self.failed.emit(str(exc))
 
 
+class TwitchImportThread(QThread):
+    progress_changed = Signal(int)
+    done = Signal(str)
+    failed = Signal(str)
+
+    def __init__(self, url: str, directory: str, parent=None):
+        super().__init__(parent)
+        self.url = url
+        self.directory = directory
+        self._cancelled = threading.Event()
+
+    def cancel(self) -> None:
+        self._cancelled.set()
+
+    def run(self) -> None:
+        try:
+            output = download_twitch_vod(
+                self.url, self.directory, progress=self.progress_changed.emit,
+                cancelled=self._cancelled.is_set)
+            self.done.emit(str(output))
+        except Exception as exc:
+            self.failed.emit(str(exc))
+
+
 class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
@@ -118,7 +145,7 @@ class MainWindow(QMainWindow):
         self.resize(1200, 760)
         self.source: str | None = None
         self.analysis: AnalysisResult | None = None
-        self.worker: AnalysisThread | ExportThread | None = None
+        self.worker: AnalysisThread | ExportThread | TwitchImportThread | None = None
         self.preview_end: float | None = None
         self.transcript_dirty = False
         self.report_path: str | None = None
@@ -143,6 +170,10 @@ class MainWindow(QMainWindow):
         self.open_button = QPushButton("📂 Aufnahme öffnen")
         self.open_button.clicked.connect(self.open_video)
         toolbar.addWidget(self.open_button)
+        self.twitch_button = QPushButton("🌐 Twitch-VOD importieren")
+        self.twitch_button.clicked.connect(self.import_twitch_video)
+        self.twitch_button.setToolTip("Öffentliche Twitch-Aufnahme per Video-URL herunterladen und laden")
+        toolbar.addWidget(self.twitch_button)
         toolbar.addWidget(QLabel("Cliplänge"))
         self.length = QSpinBox()
         self.length.setRange(10, 60)
@@ -415,6 +446,7 @@ class MainWindow(QMainWindow):
 
     def _busy(self, busy: bool) -> None:
         self.open_button.setEnabled(not busy)
+        self.twitch_button.setEnabled(not busy)
         self.analyze_button.setEnabled(bool(self.source) and not busy)
         self.cancel_button.setEnabled(busy)
         ready = self.analysis is not None and not busy
@@ -442,8 +474,12 @@ class MainWindow(QMainWindow):
     def open_video(self) -> None:
         source, _ = QFileDialog.getOpenFileName(self, "Aufnahme öffnen", "",
             "Videos (*.mp4 *.mkv *.mov *.webm *.avi);;Alle Dateien (*)")
-        if not source or not self.confirm_discard_edits():
-            return
+        if source:
+            self.load_video_source(source)
+
+    def load_video_source(self, source: str) -> bool:
+        if not self.confirm_discard_edits():
+            return False
         self.source = source
         self.transcript_dirty = False
         self.report_path = None
@@ -463,6 +499,37 @@ class MainWindow(QMainWindow):
         self.progress.setValue(0)
         self._busy(False)
         self.statusBar().showMessage("Aufnahme geladen – Analyse starten")
+        return True
+
+    def import_twitch_video(self) -> None:
+        url, accepted = QInputDialog.getText(
+            self, "Twitch-VOD importieren", "Öffentliche Twitch-Video-URL eingeben:")
+        if not accepted or not url.strip():
+            return
+        try:
+            canonical, _ = parse_twitch_vod_url(url)
+        except ValueError as exc:
+            QMessageBox.warning(self, "Ungültige Twitch-URL", str(exc))
+            return
+        # VODs can be hours long and occupy many GB. Let the user choose the location.
+        default = installation_directory() / "data" / "imports"
+        default.mkdir(parents=True, exist_ok=True)
+        folder = QFileDialog.getExistingDirectory(self, "Twitch-VOD speichern unter", str(default))
+        if not folder or not self.confirm_discard_edits():
+            return
+        self.progress.setValue(0)
+        self.worker = TwitchImportThread(canonical, folder, self)
+        self.worker.progress_changed.connect(self.progress.setValue)
+        self.worker.done.connect(self.twitch_import_finished)
+        self.worker.failed.connect(self.job_failed)
+        self.worker.finished.connect(lambda: self._busy(False))
+        self._busy(True)
+        self.statusBar().showMessage("Twitch-VOD wird heruntergeladen …")
+        self.worker.start()
+
+    def twitch_import_finished(self, filename: str) -> None:
+        if self.load_video_source(filename):
+            self.statusBar().showMessage("Twitch-VOD importiert: " + filename)
 
     def choose_model(self, target: QLineEdit) -> None:
         directory = QFileDialog.getExistingDirectory(self, "Lokales Modellverzeichnis auswählen")

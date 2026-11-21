@@ -19,7 +19,7 @@ if not exist ".venv\Scripts\python.exe" (
 echo Installiere StreamClipper und KI-Abhaengigkeiten nach %STREAMCLIPPER_HOME% ...
 .venv\Scripts\python.exe -m pip install --upgrade pip
 if errorlevel 1 goto :error
-.venv\Scripts\python.exe -m pip install -e ".[gui,speech,vision,models]"
+.venv\Scripts\python.exe -m pip install -e ".[gui,speech,vision,models,twitch]"
 if errorlevel 1 goto :error
 echo.
 echo Lade lokale Sprach- und Bildmodelle ins Projektverzeichnis ...

@@ -68,5 +68,6 @@ validiert und messbar verglichen wurden.
 ## M5 – manuelle Highlights / URL-Import
 
 - [x] Markieren ohne KI, benennen, JSON speichern und MP4 exportieren (Windows-Praxistest offen)
-- [ ] Twitch-VOD per URL herunterladen und lokal laden
+- [x] Öffentliche Twitch-VODs per URL mit optionalem yt-dlp herunterladen und lokal laden (Windows-Praxistest offen)
 - [ ] Sechs-Stunden-Langlauftest, Checkpoints, Wiederaufnahme KI-Analyse
+- [ ] Authentifizierte VODs, Twitch-Clips, Bildvorschaubilder für Imports und Diskspace-Abfrage
