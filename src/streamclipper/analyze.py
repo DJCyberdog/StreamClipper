@@ -6,6 +6,7 @@ import statistics
 from typing import Callable
 
 from .media import audio_levels, probe_video
+from .model_checks import validate_clip_model
 from .models import AnalysisResult, Candidate
 from .semantic import EventEvidence, fuse_events, recognize_gameplay, transcribe_video, transcript_cues
 
@@ -60,6 +61,9 @@ def analyze(path: str, clip_seconds: int = 25, max_clips: int = 8,
 
     No model downloads and no external API calls. Model paths are opt-in.
     """
+    # Validate CLIP before decoding hours of audio or running Whisper.
+    if vision_model:
+        validate_clip_model(vision_model)
     video = probe_video(path)
     use_models = bool(speech_model or vision_model)
     def stage(base: int, portion: int):
