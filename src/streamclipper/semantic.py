@@ -214,6 +214,5 @@ def fuse_events(events: Iterable[EventEvidence], duration: float,
 
 def default_models_directory() -> Path:
     """User-owned, untracked directory for separately licensed model weights."""
-    import os
-    base = os.environ.get("LOCALAPPDATA")
-    return (Path(base) if base else Path.home() / ".cache") / "StreamClipper" / "models"
+    from .portable import local_model_directory
+    return local_model_directory()
