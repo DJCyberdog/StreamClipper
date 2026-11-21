@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
 
 from .analyze import analyze
 from .media import CancelledError, export_clip, probe_video, safe_destination, tool_path
+from .model_checks import validate_clip_model
 from .models import AnalysisResult, Candidate
 from .transcript_editor import (apply_segment_changes, format_timestamp,
                                 load_analysis_report, parse_timestamp)
@@ -442,6 +443,15 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Modellordner fehlt",
                                 "Für ausgewählte KI-Detektoren bitte einen lokalen Modellordner angeben.")
             return
+        if vision:
+            try:
+                validate_clip_model(vision)
+            except FileNotFoundError as exc:
+                QMessageBox.warning(
+                    self, "CLIP-Modell unvollständig", str(exc)
+                    + "\n\nDu kannst Spielbilder vorerst deaktivieren "
+                      "und die Analyse nur mit Whisper starten.")
+                return
         self.analysis = None
         self.transcript_dirty = False
         self.report_path = None
