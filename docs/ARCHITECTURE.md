@@ -121,3 +121,9 @@ fehlt derzeit ein annotierter unabhängiger Gaming-Testdatensatz.
 Das Windows-Portable-Paket aus der bestehenden GitHub-CI bleibt ohne ML-Extras
 lauffähig, kann aber die optionalen KI-Adapter nicht eigenständig verwenden.
 Interaktive Windows-Abnahme und ein AI-fähiges Packaging bleiben offen.
+
+## Portable Datenablage
+
+`src/streamclipper/portable.py` berechnet einen Installationsstamm aus `STREAMCLIPPER_HOME`, dem PyInstaller-EXE-Verzeichnis oder der Paketquelle in einem Editable-Install. Die Anwendung setzt vor dem Import optionaler ML-Bibliotheken prozesslokale Cache- und Modellpfade nach `<root>/data`. Das Windows-Setup verwendet dieselben Pfade für `pip` über `portable_env.bat`; Windows-Umgebungsvariablen werden nicht dauerhaft verändert.
+
+Grenze: Betriebssystem-/Treiberdateien, separat installiertes Python und FFmpeg, und vom Benutzer explizit gewählte Exportpfade werden nicht verlagert.
