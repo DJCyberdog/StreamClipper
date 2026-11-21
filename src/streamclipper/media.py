@@ -253,7 +253,8 @@ def export_clip(video: VideoInfo, start: float, end: float, destination: str | P
                 cancelled: Cancelled | None = None,
                 progress: Progress | None = None, *,
                 transcript: list[TranscriptSegment] | None = None,
-                burn_subtitles: bool = False) -> Path:
+                burn_subtitles: bool = False,
+                subtitle_offset: float = 0.0) -> Path:
     """Encode with cancellable progress and publish only validated, complete MP4s.
 
     The temporary file is on the destination filesystem for atomic publication.
@@ -269,6 +270,8 @@ def export_clip(video: VideoInfo, start: float, end: float, destination: str | P
     # Validate parameters before allocating temp files or starting FFmpeg.
     width, height = video_dimensions(mode, width, height)
     build_export_command(video, start, end, output, mode, width, height)
+    if not math.isfinite(subtitle_offset) or abs(subtitle_offset) > 5:
+        raise ValueError("Untertitelversatz muss zwischen -5 und +5 Sekunden liegen")
     if burn_subtitles and not transcript:
         raise ValueError("Untertitel benötigen zuerst ein Whisper-Transkript.")
 
@@ -281,7 +284,8 @@ def export_clip(video: VideoInfo, start: float, end: float, destination: str | P
         if burn_subtitles:
             from .captioning import render_ass
             (Path(workdir) / "captions.ass").write_text(
-                render_ass(transcript or [], start, end, width=width, height=height),
+                render_ass(transcript or [], start, end, width=width, height=height,
+                           offset_seconds=subtitle_offset),
                 encoding="utf-8-sig", newline="\n")
         cmd = build_export_command(video, start, end, partial, mode, width, height,
                                    tool_path("ffmpeg"), motion_points=motion_points,
