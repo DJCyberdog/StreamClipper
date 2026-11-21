@@ -343,3 +343,43 @@ Offizielle Dokumentation:
 Die Python-/GPU-Abhängigkeiten müssen zur Windows- und
 CTranslate2-Version passen. StreamClipper installiert aus Gründen
 der Portabilität keine globalen CUDA-Toolkits oder System-DLLs selbst.
+
+## Lokale GPU-Beschleunigung für Whisper unter Windows
+
+Faster-Whisper/CTranslate2 benötigt NVIDIA CUDA-12-cuBLAS, cuDNN 9 und
+CUDA-Runtime-DLLs. Der NVIDIA-Treiber allein reicht nicht. Statt eines
+systemweiten CUDA-Toolkits kann StreamClipper die von NVIDIA veröffentlichten
+Windows-Python-Wheels **innerhalb der bestehenden Projekt-.venv** installieren.
+
+1. StreamClipper beenden. Für die erste Prüfung am besten eine kurze Aufnahme
+   verwenden; die mehrstündige Analyse ist dafür nicht erforderlich.
+2. **`setup_gpu_windows.bat`** im StreamClipper-Ordner ausführen.
+3. Das Skript lädt die in `requirements-gpu-windows.txt` dokumentierten Pakete
+   und startet `scripts/check_gpu_runtime.py` mit einem echten kurzen
+   Whisper-CUDA-Inferenztest. Modellgewichte werden nur lokal gelesen.
+4. Bei `ERFOLG` StreamClipper normal mit `run_windows.bat` starten.
+
+Die NVIDIA-Bibliotheken liegen unter
+`.venv/Lib/site-packages/nvidia/{cublas,cudnn,cuda_runtime}/bin`.
+StreamClipper macht diese Ordner beim Start über die **nur für den laufenden
+Prozess gültige** DLL-Suche verfügbar; es ändert keine Registry und keine
+permanenten Windows-PATH-Einstellungen. Downloads und Pip-Caches liegen
+wie bisher im Projektordner `data/cache`.
+
+**Größe:** Die optionalen Pakete benötigen zusammen deutlich mehr als 1 GB
+für Download und Installation. Internet wird nur für die einmalige
+Installation benötigt. Python und der NVIDIA-Grafiktreiber bleiben separat
+installiert; eine spätere Löschung von `D:\StreamClipper` entfernt die
+zusätzlichen Wheel-DLLs mit der `.venv`.
+
+Der GPU-Selbsttest nutzt synthetisches Audio und erzwingt `device="cuda"`.
+Die bestehende automatische CPU-Ausweichlösung bleibt unverändert. Ein
+funktionierender Test bestätigt nur die CUDA-Whisper-Pipeline; die Performance
+bei mehrstündigen Aufnahmen und CLIP/PyTorch-GPU-Beschleunigung sind davon
+**nicht** automatisch nachgewiesen.
+
+Offizielle Referenzen:
+- https://github.com/SYSTRAN/faster-whisper#gpu
+- https://docs.nvidia.com/deeplearning/cudnn/installation/latest/windows.html
+- https://pypi.org/project/nvidia-cublas-cu12/
+- https://pypi.org/project/nvidia-cudnn-cu12/
