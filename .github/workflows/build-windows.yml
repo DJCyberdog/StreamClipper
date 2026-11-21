@@ -1,0 +1,29 @@
+name: Windows portable build
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+jobs:
+  windows:
+    runs-on: windows-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: python -m pip install -e ".[gui,build]"
+      - name: Build portable Windows executable
+        run: pyinstaller --noconfirm --clean --onedir --windowed --name StreamClipper --paths src scripts/launch.py
+      - name: Include startup notes
+        shell: pwsh
+        run: |
+          Copy-Item docs/WINDOWS-START.txt dist/StreamClipper/START-HERE.txt
+          Compress-Archive -Path dist/StreamClipper/* -DestinationPath StreamClipper-windows-portable.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: StreamClipper-windows-portable
+          path: StreamClipper-windows-portable.zip
+          if-no-files-found: error

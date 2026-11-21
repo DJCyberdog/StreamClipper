@@ -1,0 +1,15 @@
+STREAMCLIPPER – WINDOWS PORTABLE BUILD
+
+1. Archiv komplett entpacken.
+2. FFmpeg und FFprobe installieren: https://ffmpeg.org/download.html
+   Beide Programme entweder in PATH aufnehmen oder ffmpeg.exe und ffprobe.exe
+   direkt in diesen Ordner neben StreamClipper.exe kopieren.
+3. StreamClipper.exe starten.
+4. Lokal gespeicherte Gaming-Aufnahme laden, analysieren, Highlights exportieren.
+
+Die portable Version wurde durch GitHub Actions gebaut, nicht auf deinem System
+installiert. Nicht signierte EXE-Dateien koennen Windows-SmartScreen-Warnungen
+anzeigen. Fuehre nur Dateien aus Quellen aus, denen du vertraust.
+
+Kein Cloud-Upload. Version 0.1 nutzt Audio-Peaks und erkennt noch keine
+komplexen Gameplay-Ereignisse.
