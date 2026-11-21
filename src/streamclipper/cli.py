@@ -43,6 +43,8 @@ def main(argv: list[str] | None = None) -> None:
     e.add_argument("--mode", choices=["smart16", "smart9", "blur", "crop"], default="smart16")
     e.add_argument("--burn-subtitles", action="store_true",
                    help="Transkripttext fest in die exportierte MP4 einbrennen")
+    e.add_argument("--subtitle-offset", type=float, default=0.0,
+                   help="Untertitel verschieben (Sekunden, positiv = später, -5 bis +5)")
     e.add_argument("--transcript-json", type=Path,
                    help="JSON-Bericht aus 'analyze' mit Whisper-Transkript")
     args = parser.parse_args(argv)
@@ -82,7 +84,8 @@ def main(argv: list[str] | None = None) -> None:
             if not transcript:
                 parser.error("Keine Transkript-Abschnitte im JSON-Bericht gefunden.")
         path = export_clip(video, args.start, args.end, args.output, args.mode,
-                           transcript=transcript, burn_subtitles=args.burn_subtitles)
+                           transcript=transcript, burn_subtitles=args.burn_subtitles,
+                           subtitle_offset=args.subtitle_offset)
         print(f"Export fertig: {path}")
 
 
