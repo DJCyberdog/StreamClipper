@@ -424,7 +424,8 @@ weiterhin offline. Live-Streams, Twitch-Clips, Sub-only/VODs mit
 Anmeldung, gelöschte/abgelaufene VODs und automatischer Twitch-Kanal-Import
 sind **noch nicht** implementiert. Keine Zugangsbeschränkungen umgehen.
 
-Für vorhandene `.venv` einmal das optionale Paket installieren:
+Für eine vorhandene `.venv` genügt ein Doppelklick auf **`setup_twitch_windows.bat`**.
+Alternativ einmal das optionale Paket installieren:
 
 ```powershell
 .\.venv\Scripts\python.exe -m pip install -e ".[twitch]"
