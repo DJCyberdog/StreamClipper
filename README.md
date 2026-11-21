@@ -294,3 +294,19 @@ Auto-Reframing kann derzeit erst nach dem Export betrachtet werden.
 **Tests:** synthetische FFmpeg-Integration für 16:9 und 9:16, Untertitel,
 Unicode-Namen, Datensicherheit; echte Whisper-Inferenz, echte 3+-Stunden-
 OBS-Aufnahmen und die Windows-GUI sind noch separat abzunehmen.
+
+## Fehlerbehebung: Whisper / PyAV `metadata_errors`
+
+Bei der Fehlermeldung `open() got an unexpected keyword argument 'metadata_errors'`
+sind `faster-whisper` und die installierte Version von PyAV nicht kompatibel.
+StreamClipper schließt ab sofort PyAV 18+ über das optionale `speech`-Extra aus.
+Auf bereits eingerichteten Windows-Installationen lässt sich das ohne Löschen
+von Modellen, Videos oder `.venv` reparieren:
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install "av==17.1.0"
+.\.venv\Scripts\python.exe -m pip show av
+```
+
+Das installierte FFmpeg-Programm wird dadurch nicht verändert: PyAV ist eine
+separate Python-Abhängigkeit von Whisper innerhalb der lokalen `.venv`.
