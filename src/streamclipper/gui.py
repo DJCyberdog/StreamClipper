@@ -10,19 +10,21 @@ from .portable import configure_portable_environment
 configure_portable_environment()
 
 from PySide6.QtCore import Qt, QThread, QUrl, Signal
-from PySide6.QtGui import QColor
+from PySide6.QtGui import QColor, QKeySequence, QShortcut
 from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
 from PySide6.QtMultimediaWidgets import QVideoWidget
 from PySide6.QtWidgets import (
     QApplication, QCheckBox, QComboBox, QFileDialog, QHBoxLayout, QLabel, QLineEdit, QMainWindow,
-    QMessageBox, QProgressBar, QPushButton, QSlider, QSpinBox, QDoubleSpinBox, QSplitter,
-    QTableWidget, QTableWidgetItem, QTabWidget, QVBoxLayout, QWidget,
+    QMessageBox, QPlainTextEdit, QProgressBar, QPushButton, QSlider, QSpinBox,
+    QDoubleSpinBox, QSplitter, QTableWidget, QTableWidgetItem, QTabWidget,
+    QVBoxLayout, QWidget,
 )
 
 from .analyze import analyze
 from .media import CancelledError, export_clip, probe_video, safe_destination, tool_path
 from .models import AnalysisResult, Candidate
-from .transcript_editor import edit_segment, format_timestamp, load_analysis_report
+from .transcript_editor import (apply_segment_changes, format_timestamp,
+                                load_analysis_report, parse_timestamp)
 from .semantic import default_models_directory
 from .transcript import save_transcript
 
@@ -118,6 +120,7 @@ class MainWindow(QMainWindow):
         self.preview_end: float | None = None
         self.transcript_dirty = False
         self.report_path: str | None = None
+        self._editor_row: int | None = None
 
         self.player = QMediaPlayer(self)
         self.audio = QAudioOutput(self)
@@ -228,26 +231,84 @@ class MainWindow(QMainWindow):
         transcript_tab = QWidget()
         transcript_layout = QVBoxLayout(transcript_tab)
         transcript_layout.addWidget(QLabel(
-            "Whisper-Korrektur: Doppelklick bearbeitet Text oder Zeit (HH:MM:SS.mmm). "
-            "Zeile auswählen, um zur Stelle zu springen."))
+            "1. Untertitel anklicken  ·  2. Text oder Zeiten ändern  ·  "
+            "3. Übernehmen und Projekt speichern"))
         self.transcript_table = QTableWidget(0, 3)
-        self.transcript_table.setHorizontalHeaderLabels(["Start", "Ende", "Erkannter Text"])
+        self.transcript_table.setHorizontalHeaderLabels(["Beginn", "Ende", "Whisper-Text"])
         self.transcript_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
-        self.transcript_table.setEditTriggers(
-            QTableWidget.EditTrigger.DoubleClicked | QTableWidget.EditTrigger.EditKeyPressed)
+        self.transcript_table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
+        self.transcript_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.transcript_table.horizontalHeader().setStretchLastSection(True)
         self.transcript_table.verticalHeader().hide()
-        self.transcript_table.itemSelectionChanged.connect(self.jump_selected_transcript)
-        self.transcript_table.itemChanged.connect(self.transcript_item_changed)
-        transcript_layout.addWidget(self.transcript_table)
-        transcript_actions = QHBoxLayout()
-        self.transcript_jump_button = QPushButton("Zur Stelle springen")
-        self.transcript_jump_button.clicked.connect(self.jump_selected_transcript)
-        transcript_actions.addWidget(self.transcript_jump_button)
-        transcript_actions.addWidget(QLabel("Änderungen wirken sofort auf den nächsten Export."))
-        transcript_actions.addStretch()
-        transcript_layout.addLayout(transcript_actions)
-        self.tabs.addTab(transcript_tab, "Transkript")
+        self.transcript_table.itemSelectionChanged.connect(self.transcript_selection_changed)
+        self.transcript_table.setToolTip("Zeile anklicken: Video springt an diese Stelle")
+        transcript_layout.addWidget(self.transcript_table, 1)
+
+        transcript_nav = QHBoxLayout()
+        self.transcript_prev = QPushButton("◀ Vorheriger")
+        self.transcript_prev.clicked.connect(lambda: self.navigate_transcript(-1))
+        transcript_nav.addWidget(self.transcript_prev)
+        self.transcript_next = QPushButton("Nächster ▶")
+        self.transcript_next.clicked.connect(lambda: self.navigate_transcript(1))
+        transcript_nav.addWidget(self.transcript_next)
+        self.transcript_play = QPushButton("▶ Stelle anhören")
+        self.transcript_play.clicked.connect(self.play_transcript_segment)
+        transcript_nav.addWidget(self.transcript_play)
+        self.transcript_from_highlight = QPushButton("Zum markierten Highlight")
+        self.transcript_from_highlight.clicked.connect(self.jump_to_highlight_transcript)
+        self.transcript_from_highlight.setToolTip(
+            "Sucht den ersten Transkriptabschnitt zum markierten Highlight")
+        transcript_nav.addWidget(self.transcript_from_highlight)
+        transcript_layout.addLayout(transcript_nav)
+
+        transcript_layout.addWidget(QLabel("Gesprochenen Text korrigieren"))
+        self.transcript_edit_text = QPlainTextEdit()
+        self.transcript_edit_text.setPlaceholderText("Untertitelzeile auswählen …")
+        self.transcript_edit_text.setMinimumHeight(75)
+        self.transcript_edit_text.setMaximumHeight(110)
+        self.transcript_edit_text.textChanged.connect(self.transcript_pending_changed)
+        transcript_layout.addWidget(self.transcript_edit_text)
+
+        timing = QHBoxLayout()
+        self.transcript_edit_start = QLineEdit()
+        self.transcript_edit_end = QLineEdit()
+        for title, field, column in (("Beginn", self.transcript_edit_start, 0),
+                                      ("Ende", self.transcript_edit_end, 1)):
+            timing.addWidget(QLabel(title))
+            field.setPlaceholderText("hh:mm:ss.mmm")
+            field.setToolTip("Zeitgenau bis zu einer Millisekunde; Beispiel 00:01:23.450")
+            field.setMinimumWidth(118)
+            field.textChanged.connect(self.transcript_pending_changed)
+            timing.addWidget(field, 1)
+            back = QPushButton("−0,1")
+            back.setToolTip(f"{title} um 0,1 Sekunden früher")
+            back.clicked.connect(lambda _=False, col=column: self.nudge_transcript(col, -0.1))
+            timing.addWidget(back)
+            forward = QPushButton("+0,1")
+            forward.setToolTip(f"{title} um 0,1 Sekunden später")
+            forward.clicked.connect(lambda _=False, col=column: self.nudge_transcript(col, 0.1))
+            timing.addWidget(forward)
+        transcript_layout.addLayout(timing)
+
+        editor_actions = QHBoxLayout()
+        self.transcript_apply = QPushButton("✓ Korrektur übernehmen")
+        self.transcript_apply.setToolTip("Korrektur übernehmen (Strg+Enter)")
+        self.transcript_apply.clicked.connect(self.apply_transcript_editor)
+        editor_actions.addWidget(self.transcript_apply)
+        self.transcript_reset = QPushButton("Änderungen verwerfen")
+        self.transcript_reset.clicked.connect(self.reset_transcript_editor)
+        editor_actions.addWidget(self.transcript_reset)
+        self.transcript_save = QPushButton("💾 Projekt speichern")
+        self.transcript_save.clicked.connect(self.save_report)
+        self.transcript_save.setToolTip("Korrigiertes Transkript als Analyse-JSON sichern (Strg+S)")
+        editor_actions.addWidget(self.transcript_save)
+        transcript_layout.addLayout(editor_actions)
+        self.transcript_editor_hint = QLabel("Nach der Analyse hier eine Zeile auswählen.")
+        self.transcript_editor_hint.setWordWrap(True)
+        transcript_layout.addWidget(self.transcript_editor_hint)
+        self.tabs.addTab(transcript_tab, "Transkript bearbeiten")
+        QShortcut(QKeySequence("Ctrl+Return"), self, activated=self.apply_transcript_editor)
+        QShortcut(QKeySequence("Ctrl+S"), self, activated=self.save_report)
         splitter.addWidget(results_container)
         splitter.setSizes([580, 620])
         main.addWidget(splitter, 1)
@@ -310,7 +371,7 @@ class MainWindow(QMainWindow):
                           border-radius: 7px; padding: 9px 12px; }
             QPushButton:hover { background: #345070; }
             QPushButton:disabled { color: #8290a4; background: #202632; }
-            QTableWidget, QSpinBox, QComboBox { background: #202938;
+            QTableWidget, QSpinBox, QComboBox, QLineEdit, QPlainTextEdit { background: #202938;
                  color: #edf2fa; border: 1px solid #3b4b61; border-radius: 5px; }
             QTableWidget::item:selected { background: #285e91; }
             QHeaderView::section { background: #293449; color: white;
@@ -328,8 +389,14 @@ class MainWindow(QMainWindow):
         self.all_export.setEnabled(ready and bool(self.analysis.candidates if self.analysis else []))
         self.report_button.setEnabled(ready)
         self.load_report_button.setEnabled(bool(self.source) and not busy)
-        self.transcript_jump_button.setEnabled(ready and bool(self.analysis.transcript if self.analysis else []))
+        editable = ready and bool(self.analysis.transcript if self.analysis else [])
         self.transcript_table.setEnabled(not busy)
+        for control in (self.transcript_prev, self.transcript_next, self.transcript_play,
+                        self.transcript_edit_text, self.transcript_edit_start,
+                        self.transcript_edit_end, self.transcript_reset,
+                        self.transcript_apply, self.transcript_save):
+            control.setEnabled(editable)
+        self.transcript_from_highlight.setEnabled(editable and bool(self.table.currentRow() >= 0))
         self.transcript_button.setEnabled(ready and bool(self.analysis.transcript if self.analysis else []))
         self.burn_subtitles.setEnabled(ready and bool(self.analysis.transcript if self.analysis else []))
         self.caption_offset.setEnabled(ready and bool(self.analysis.transcript if self.analysis else []))
@@ -346,6 +413,8 @@ class MainWindow(QMainWindow):
         self.preview_end = None
         self.table.setRowCount(0)
         self.transcript_table.setRowCount(0)
+        self._editor_row = None
+        self.reset_transcript_editor()
         self.tabs.setCurrentIndex(0)
         self.source_label.setText(source)
         self.player.setSource(QUrl.fromLocalFile(source))
@@ -376,8 +445,10 @@ class MainWindow(QMainWindow):
         self.analysis = None
         self.transcript_dirty = False
         self.report_path = None
+        self._editor_row = None
         self.table.setRowCount(0)
         self.transcript_table.setRowCount(0)
+        self.reset_transcript_editor()
         self.progress.setValue(0)
         self.worker = AnalysisThread(self.source, self.length.value(), self,
                                      speech_model=speech, vision_model=vision)
@@ -411,7 +482,10 @@ class MainWindow(QMainWindow):
         finally:
             self.transcript_table.blockSignals(False)
         self.transcript_dirty = False
+        self._editor_row = None
         self._busy(False)
+        if result.transcript:
+            self.transcript_table.selectRow(0)
         self.statusBar().showMessage(
             f"{len(result.candidates)} Clips, {len(result.transcript)} Transkript-Abschnitte")
 
@@ -440,43 +514,150 @@ class MainWindow(QMainWindow):
         self.player.pause()
         self.player.setPosition(round(clip.start * 1000))
         self.single_export.setEnabled(not bool(self.worker and self.worker.isRunning()))
+        self.transcript_from_highlight.setEnabled(bool(self.analysis.transcript))
 
-    def jump_selected_transcript(self) -> None:
-        self.jump_to_transcript(self.transcript_table.currentRow(), 0)
-
-    def transcript_item_changed(self, item: QTableWidgetItem) -> None:
+    def transcript_selection_changed(self) -> None:
         if not self.analysis:
             return
-        row, column = item.row(), item.column()
-        if not 0 <= row < len(self.analysis.transcript):
+        row = self.transcript_table.currentRow()
+        if row == self._editor_row or row < 0:
             return
-        old = self.analysis.transcript[row]
-        original = (format_timestamp(old.start), format_timestamp(old.end), old.text)[column]
+        if not self.apply_transcript_editor():
+            # Preserve unfinished corrections when a new row was clicked.
+            self.transcript_table.blockSignals(True)
+            try:
+                if self._editor_row is not None:
+                    self.transcript_table.selectRow(self._editor_row)
+            finally:
+                self.transcript_table.blockSignals(False)
+            return
+        self._editor_row = row
+        self.fill_transcript_editor(row)
+        self.jump_to_transcript(row, 0)
+
+    def fill_transcript_editor(self, row: int) -> None:
+        if not self.analysis or not 0 <= row < len(self.analysis.transcript):
+            return
+        cue = self.analysis.transcript[row]
+        for widget in (self.transcript_edit_text, self.transcript_edit_start,
+                       self.transcript_edit_end):
+            widget.blockSignals(True)
         try:
-            updated = edit_segment(self.analysis, row, column, item.text())
+            self.transcript_edit_start.setText(format_timestamp(cue.start))
+            self.transcript_edit_end.setText(format_timestamp(cue.end))
+            self.transcript_edit_text.setPlainText(cue.text)
+        finally:
+            for widget in (self.transcript_edit_text, self.transcript_edit_start,
+                           self.transcript_edit_end):
+                widget.blockSignals(False)
+        self.transcript_pending_changed()
+
+    def transcript_pending_changed(self) -> None:
+        changed = self.transcript_has_pending()
+        if self._editor_row is None:
+            self.transcript_editor_hint.setText("Nach der Analyse eine Zeile auswählen.")
+        elif changed:
+            self.transcript_editor_hint.setText(
+                "● Noch nicht übernommen. Auf „Korrektur übernehmen“ klicken, "
+                "danach „Projekt speichern“.")
+        else:
+            self.transcript_editor_hint.setText(
+                "✓ Zeile übernommen. Der nächste Export verwendet diesen Text. "
+                "Projekt speichern, damit die Korrektur nach Neustart erhalten bleibt.")
+
+    def transcript_has_pending(self) -> bool:
+        if not self.analysis or self._editor_row is None:
+            return False
+        cue = self.analysis.transcript[self._editor_row]
+        return (self.transcript_edit_text.toPlainText() != cue.text or
+                self.transcript_edit_start.text() != format_timestamp(cue.start) or
+                self.transcript_edit_end.text() != format_timestamp(cue.end))
+
+    def apply_transcript_editor(self) -> bool:
+        if not self.analysis or self._editor_row is None or not self.transcript_has_pending():
+            return True
+        row = self._editor_row
+        try:
+            new_result = apply_segment_changes(
+                self.analysis, row, self.transcript_edit_start.text(),
+                self.transcript_edit_end.text(), self.transcript_edit_text.toPlainText())
         except ValueError as exc:
-            self.transcript_table.blockSignals(True)
-            try:
-                item.setText(original)
-            finally:
-                self.transcript_table.blockSignals(False)
-            QMessageBox.warning(self, "Ungültige Transkriptkorrektur", str(exc))
-            return
-        if updated.transcript[row] == old:
-            return
-        self.analysis = updated
-        current = updated.transcript[row]
-        canonical = (format_timestamp(current.start), format_timestamp(current.end), current.text)[column]
-        if item.text() != canonical:
-            self.transcript_table.blockSignals(True)
-            try:
-                item.setText(canonical)
-            finally:
-                self.transcript_table.blockSignals(False)
+            QMessageBox.warning(self, "Untertitel-Korrektur prüfen", str(exc))
+            return False
+        self.analysis = new_result
+        cue = new_result.transcript[row]
+        self.transcript_table.blockSignals(True)
+        try:
+            for col, val in enumerate((format_timestamp(cue.start),
+                                       format_timestamp(cue.end), cue.text)):
+                self.transcript_table.item(row, col).setText(val)
+        finally:
+            self.transcript_table.blockSignals(False)
+        self.fill_transcript_editor(row)
         self.transcript_dirty = True
         self.statusBar().showMessage(
-            "Transkript korrigiert – bitte Analyse als JSON speichern; "
-            "neuer Export verwendet die Korrektur")
+            "Untertitel korrigiert – Projekt speichern (Strg+S). "
+            "Export nutzt bereits die neue Fassung.")
+        return True
+
+    def reset_transcript_editor(self) -> None:
+        if self._editor_row is not None and self.analysis:
+            self.fill_transcript_editor(self._editor_row)
+        else:
+            for widget in (self.transcript_edit_text, self.transcript_edit_start,
+                           self.transcript_edit_end):
+                widget.blockSignals(True)
+                widget.clear()
+                widget.blockSignals(False)
+            self.transcript_pending_changed()
+
+    def navigate_transcript(self, step: int) -> None:
+        if not self.analysis or not self.analysis.transcript:
+            return
+        current = self.transcript_table.currentRow()
+        next_row = max(0, min(len(self.analysis.transcript) - 1, current + step))
+        self.transcript_table.selectRow(next_row)
+        if self.transcript_table.item(next_row, 0):
+            self.transcript_table.scrollToItem(self.transcript_table.item(next_row, 0))
+
+    def nudge_transcript(self, column: int, difference: float) -> None:
+        if self._editor_row is None:
+            return
+        field = self.transcript_edit_start if column == 0 else self.transcript_edit_end
+        try:
+            value = parse_timestamp(field.text())
+        except ValueError as exc:
+            QMessageBox.warning(self, "Zeit prüfen", str(exc))
+            return
+        field.setText(format_timestamp(max(0.0, round(value + difference, 3))))
+
+    def jump_to_highlight_transcript(self) -> None:
+        if not self.analysis or not self.analysis.transcript:
+            return
+        clip = self.selected_candidate()
+        if not clip:
+            return
+        matches = [i for i, cue in enumerate(self.analysis.transcript)
+                   if cue.end > clip.start and cue.start < clip.end]
+        if not matches:
+            QMessageBox.information(self, "Kein Sprachabschnitt",
+                "Für dieses Highlight wurde keine Sprache erkannt.")
+            return
+        row = matches[0]
+        self.tabs.setCurrentIndex(1)
+        self.transcript_table.selectRow(row)
+        self.transcript_table.scrollToItem(self.transcript_table.item(row, 0))
+
+    def play_transcript_segment(self) -> None:
+        if not self.analysis or self._editor_row is None:
+            return
+        if not self.apply_transcript_editor():
+            return
+        cue = self.analysis.transcript[self._editor_row]
+        self.player.pause()
+        self.preview_end = cue.end
+        self.player.setPosition(round(max(0, cue.start - 0.3) * 1000))
+        self.player.play()
 
     def jump_to_transcript(self, row: int, _column: int) -> None:
         if not self.analysis or row < 0 or row >= len(self.analysis.transcript):
@@ -486,7 +667,7 @@ class MainWindow(QMainWindow):
         self.player.setPosition(round(self.analysis.transcript[row].start * 1000))
 
     def save_transcript_dialog(self) -> None:
-        if not self.analysis or not self.analysis.transcript:
+        if not self.analysis or not self.analysis.transcript or not self.apply_transcript_editor():
             return
         default = str(Path(self.analysis.video.path).with_suffix(".transkript.srt"))
         destination, _ = QFileDialog.getSaveFileName(
@@ -523,7 +704,7 @@ class MainWindow(QMainWindow):
         self.player.setPosition(pos)
 
     def start_export(self, all_clips: bool) -> None:
-        if not self.analysis:
+        if not self.analysis or not self.apply_transcript_editor():
             return
         items = self.analysis.candidates if all_clips else [self.selected_candidate()]
         items = [item for item in items if item is not None]
@@ -553,7 +734,7 @@ class MainWindow(QMainWindow):
             "Exportiert:\n" + "\n".join(outputs[:10]))
 
     def save_report(self) -> bool:
-        if not self.analysis:
+        if not self.analysis or not self.apply_transcript_editor():
             return False
         default = self.report_path or str(Path(self.analysis.video.path).with_suffix(".highlights.json"))
         filename, _ = QFileDialog.getSaveFileName(self, "Analyse speichern", default,
@@ -571,6 +752,8 @@ class MainWindow(QMainWindow):
         return True
 
     def confirm_discard_edits(self) -> bool:
+        if not self.apply_transcript_editor():
+            return False
         if not self.transcript_dirty:
             return True
         answer = QMessageBox.question(
