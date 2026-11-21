@@ -121,3 +121,23 @@ def test_burn_requires_real_transcript(short_video, tmp_path):
     with pytest.raises(ValueError, match="Whisper-Transkript"):
         export_clip(info, 0, 2, dest, mode="smart16", burn_subtitles=True)
     assert not dest.exists()
+
+
+def test_caption_pixels_are_really_burned_into_mp4(short_video, tmp_path):
+    """Check actual decoded pixels rather than only successful FFmpeg exit."""
+    _, info = short_video
+    plain = export_clip(info, 0, 2.5, tmp_path / "plain.mp4",
+                        mode="crop", width=320, height=180)
+    subtitled = export_clip(info, 0, 2.5, tmp_path / "subtitled.mp4",
+                           mode="crop", width=320, height=180,
+                           transcript=[TranscriptSegment(.3, 2., "Hallo Untertitel!")],
+                           burn_subtitles=True)
+    def frame(path):
+        return subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error",
+                               "-ss", "1.0", "-i", str(path), "-frames:v", "1",
+                               "-vf", "format=gray", "-f", "rawvideo", "pipe:1"],
+                              capture_output=True, check=True, timeout=30).stdout
+    original = frame(plain)
+    burned = frame(subtitled)
+    assert len(original) == len(burned) == 320 * 180
+    assert sum(abs(a-b) for a,b in zip(original, burned)) > 1000
