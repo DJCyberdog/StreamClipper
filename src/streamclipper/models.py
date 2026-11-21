@@ -4,6 +4,8 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 import json
+import os
+import tempfile
 
 
 @dataclass(frozen=True)
@@ -43,4 +45,19 @@ class AnalysisResult:
     def save_json(self, filename: str | Path) -> None:
         destination = Path(filename)
         destination.parent.mkdir(parents=True, exist_ok=True)
-        destination.write_text(json.dumps(asdict(self), indent=2, ensure_ascii=False), encoding="utf-8")
+        # Publish only complete reports. A failed save must not destroy a prior copy.
+        payload = json.dumps(asdict(self), indent=2, ensure_ascii=False)
+        staging: Path | None = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode="w", encoding="utf-8", newline="\n", delete=False,
+                dir=destination.parent, prefix=f".{destination.name}.", suffix=".tmp"
+            ) as stream:
+                staging = Path(stream.name)
+                stream.write(payload)
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(staging, destination)
+        finally:
+            if staging is not None:
+                staging.unlink(missing_ok=True)
