@@ -382,29 +382,25 @@ wählen; die Erkennung durch Whisper wird dadurch nicht erneut gestartet.
 Der anschließende MP4-Export verwendet das korrigierte Transkript unmittelbar.
 Originaldateien und die ursprüngliche Audio-/Videospur werden nicht geändert.
 
-## Fehlerbehebung: CLIP findet keine Modellgewichte
 
-Falls die Analyse meldet, dass weder `model.safetensors` noch
-`pytorch_model.bin` im Modellordner vorhanden ist, war der
-CLIP-Modelldownload unvollständig. Bei `openai/clip-vit-base-patch32` liegt
-auf dem offiziellen Hauptbranch die Gewichtsdatei `pytorch_model.bin`.
-Die frühere Filterliste schloss sie versehentlich aus.
+## Highlights manuell markieren (ohne KI)
 
-**Reparatur mit dem korrigierten Modell-Setup:**
+Im Reiter **Highlights** kannst du eine Aufnahme abspielen und jederzeit
+**★ Highlight ab hier** auswählen. Der Clip beginnt an der Wiedergabeposition
+und nutzt die im Fenster eingestellte Cliplänge (standardmäßig 25 Sekunden).
+Alternativ den Clipbeginn mit **Start setzen**, das Ende mit **Ende setzen**
+markieren und über **Bereich hinzufügen** speichern. Ein optionaler Name
+(z. B. „LKW-Unfall“) wird mitgespeichert.
 
-```powershell
-cd D:\StreamClipper
-.\.venv\Scripts\python.exe scripts\setup_local_models.py --which vision
-Get-Item .\data\models\clip-vit-base-patch32\pytorch_model.bin | Select Name,Length
-```
+Manuell markierte Clips sind in der Highlight-Tabelle als **★ Manuell**
+kenntlich und erhalten **keinen künstlichen KI-Score**. Sie lassen sich
+wie automatische Kandidaten vorhören, einzeln exportieren, mit allen anderen
+Clips exportieren oder gezielt entfernen. Für diesen Ablauf werden weder
+Whisper noch CLIP benötigt. Ein späterer KI-Analysedurchlauf bewahrt die
+vorhandenen manuellen Markierungen.
 
-Der Installer lädt die Gewichtsdatei (ca. 605 MB) und meldet erst danach
-„Bereit und überprüft“. Bereits installierte Whisper-Modelle bleiben erhalten.
-Der Download erfordert Internet; die Videoanalyse selbst bleibt offline.
-
-Fehlt CLIP, bricht die Analyse jetzt vor der Verarbeitung einer langen
-Aufnahme ab. Alternativ „Spielbilder (lokales CLIP)“ deaktivieren und
-Whisper/Audio allein auswerten.
-
-Die Datei-Prüfung testet die Existenz der Gewichte und von config.json;
-ein echter Offline-Modellstart ist für die vollständige Abnahme zusätzlich nötig.
+Mit **Analyse als JSON speichern** werden die Marker zusammen mit den
+anderen Projektdaten gesichert. Beim erneuten Laden über **Analyse laden
+(JSON)** sind sie wieder verfügbar. Die ursprüngliche Aufnahme wird nie
+verändert. Zuverlässigkeit mit sehr langen Aufnahmen muss noch unter
+Windows getestet werden.

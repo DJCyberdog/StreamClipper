@@ -25,6 +25,7 @@ class Candidate:
     score: int
     reason: str
     peak_at: float
+    origin: str = "auto"  # "manual" is a user-selected interval, not a score
 
 
 @dataclass(frozen=True)

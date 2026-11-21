@@ -24,6 +24,7 @@ from .analyze import analyze
 from .media import CancelledError, export_clip, probe_video, safe_destination, tool_path
 from .model_checks import validate_clip_model
 from .models import AnalysisResult, Candidate
+from .manual_highlights import add_manual_highlight, remove_manual_highlight
 from .transcript_editor import (apply_segment_changes, format_timestamp,
                                 load_analysis_report, parse_timestamp)
 from .semantic import default_models_directory
@@ -122,6 +123,9 @@ class MainWindow(QMainWindow):
         self.transcript_dirty = False
         self.report_path: str | None = None
         self._editor_row: int | None = None
+        self._manual_from: float | None = None
+        self._manual_to: float | None = None
+        self._manual_pending: list[Candidate] = []
 
         self.player = QMediaPlayer(self)
         self.audio = QAudioOutput(self)
@@ -227,6 +231,34 @@ class MainWindow(QMainWindow):
         self.table.horizontalHeader().setStretchLastSection(True)
         self.table.itemSelectionChanged.connect(self.preview_selected)
         highlights_layout.addWidget(self.table, 1)
+        manual_actions = QHBoxLayout()
+        self.manual_quick = QPushButton("★ Highlight ab hier")
+        self.manual_quick.setToolTip("Erstellt ab der aktuellen Videoposition einen Clip in gewählter Länge – ohne KI")
+        self.manual_quick.clicked.connect(self.add_quick_highlight)
+        manual_actions.addWidget(self.manual_quick)
+        self.manual_mark_start = QPushButton("[ Start setzen")
+        self.manual_mark_start.clicked.connect(self.mark_highlight_start)
+        manual_actions.addWidget(self.manual_mark_start)
+        self.manual_mark_end = QPushButton("Ende setzen ]")
+        self.manual_mark_end.clicked.connect(self.mark_highlight_end)
+        manual_actions.addWidget(self.manual_mark_end)
+        self.manual_create = QPushButton("Bereich hinzufügen")
+        self.manual_create.clicked.connect(self.add_marked_highlight)
+        manual_actions.addWidget(self.manual_create)
+        highlights_layout.addLayout(manual_actions)
+        manual_bottom = QHBoxLayout()
+        self.manual_label = QLineEdit()
+        self.manual_label.setMaxLength(100)
+        self.manual_label.setPlaceholderText("Optionaler Name, z. B. 'LKW-Unfall'")
+        manual_bottom.addWidget(self.manual_label, 1)
+        self.manual_marks_label = QLabel("Start/Ende noch nicht gesetzt")
+        manual_bottom.addWidget(self.manual_marks_label)
+        self.manual_delete = QPushButton("Manuelles Highlight entfernen")
+        self.manual_delete.clicked.connect(self.delete_selected_manual_highlight)
+        manual_bottom.addWidget(self.manual_delete)
+        highlights_layout.addLayout(manual_bottom)
+        highlights_layout.addWidget(QLabel(
+            "Manuelle Highlights benötigen keine KI. Änderungen im Analyseprojekt speichern."))
         highlights_layout.addWidget(QLabel("Score = nicht kalibrierte Evidenz-Heuristik, keine Viralitätsprognose."))
         self.tabs.addTab(highlights_tab, "Highlights")
         transcript_tab = QWidget()
@@ -390,6 +422,11 @@ class MainWindow(QMainWindow):
         self.all_export.setEnabled(ready and bool(self.analysis.candidates if self.analysis else []))
         self.report_button.setEnabled(ready)
         self.load_report_button.setEnabled(bool(self.source) and not busy)
+        for button in (self.manual_quick, self.manual_mark_start, self.manual_mark_end,
+                       self.manual_create):
+            button.setEnabled(bool(self.source) and not busy)
+        self.manual_delete.setEnabled(ready and bool(self.selected_candidate() and
+                                         self.selected_candidate().origin == "manual"))
         editable = ready and bool(self.analysis.transcript if self.analysis else [])
         self.transcript_table.setEnabled(not busy)
         for control in (self.transcript_prev, self.transcript_next, self.transcript_play,
@@ -415,6 +452,10 @@ class MainWindow(QMainWindow):
         self.table.setRowCount(0)
         self.transcript_table.setRowCount(0)
         self._editor_row = None
+        self._manual_from = None
+        self._manual_to = None
+        self._manual_pending = []
+        self.update_manual_mark_label()
         self.reset_transcript_editor()
         self.tabs.setCurrentIndex(0)
         self.source_label.setText(source)
@@ -447,11 +488,11 @@ class MainWindow(QMainWindow):
             try:
                 validate_clip_model(vision)
             except FileNotFoundError as exc:
-                QMessageBox.warning(
-                    self, "CLIP-Modell unvollständig", str(exc)
-                    + "\n\nDu kannst Spielbilder vorerst deaktivieren "
-                      "und die Analyse nur mit Whisper starten.")
+                QMessageBox.warning(self, "CLIP-Modell unvollständig", str(exc)
+                                    + "\n\nDu kannst Spielbilder vorerst deaktivieren "
+                                      "und die Analyse nur mit Whisper starten.")
                 return
+        self._manual_pending = [c for c in self.analysis.candidates if c.origin == "manual"] if self.analysis else []
         self.analysis = None
         self.transcript_dirty = False
         self.report_path = None
@@ -470,18 +511,34 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage("Analyse läuft lokal (Audio / optionale Modelle) …")
         self.worker.start()
 
-    def analysis_finished(self, result: AnalysisResult) -> None:
-        self.analysis = result
-        self.table.setRowCount(len(result.candidates))
-        for row, clip in enumerate(result.candidates):
-            for column, value in enumerate((display_time(clip.start), display_time(clip.end),
-                                            str(clip.score), clip.reason)):
-                item = QTableWidgetItem(value)
-                if column == 2:
-                    item.setForeground(QColor("#77c7ff"))
-                self.table.setItem(row, column, item)
-        if result.candidates:
+    def refresh_highlight_table(self) -> None:
+        if not self.analysis:
+            self.table.setRowCount(0)
+            return
+        self.table.blockSignals(True)
+        try:
+            self.table.setRowCount(len(self.analysis.candidates))
+            for row, clip in enumerate(self.analysis.candidates):
+                values = (display_time(clip.start), display_time(clip.end),
+                          "★ Manuell" if clip.origin == "manual" else str(clip.score), clip.reason)
+                for col, value in enumerate(values):
+                    item = QTableWidgetItem(value)
+                    if col == 2:
+                        item.setForeground(QColor("#ffd27d" if clip.origin == "manual" else "#77c7ff"))
+                    self.table.setItem(row, col, item)
+        finally:
+            self.table.blockSignals(False)
+        if self.analysis.candidates:
             self.table.selectRow(0)
+
+    def analysis_finished(self, result: AnalysisResult) -> None:
+        preserved_manual = bool(self._manual_pending)
+        if self._manual_pending and self.source and Path(result.video.path).resolve() == Path(self.source).resolve():
+            from dataclasses import replace
+            result = replace(result, candidates=result.candidates + self._manual_pending)
+            self._manual_pending = []
+        self.analysis = result
+        self.refresh_highlight_table()
         self.transcript_table.blockSignals(True)
         try:
             self.transcript_table.setRowCount(len(result.transcript))
@@ -491,7 +548,7 @@ class MainWindow(QMainWindow):
                     self.transcript_table.setItem(row, column, QTableWidgetItem(value))
         finally:
             self.transcript_table.blockSignals(False)
-        self.transcript_dirty = False
+        self.transcript_dirty = preserved_manual
         self._editor_row = None
         self._busy(False)
         if result.transcript:
@@ -500,12 +557,98 @@ class MainWindow(QMainWindow):
             f"{len(result.candidates)} Clips, {len(result.transcript)} Transkript-Abschnitte")
 
     def job_failed(self, message: str) -> None:
+        # Preserve manual markers even if a subsequent AI pass fails.
+        if self._manual_pending and self.source:
+            try:
+                info = probe_video(self.source)
+                self.analysis = AnalysisResult(info, self._manual_pending,
+                                               method="manual-only")
+                self._manual_pending = []
+                self.refresh_highlight_table()
+                self.transcript_dirty = True
+            except (OSError, RuntimeError, ValueError):
+                pass
         self._busy(False)
         if "abgebrochen" in message.lower():
             self.statusBar().showMessage(message)
         else:
             QMessageBox.critical(self, "Verarbeitung fehlgeschlagen", message)
             self.statusBar().showMessage("Fehler – Details im Dialog")
+
+    def _ensure_manual_result(self) -> bool:
+        if self.analysis:
+            return True
+        if not self.source:
+            return False
+        try:
+            info = probe_video(self.source)
+        except (OSError, RuntimeError, ValueError) as exc:
+            QMessageBox.warning(self, "Aufnahme prüfen", str(exc))
+            return False
+        self.analysis = AnalysisResult(info, [], method="manual-only", transcript=[])
+        self.report_path = None
+        return True
+
+    def _current_video_second(self) -> float:
+        return max(0.0, self.player.position() / 1000)
+
+    def update_manual_mark_label(self) -> None:
+        a = "–" if self._manual_from is None else format_timestamp(self._manual_from)
+        b = "–" if self._manual_to is None else format_timestamp(self._manual_to)
+        self.manual_marks_label.setText(f"Start: {a} · Ende: {b}")
+
+    def mark_highlight_start(self) -> None:
+        self._manual_from = self._current_video_second()
+        self.update_manual_mark_label()
+
+    def mark_highlight_end(self) -> None:
+        self._manual_to = self._current_video_second()
+        self.update_manual_mark_label()
+
+    def add_quick_highlight(self) -> None:
+        if not self._ensure_manual_result():
+            return
+        start = min(self._current_video_second(), max(0.0, self.analysis.video.duration - 0.1))
+        end = min(self.analysis.video.duration, start + self.length.value())
+        self.add_manual_interval(start, end)
+
+    def add_marked_highlight(self) -> None:
+        if self._manual_from is None or self._manual_to is None:
+            QMessageBox.information(self, "Start und Ende setzen",
+                                    "Markiere zuerst Start und Ende während der Wiedergabe.")
+            return
+        self.add_manual_interval(self._manual_from, self._manual_to)
+
+    def add_manual_interval(self, start: float, end: float) -> None:
+        if not self._ensure_manual_result():
+            return
+        try:
+            self.analysis = add_manual_highlight(self.analysis, start, end,
+                                                  self.manual_label.text())
+        except ValueError as exc:
+            QMessageBox.warning(self, "Highlight-Zeit prüfen", str(exc))
+            return
+        self.refresh_highlight_table()
+        self.table.selectRow(len(self.analysis.candidates) - 1)
+        self._manual_from = self._manual_to = None
+        self.update_manual_mark_label()
+        self.manual_label.clear()
+        self.transcript_dirty = True
+        self._busy(False)
+        self.statusBar().showMessage("Manuelles Highlight hinzugefügt – Projekt speichern")
+
+    def delete_selected_manual_highlight(self) -> None:
+        if not self.analysis:
+            return
+        try:
+            self.analysis = remove_manual_highlight(self.analysis, self.table.currentRow())
+        except ValueError as exc:
+            QMessageBox.warning(self, "Highlight kann nicht gelöscht werden", str(exc))
+            return
+        self.refresh_highlight_table()
+        self.transcript_dirty = True
+        self._busy(False)
+        self.statusBar().showMessage("Manuelles Highlight entfernt – Projekt speichern")
 
     def selected_candidate(self) -> Candidate | None:
         if not self.analysis:
@@ -525,6 +668,7 @@ class MainWindow(QMainWindow):
         self.player.setPosition(round(clip.start * 1000))
         self.single_export.setEnabled(not bool(self.worker and self.worker.isRunning()))
         self.transcript_from_highlight.setEnabled(bool(self.analysis.transcript))
+        self.manual_delete.setEnabled(clip.origin == "manual")
 
     def transcript_selection_changed(self) -> None:
         if not self.analysis:
@@ -768,7 +912,7 @@ class MainWindow(QMainWindow):
             return True
         answer = QMessageBox.question(
             self, "Ungespeicherte Transkriptkorrekturen",
-            "Deine Korrekturen sind noch nicht gespeichert. Jetzt als Analyse-JSON speichern?",
+            "Deine Änderungen an Transkript/Highlights sind noch nicht gespeichert. Jetzt Projekt speichern?",
             QMessageBox.StandardButton.Save | QMessageBox.StandardButton.Discard
             | QMessageBox.StandardButton.Cancel,
             QMessageBox.StandardButton.Save)

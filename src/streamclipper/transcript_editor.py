@@ -96,6 +96,8 @@ def load_analysis_report(filename: str | Path, expected_video: str | Path) -> An
         if not (math.isfinite(video.duration) and video.duration > 0):
             raise ValueError('Ungültige Videodauer im Bericht')
         candidates = [Candidate(**entry) for entry in data.get('candidates', [])]
+        if any(c.origin not in {"auto", "manual"} for c in candidates):
+            raise ValueError("Unbekannte Highlight-Herkunft")
         transcript = [TranscriptSegment(**entry) for entry in data.get('transcript', [])]
         validate_segments(transcript, video.duration)
         for candidate in candidates:

@@ -64,3 +64,9 @@ validiert und messbar verglichen wurden.
 - [ ] Objektbasierte Erkennung statt einfacher Bewegungsheuristik
 - [ ] Echtzeit-Vorschau des endgültigen Untertitel-/Kameralayouts
 - [ ] Qualitätstest für ganze drei- bis vierstündige Aufnahmen
+
+## M5 – manuelle Highlights / URL-Import
+
+- [x] Markieren ohne KI, benennen, JSON speichern und MP4 exportieren (Windows-Praxistest offen)
+- [ ] Twitch-VOD per URL herunterladen und lokal laden
+- [ ] Sechs-Stunden-Langlauftest, Checkpoints, Wiederaufnahme KI-Analyse
