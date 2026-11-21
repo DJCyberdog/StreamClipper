@@ -9,6 +9,8 @@ from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
 import math
+import os
+import warnings
 import re
 from typing import Callable, Iterable
 
@@ -54,10 +56,28 @@ def transcript_cues(segments: Iterable[tuple[float, float, str]]) -> list[EventE
     return evidence
 
 
+def _missing_cuda_library(exc: BaseException) -> bool:
+    """Only retry errors indicating missing CUDA runtime libraries."""
+    message = str(exc).lower()
+    return any(name in message for name in (
+        "cublas64_12.dll", "cublaslt64_12.dll", "cudnn64_9.dll",
+        "cudnn_ops64_9.dll", "cudart64_12.dll",
+        "libcublas.so", "libcudnn.so", "libcudart.so",
+    )) and any(term in message for term in (
+        "not found", "cannot be loaded", "could not load",
+        "could not locate", "failed to load", "not available",
+    ))
+
+
 def transcribe_video(video: VideoInfo, model_directory: str, *,
-                         progress: Progress | None = None,
-                         cancelled: Cancelled | None = None) -> list[TranscriptSegment]:
-    """Transcribe the entire recording once using a locally installed model."""
+                     progress: Progress | None = None,
+                     cancelled: Cancelled | None = None) -> list[TranscriptSegment]:
+    """Transcribe locally, retrying on CPU only for missing NVIDIA DLLs.
+
+    A CTranslate2 model may construct successfully and fail *during generator
+    iteration*, so the retry spans both construction and transcription.
+    No automatic downloads or system-level CUDA changes are made.
+    """
     from .media import CancelledError
     folder = Path(model_directory).expanduser()
     if not folder.is_dir():
@@ -70,30 +90,55 @@ def transcribe_video(video: VideoInfo, model_directory: str, *,
         raise RuntimeError('Sprachmodul fehlt. Python: pip install -e ".[speech]"') from exc
     if cancelled and cancelled():
         raise CancelledError("Analyse abgebrochen")
-    model = WhisperModel(str(folder), device="auto", compute_type="default",
-                         local_files_only=True)
-    # Generator yields progress after each segment; model inference inside a
-    # segment is not pre-emptible, so user cancellation can take a moment.
-    segments, _ = model.transcribe(video.path, beam_size=2, vad_filter=True,
-                                   condition_on_previous_text=False)
-    spans: list[TranscriptSegment] = []
+
+    device = os.environ.get("STREAMCLIPPER_WHISPER_DEVICE", "auto").lower()
+    if device not in {"auto", "cuda", "cpu"}:
+        raise ValueError("STREAMCLIPPER_WHISPER_DEVICE: auto, cuda oder cpu erwartet")
+
+    def transcribe_on(chosen_device: str) -> list[TranscriptSegment]:
+        if cancelled and cancelled():
+            raise CancelledError("Analyse abgebrochen")
+        model = WhisperModel(str(folder), device=chosen_device,
+                             compute_type="int8" if chosen_device == "cpu" else "default",
+                             local_files_only=True)
+        segments, _ = model.transcribe(
+            video.path, beam_size=2, vad_filter=True,
+            condition_on_previous_text=False,
+        )
+        spans: list[TranscriptSegment] = []
+        try:
+            for seg in segments:
+                if cancelled and cancelled():
+                    raise CancelledError("Analyse abgebrochen")
+                start, end = float(seg.start), float(seg.end)
+                phrase = " ".join(str(seg.text).split())
+                if math.isfinite(start) and math.isfinite(end) and 0 <= start < end and phrase:
+                    spans.append(TranscriptSegment(start, end, phrase))
+                if progress:
+                    progress(min(100, int(100 * seg.end / video.duration)))
+        except TypeError as exc:
+            if "metadata_errors" not in str(exc):
+                raise
+            raise RuntimeError(
+                "Whisper/PyAV inkompatibel: bitte in der StreamClipper-Umgebung "
+                r'.\\.venv\\Scripts\\python.exe -m pip install "av==17.1.0" ausführen.'
+            ) from exc
+        return spans
+
     try:
-        for seg in segments:
-            if cancelled and cancelled():
-                raise CancelledError("Analyse abgebrochen")
-            start, end = float(seg.start), float(seg.end)
-            phrase = " ".join(str(seg.text).split())
-            if math.isfinite(start) and math.isfinite(end) and 0 <= start < end and phrase:
-                spans.append(TranscriptSegment(start, end, phrase))
-            if progress:
-                progress(min(100, int(100 * seg.end / video.duration)))
-    except TypeError as exc:
-        if "metadata_errors" not in str(exc):
+        spans = transcribe_on(device)
+    except (RuntimeError, OSError) as exc:
+        if device == "cpu" or not _missing_cuda_library(exc):
             raise
-        raise RuntimeError(
-            "Whisper/PyAV inkompatibel: bitte in der StreamClipper-Umgebung "
-            r'.\\.venv\\Scripts\\python.exe -m pip install "av==17.1.0" ausführen.'
-        ) from exc
+        if cancelled and cancelled():
+            raise CancelledError("Analyse abgebrochen") from exc
+        warnings.warn(
+            "Whisper: CUDA-Bibliothek fehlt. Wechsle für diese Transkription auf CPU "
+            "(langsamer). GPU-Betrieb benötigt CUDA 12 und passende cuDNN-Bibliotheken.",
+            RuntimeWarning, stacklevel=2,
+        )
+        spans = transcribe_on("cpu")
+
     if progress:
         progress(100)
     return spans
