@@ -106,3 +106,18 @@ def load_analysis_report(filename: str | Path, expected_video: str | Path) -> An
                               transcript=transcript)
     except (KeyError, TypeError, ValueError, json.JSONDecodeError, OverflowError) as exc:
         raise ValueError(f'Analysebericht ist nicht lesbar oder ungültig: {exc}') from exc
+
+
+def apply_segment_changes(result: AnalysisResult, row: int,
+                          start_text: str, end_text: str, speech_text: str) -> AnalysisResult:
+    """Update all three fields atomically so adjusted windows can cross old bounds."""
+    if not 0 <= row < len(result.transcript):
+        raise ValueError("Bitte eine gültige Transkriptzeile auswählen")
+    clean = " ".join(speech_text.split())
+    segment = TranscriptSegment(parse_timestamp(start_text), parse_timestamp(end_text), clean)
+    if segment == result.transcript[row]:
+        return result
+    updated = list(result.transcript)
+    updated[row] = segment
+    validate_segments(updated, result.video.duration)
+    return replace(result, transcript=updated)
