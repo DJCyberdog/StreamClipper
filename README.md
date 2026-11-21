@@ -310,3 +310,36 @@ von Modellen, Videos oder `.venv` reparieren:
 
 Das installierte FFmpeg-Programm wird dadurch nicht verändert: PyAV ist eine
 separate Python-Abhängigkeit von Whisper innerhalb der lokalen `.venv`.
+
+## Whisper-Fehler: `cublas64_12.dll` fehlt (Windows)
+
+Die Meldung `Library cublas64_12.dll is not found or cannot be loaded`
+entsteht in der GPU-Inferenz von CTranslate2/Faster-Whisper, **nicht** in der
+systemweiten FFmpeg-Installation. NVIDIA-Treiber oder ein CUDA-fähiges FFmpeg
+allein garantieren nicht, dass CTranslate2 die benötigten CUDA-12- und
+cuDNN-Laufzeit-DLLs findet.
+
+**Ab dieser Änderung:** Beim typischen Fehler wegen fehlender CUDA/cuDNN-
+Laufzeitbibliotheken versucht StreamClipper die laufende Whisper-Transkription
+automatisch erneut auf der CPU mit `int8`. Der Hinweis wird als
+`RuntimeWarning` in der startenden Konsole ausgegeben. Bei langen
+Aufnahmen ist die CPU wesentlich langsamer. Andere Fehler (z.B.
+GPU-Speichermangel) werden *nicht* stillschweigend umgedeutet.
+
+**CPU ausdrücklich erzwingen (nur in diesem PowerShell-Fenster):**
+
+```powershell
+$env:STREAMCLIPPER_WHISPER_DEVICE = "cpu"
+.\run_windows.bat
+```
+
+Für NVIDIA-GPU-Betrieb müssen passende **CUDA-12/cuBLAS**- und **cuDNN-9**-
+Bibliotheken installiert und für CTranslate2 im Prozess auffindbar sein.
+Offizielle Dokumentation:
+- https://opennmt.net/CTranslate2/installation.html
+- https://github.com/SYSTRAN/faster-whisper#gpu
+- https://docs.nvidia.com/cudnn/installation/backend/windows/
+
+Die Python-/GPU-Abhängigkeiten müssen zur Windows- und
+CTranslate2-Version passen. StreamClipper installiert aus Gründen
+der Portabilität keine globalen CUDA-Toolkits oder System-DLLs selbst.
