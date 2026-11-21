@@ -146,7 +146,7 @@ GPU-Ausführung wird nach Verfügbarkeit ausgewählt, aber nicht garantiert.
 Auch über die CLI nutzbar:
 
 ```powershell
-streamclipper-cli analyze "C:\Videos\Gaming.mkv" --speech-model "$env:LOCALAPPDATA\StreamClipper\models\whisper-small" --vision-model "$env:LOCALAPPDATA\StreamClipper\models\clip-vit-base-patch32" --max-visual-frames 180
+streamclipper-cli analyze "C:\Videos\Gaming.mkv" --speech-model "$PWD\data\models\whisper-small" --vision-model "$PWD\data\models\clip-vit-base-patch32" --max-visual-frames 180
 ```
 
 **Was die Scores bedeuten:** Das Ergebnis ist eine **nicht kalibrierte,
@@ -171,3 +171,47 @@ JSON-Bericht; solche Berichte nicht unbedacht öffentlich teilen.
 gekauften oder privaten Gameplay-Dateien und keine echten Modellgewichte.
 Ein Funktions- und Qualitätsvergleich mit realen Windows-11-Gaming-Aufnahmen
 sowie das Packaging der KI-Modelle sind noch offen.
+
+## Alle StreamClipper-Daten im eigenen Ordner (ab 0.2.1)
+
+**Empfohlen für Windows:** Das Projekt z. B. nach `D:\StreamClipper` entpacken
+und einmalig **`setup_windows.bat`** doppelklicken. Das Skript erstellt `.venv`,
+installiert GUI und beide optionalen KI-Bibliotheken und lädt **nach ausdrücklichem
+Start des Setups** die beiden Modelle. Danach startet **`run_windows.bat`** die App.
+Python 3.12 und FFmpeg/FFprobe müssen weiterhin separat installiert sein.
+
+Alle vom Setup und StreamClipper verwalteten Dateien befinden sich im Projekt:
+
+```text
+D:\StreamClipper\
+  .venv\                      Python-Pakete
+  data\models\               Whisper- und CLIP-Modellgewichte
+  data\cache\                Hugging Face, PyTorch, Pip, CUDA-Cache usw.
+  data\tmp\                  temporäre Setup-/Analyse-Dateien
+  setup_windows.bat           einmaliges Setup inklusive KI-Modellen
+  run_windows.bat             App starten
+```
+
+Die Pfade werden automatisch aus dem Verzeichnis ermittelt, in dem das Projekt
+liegt; bei Umzug des Ordners werden sie beim nächsten Start neu gesetzt. Die
+Umgebungsvariablen werden **nur innerhalb des jeweiligen Prozesses** geändert,
+nicht dauerhaft in den Windows-Einstellungen. Dies gilt auch, wenn du die
+GUI direkt per `.venv\Scripts\python.exe -m streamclipper` startest oder die
+Modellinstallation direkt ausführst.
+
+**Nicht enthalten:** separat installiertes Python/FFmpeg, Windows-Protokolle,
+bereits existierende externe Caches früherer Installationen oder Videoexporte,
+die du bewusst außerhalb von `D:\StreamClipper` speicherst. Ein früherer
+Hugging-Face-Cache unter `%USERPROFILE%\.cache\huggingface` oder
+`%LOCALAPPDATA%` wird **nicht** automatisch gelöscht. Einmal bereits anderswo
+installierte Python-Pakete werden ebenfalls nicht entfernt.
+
+Wenn die KI-Bibliotheken bereits in `.venv` installiert sind, reicht:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\setup_local_models.py --which both
+.\.venv\Scripts\python.exe -m streamclipper
+```
+
+Die Modelle landen standardmäßig in `data\models` innerhalb des entpackten
+Projektordners; eine manuelle `--directory`-Angabe ist nicht mehr nötig.
