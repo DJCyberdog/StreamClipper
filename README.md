@@ -383,3 +383,26 @@ Offizielle Referenzen:
 - https://docs.nvidia.com/deeplearning/cudnn/installation/latest/windows.html
 - https://pypi.org/project/nvidia-cublas-cu12/
 - https://pypi.org/project/nvidia-cudnn-cu12/
+
+
+## Untertitel sind zu früh oder zu spät?
+
+Im Export-Bereich unter **Untertitelversatz** lässt sich die Einblendung verschieben.
+Der GUI-Standardwert beträgt **+0,4 s** (später). Ein negativer Wert blendet
+Text früher ein. Die Tonspur und Videospur bleiben unverändert; ein erneutes
+Transkribieren mit Whisper ist nicht nötig. Die Einstellung beeinflusst nur
+fest eingebrannte Untertitel beim neuen MP4-Export.
+
+Bei CLI-Exports lässt sich dieselbe Korrektur manuell setzen:
+
+```powershell
+..venvScriptspython.exe -m streamclipper.cli export "D:Videosgameplay.mp4" `
+  --start 120 --end 145 --mode smart16 `
+  --transcript-json "D:Videosgameplay.highlights.json" `
+  --burn-subtitles --subtitle-offset 0.4 `
+  --output "D:Clipshighlight.mp4"
+```
+
+Hinweis: Whisper liefert Segment- statt präzise Wort-Zeitstempel. Bei
+stark variierendem Sprechtempo kann ein einheitlicher Versatz nicht alle
+Wörter korrekt ausrichten. Spätere Versionen können Wort-Alignment ergänzen.
