@@ -84,6 +84,10 @@ def transcribe_video(video: VideoInfo, model_directory: str, *,
         raise FileNotFoundError(f"Whisper-Modellordner fehlt: {folder}")
     if not video.has_audio:
         return []
+    # Expose NVIDIA wheel DLLs to CTranslate2 before it imports native libraries.
+    # Only the current process is affected; no global CUDA installation.
+    from .gpu_runtime import enable_local_cuda_runtime
+    enable_local_cuda_runtime()
     try:
         from faster_whisper import WhisperModel
     except ImportError as exc:
