@@ -295,55 +295,6 @@ Auto-Reframing kann derzeit erst nach dem Export betrachtet werden.
 Unicode-Namen, Datensicherheit; echte Whisper-Inferenz, echte 3+-Stunden-
 OBS-Aufnahmen und die Windows-GUI sind noch separat abzunehmen.
 
-## Fehlerbehebung: Whisper / PyAV `metadata_errors`
-
-Bei der Fehlermeldung `open() got an unexpected keyword argument 'metadata_errors'`
-sind `faster-whisper` und die installierte Version von PyAV nicht kompatibel.
-StreamClipper schließt ab sofort PyAV 18+ über das optionale `speech`-Extra aus.
-Auf bereits eingerichteten Windows-Installationen lässt sich das ohne Löschen
-von Modellen, Videos oder `.venv` reparieren:
-
-```powershell
-.\.venv\Scripts\python.exe -m pip install "av==17.1.0"
-.\.venv\Scripts\python.exe -m pip show av
-```
-
-Das installierte FFmpeg-Programm wird dadurch nicht verändert: PyAV ist eine
-separate Python-Abhängigkeit von Whisper innerhalb der lokalen `.venv`.
-
-## Whisper-Fehler: `cublas64_12.dll` fehlt (Windows)
-
-Die Meldung `Library cublas64_12.dll is not found or cannot be loaded`
-entsteht in der GPU-Inferenz von CTranslate2/Faster-Whisper, **nicht** in der
-systemweiten FFmpeg-Installation. NVIDIA-Treiber oder ein CUDA-fähiges FFmpeg
-allein garantieren nicht, dass CTranslate2 die benötigten CUDA-12- und
-cuDNN-Laufzeit-DLLs findet.
-
-**Ab dieser Änderung:** Beim typischen Fehler wegen fehlender CUDA/cuDNN-
-Laufzeitbibliotheken versucht StreamClipper die laufende Whisper-Transkription
-automatisch erneut auf der CPU mit `int8`. Der Hinweis wird als
-`RuntimeWarning` in der startenden Konsole ausgegeben. Bei langen
-Aufnahmen ist die CPU wesentlich langsamer. Andere Fehler (z.B.
-GPU-Speichermangel) werden *nicht* stillschweigend umgedeutet.
-
-**CPU ausdrücklich erzwingen (nur in diesem PowerShell-Fenster):**
-
-```powershell
-$env:STREAMCLIPPER_WHISPER_DEVICE = "cpu"
-.\run_windows.bat
-```
-
-Für NVIDIA-GPU-Betrieb müssen passende **CUDA-12/cuBLAS**- und **cuDNN-9**-
-Bibliotheken installiert und für CTranslate2 im Prozess auffindbar sein.
-Offizielle Dokumentation:
-- https://opennmt.net/CTranslate2/installation.html
-- https://github.com/SYSTRAN/faster-whisper#gpu
-- https://docs.nvidia.com/cudnn/installation/backend/windows/
-
-Die Python-/GPU-Abhängigkeiten müssen zur Windows- und
-CTranslate2-Version passen. StreamClipper installiert aus Gründen
-der Portabilität keine globalen CUDA-Toolkits oder System-DLLs selbst.
-
 ## Lokale GPU-Beschleunigung für Whisper unter Windows
 
 Faster-Whisper/CTranslate2 benötigt NVIDIA CUDA-12-cuBLAS, cuDNN 9 und
@@ -396,46 +347,37 @@ fest eingebrannte Untertitel beim neuen MP4-Export.
 Bei CLI-Exports lässt sich dieselbe Korrektur manuell setzen:
 
 ```powershell
-..venvScriptspython.exe -m streamclipper.cli export "D:Videosgameplay.mp4" `
+.\.venv\Scripts\python.exe -m streamclipper.cli export "D:\Videos\gameplay.mp4" `
   --start 120 --end 145 --mode smart16 `
-  --transcript-json "D:Videosgameplay.highlights.json" `
+  --transcript-json "D:\Videos\gameplay.highlights.json" `
   --burn-subtitles --subtitle-offset 0.4 `
-  --output "D:Clipshighlight.mp4"
+  --output "D:\Clips\highlight.mp4"
 ```
 
 Hinweis: Whisper liefert Segment- statt präzise Wort-Zeitstempel. Bei
 stark variierendem Sprechtempo kann ein einheitlicher Versatz nicht alle
 Wörter korrekt ausrichten. Spätere Versionen können Wort-Alignment ergänzen.
 
+## Benutzerfreundlicher Transkript-Editor (neue Bedienung)
 
-## Whisper-Transkript manuell korrigieren
+Im Tab **Transkript bearbeiten** wird eine Zeile durch einfaches Anklicken
+markiert. Die Vorschau springt zur passenden Stelle, während die Untertitel-
+zeile in einem großen Textfeld unterhalb der Liste bearbeitet werden kann.
+Mit **Stelle anhören** läuft die Wiedergabe nur bis zum Ende des markierten
+Sprachabschnitts. **Vorheriger/Nächster** navigieren zwischen Textabschnitten.
+**Zum markierten Highlight** findet passende Sprachabschnitte direkt aus der
+Highlight-Liste; eine lange Aufnahme muss nicht manuell durchsucht werden.
 
-Whisper versteht nicht jedes gesprochene Wort richtig. Im Reiter **Transkript**
-kannst du deshalb nach einer Analyse jeden Abschnitt direkt bearbeiten:
+**Beginn** und **Ende** können als `HH:MM:SS.mmm` eingegeben oder über
+`−0,1`/`+0,1` verschoben werden. **Korrektur übernehmen** (auch `Strg+Enter`)
+überträgt Text und Zeiten gemeinsam in die interne Analyse, ohne neu zu
+transkribieren. Beim Zeilenwechsel werden gültige offene Korrekturen ebenfalls
+übernommen. Ungültige Zeitangaben verhindern das Wegnavigieren, statt
+unbemerkt kaputte Untertitel zu erzeugen. **Änderungen verwerfen** stellt
+für die gerade geöffnete Zeile den letzten übernommenen Stand wieder her.
 
-- **Zeile auswählen** springt zur entsprechenden Stelle im Video.
-- **Doppelklick auf „Erkannter Text“** öffnet den Texteditor. Nach Bestätigung
-  mit Enter wird die Korrektur sofort für den nächsten Untertitel-MP4-Export
-  übernommen.
-- **Doppelklick auf „Start“ oder „Ende“** erlaubt genaue Zeitkorrekturen.
-  Format: `HH:MM:SS.mmm`, z. B. `00:03:12.450`. Auch reine Sekunden
-  und Dezimalkomma sind möglich.
-- Ungültige Zeitgrenzen und leere Texte werden abgewiesen, damit ein
-  versehentlicher Tippfehler keine ungültigen Untertitel erzeugt.
-- Mit **„Analyse als JSON speichern“** werden Highlights und korrigiertes
-  Transkript gemeinsam gespeichert. Beim Schließen oder erneuten Analysieren
-  wird vor dem Verwerfen ungespeicherter Korrekturen nachgefragt.
-- Beim nächsten Start: zuerst dasselbe Video laden, anschließend
-  **„Analyse laden (JSON)“**. Das Transkript ist sofort wieder verfügbar;
-  **Whisper muss nicht erneut laufen**. Eine andere Datei oder Aufnahme
-  wird nicht versehentlich mit diesem Transkript verknüpft.
-
-Der Videoexport verwendet das korrigierte Transkript automatisch; SRT/VTT/TXT
-und CLI-Exporte aus der gespeicherten Analyse enthalten dieselben Änderungen.
-Das Originalvideo und die ursprüngliche Audiospur bleiben unverändert.
-Wenn du die Zeitstempel einzeln korrigiert hast, kannst du den zusätzlichen
-globalen **Untertitelversatz** auf `0,0 s` stellen.
-
-**Grenzen der ersten Editor-Version:** Einfügen/Löschen, Aufteilen oder
-Zusammenfügen von Abschnitten, Undo/Redo und automatische Wort-Zeitmarken
-sind noch nicht umgesetzt. Der Editor verarbeitet vorhandene Whisper-Segmente.
+**Projekt speichern** (auch `Strg+S`) sichert alle Korrekturen als JSON.
+Nach dem nächsten Start dieselbe Aufnahme öffnen und **Analyse laden (JSON)**
+wählen; die Erkennung durch Whisper wird dadurch nicht erneut gestartet.
+Der anschließende MP4-Export verwendet das korrigierte Transkript unmittelbar.
+Originaldateien und die ursprüngliche Audio-/Videospur werden nicht geändert.
