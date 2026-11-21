@@ -10,7 +10,7 @@ from PySide6.QtGui import QColor
 from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
 from PySide6.QtMultimediaWidgets import QVideoWidget
 from PySide6.QtWidgets import (
-    QApplication, QComboBox, QFileDialog, QHBoxLayout, QLabel, QMainWindow,
+    QApplication, QCheckBox, QComboBox, QFileDialog, QHBoxLayout, QLabel, QLineEdit, QMainWindow,
     QMessageBox, QProgressBar, QPushButton, QSlider, QSpinBox, QSplitter,
     QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
 )
@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
 from .analyze import analyze
 from .media import CancelledError, export_clip, safe_destination, tool_path
 from .models import AnalysisResult, Candidate
+from .semantic import default_models_directory
 
 
 def display_time(seconds: float) -> str:
@@ -30,10 +31,13 @@ class AnalysisThread(QThread):
     done = Signal(object)
     failed = Signal(str)
 
-    def __init__(self, source: str, length: int, parent=None):
+    def __init__(self, source: str, length: int, parent=None,
+                 speech_model: str | None = None, vision_model: str | None = None):
         super().__init__(parent)
         self.source = source
         self.length = length
+        self.speech_model = speech_model
+        self.vision_model = vision_model
         self._cancelled = threading.Event()
 
     def cancel(self) -> None:
@@ -43,7 +47,9 @@ class AnalysisThread(QThread):
         try:
             result = analyze(self.source, clip_seconds=self.length,
                              progress=self.progress_changed.emit,
-                             cancelled=self._cancelled.is_set)
+                             cancelled=self._cancelled.is_set,
+                             speech_model=self.speech_model,
+                             vision_model=self.vision_model)
             if self._cancelled.is_set():
                 raise CancelledError("Analyse abgebrochen")
             self.done.emit(result)
@@ -92,7 +98,7 @@ class ExportThread(QThread):
 class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
-        self.setWindowTitle("StreamClipper – Gaming Highlights 0.1")
+        self.setWindowTitle("StreamClipper – Gaming Highlights 0.2")
         self.resize(1200, 760)
         self.source: str | None = None
         self.analysis: AnalysisResult | None = None
@@ -132,6 +138,31 @@ class MainWindow(QMainWindow):
         toolbar.addStretch()
         main.addLayout(toolbar)
 
+        models = QHBoxLayout()
+        self.speech_enabled = QCheckBox("Sprache (lokales Whisper)")
+        models.addWidget(self.speech_enabled)
+        self.speech_path = QLineEdit()
+        self.speech_path.setPlaceholderText("Whisper-Modellordner")
+        speech_default = default_models_directory() / "whisper-small"
+        if speech_default.is_dir():
+            self.speech_path.setText(str(speech_default))
+        models.addWidget(self.speech_path, 2)
+        speech_browse = QPushButton("…")
+        speech_browse.clicked.connect(lambda: self.choose_model(self.speech_path))
+        models.addWidget(speech_browse)
+        self.vision_enabled = QCheckBox("Spielbilder (lokales CLIP)")
+        models.addWidget(self.vision_enabled)
+        self.vision_path = QLineEdit()
+        self.vision_path.setPlaceholderText("CLIP-Modellordner")
+        vision_default = default_models_directory() / "clip-vit-base-patch32"
+        if vision_default.is_dir():
+            self.vision_path.setText(str(vision_default))
+        models.addWidget(self.vision_path, 2)
+        vision_browse = QPushButton("…")
+        vision_browse.clicked.connect(lambda: self.choose_model(self.vision_path))
+        models.addWidget(vision_browse)
+        main.addLayout(models)
+
         self.source_label = QLabel("Noch kein Video geladen. Videos bleiben lokal auf deinem Rechner.")
         self.source_label.setWordWrap(True)
         main.addWidget(self.source_label)
@@ -163,7 +194,7 @@ class MainWindow(QMainWindow):
         results_container = QWidget()
         results_layout = QVBoxLayout(results_container)
         results_layout.setContentsMargins(0, 0, 0, 0)
-        results_layout.addWidget(QLabel("Automatisch gefundene Vorschläge (Audio-Heuristik)"))
+        results_layout.addWidget(QLabel("Highlight-Vorschläge (Audio / Sprache / Spielbilder)"))
         self.table = QTableWidget(0, 4)
         self.table.setHorizontalHeaderLabels(["Start", "Ende", "Score", "Erkennungsgrund"])
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
@@ -173,7 +204,7 @@ class MainWindow(QMainWindow):
         self.table.horizontalHeader().setStretchLastSection(True)
         self.table.itemSelectionChanged.connect(self.preview_selected)
         results_layout.addWidget(self.table, 1)
-        results_layout.addWidget(QLabel("Score = relative Lautstärkeauffälligkeit, keine Viralitätsprognose."))
+        results_layout.addWidget(QLabel("Score = nicht kalibrierte Evidenz-Heuristik, keine Viralitätsprognose."))
         splitter.addWidget(results_container)
         splitter.setSizes([580, 620])
         main.addWidget(splitter, 1)
@@ -241,6 +272,11 @@ class MainWindow(QMainWindow):
         self._busy(False)
         self.statusBar().showMessage("Aufnahme geladen – Analyse starten")
 
+    def choose_model(self, target: QLineEdit) -> None:
+        directory = QFileDialog.getExistingDirectory(self, "Lokales Modellverzeichnis auswählen")
+        if directory:
+            target.setText(directory)
+
     def start_analysis(self) -> None:
         if not self.source:
             return
@@ -250,16 +286,23 @@ class MainWindow(QMainWindow):
         except FileNotFoundError as exc:
             QMessageBox.critical(self, "FFmpeg fehlt", str(exc))
             return
+        speech = self.speech_path.text().strip() if self.speech_enabled.isChecked() else None
+        vision = self.vision_path.text().strip() if self.vision_enabled.isChecked() else None
+        if (self.speech_enabled.isChecked() and not speech) or (self.vision_enabled.isChecked() and not vision):
+            QMessageBox.warning(self, "Modellordner fehlt",
+                                "Für ausgewählte KI-Detektoren bitte einen lokalen Modellordner angeben.")
+            return
         self.analysis = None
         self.table.setRowCount(0)
         self.progress.setValue(0)
-        self.worker = AnalysisThread(self.source, self.length.value(), self)
+        self.worker = AnalysisThread(self.source, self.length.value(), self,
+                                     speech_model=speech, vision_model=vision)
         self.worker.progress_changed.connect(self.progress.setValue)
         self.worker.done.connect(self.analysis_finished)
         self.worker.failed.connect(self.job_failed)
         self.worker.finished.connect(lambda: self._busy(False))
         self._busy(True)
-        self.statusBar().showMessage("Audiospur wird lokal analysiert …")
+        self.statusBar().showMessage("Analyse läuft lokal (Audio / optionale Modelle) …")
         self.worker.start()
 
     def analysis_finished(self, result: AnalysisResult) -> None:

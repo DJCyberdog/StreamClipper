@@ -306,3 +306,52 @@ def export_clip(video: VideoInfo, start: float, end: float, destination: str | P
                 reader.join(timeout=2)
                 if proc.stdout:
                     proc.stdout.close()
+
+
+def sampled_jpeg_frames(video: VideoInfo, *, max_frames: int = 180,
+                        cancelled: Cancelled | None = None):
+    """Seek across the entire VOD; do not decode hours of intervening frames.
+
+    Each requested timestamp is decoded into one JPEG via FFmpeg. Peak resident
+    memory stays bounded, processing is interruptible even during a slow seek,
+    and timestamps represent requested sampling positions, not verified events.
+    """
+    if max_frames < 1 or max_frames > 2000:
+        raise ValueError("max_frames muss zwischen 1 und 2000 liegen")
+    if video.duration <= 0:
+        raise ValueError("Ungültige Videodauer")
+    count = max(1, min(max_frames, int(math.ceil(video.duration / 3.0))))
+    interval = video.duration / count
+    ffmpeg = tool_path("ffmpeg")
+    for index in range(count):
+        if cancelled and cancelled():
+            raise CancelledError("Analyse abgebrochen")
+        at = (index + 0.5) * interval
+        cmd = [ffmpeg, "-hide_banner", "-nostdin", "-loglevel", "error",
+               "-ss", f"{at:.3f}", "-i", video.path,
+               "-map", "0:v:0", "-an", "-sn", "-frames:v", "1",
+               "-vf", "scale=320:-2:flags=fast_bilinear", "-q:v", "6",
+               "-f", "image2pipe", "-vcodec", "mjpeg", "pipe:1"]
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        try:
+            while True:
+                if cancelled and cancelled():
+                    raise CancelledError("Analyse abgebrochen")
+                try:
+                    frame, _ = proc.communicate(timeout=0.2)
+                    break
+                except subprocess.TimeoutExpired:
+                    continue
+            if proc.returncode != 0:
+                raise RuntimeError(f"FFmpeg konnte Frame bei {at:.2f}s nicht dekodieren.")
+            if not frame.startswith(b"\xff\xd8") or not frame.endswith(b"\xff\xd9"):
+                raise RuntimeError(f"Ungültiger JPEG-Frame bei {at:.2f}s.")
+            if len(frame) > 8_000_000:
+                raise RuntimeError("Ein einzelnes Video-Frame überschreitet 8 MB.")
+            yield round(at, 3), frame
+        finally:
+            if proc.poll() is None:
+                proc.kill()
+            proc.wait()
+            if proc.stdout:
+                proc.stdout.close()

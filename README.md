@@ -1,9 +1,10 @@
-# StreamClipper 0.1
+# StreamClipper 0.2
 
 **Lokale Windows-App für Gaming-/Twitch-Highlights mit vertikalem TikTok-Export.**
 
 Das ist ein *funktionsfähiger MVP*, noch kein vollständig KI-gestützter Viral-Clip-Generator.
-Der erste Analyzer benutzt RMS-Lautstärkespitzen als messbare Heuristik. Ein hoher Score
+Der Baseline-Analyzer benutzt RMS-Lautstärkespitzen als messbare Heuristik. Der optionale
+0.2-Modus ergänzt lokale Sprache und Bildähnlichkeit. Ein hoher Score
 bedeutet **nicht**, dass die Szene spannend, lustig oder viral ist. Der Analyzer ist
 modular für spätere Sprache-, Szenen- und Gameplay-Event-Detektoren angelegt.
 
@@ -117,3 +118,56 @@ Keine Drittvideos, Social-Media-Konten oder Cloud-Dienste nötig.
 Quellcode unter Apache License 2.0 (siehe `LICENSE`). FFmpeg, FFprobe, Qt/PySide6 und sonstige Bibliotheken behalten ihre
 eigenen Lizenzbedingungen. Bei einer späteren Distribution inklusive FFmpeg deren
 Lizenzpflichten gesondert prüfen.
+
+## Experimenteller Gaming-/Sprachmodus (0.2, lokal)
+
+Die Standardanalyse funktioniert weiterhin **ohne KI-Modelle**. Für zusätzliches
+Sprachverständnis und Bildhinweise ist die Windows-**Python**-Installation mit
+optionalen Bibliotheken erforderlich. Der automatisch erzeugte portable
+Windows-Build enthält diese großen KI-Bibliotheken und Modellgewichte **noch
+nicht**. Dafür ist ein separates Packaging-Arbeitspaket vorgesehen.
+
+```powershell
+py -3.12 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -e ".[gui,dev,speech,vision,models]"
+# Einmalig, mit Internetverbindung, bewusst vom Nutzer auszulösen:
+python scripts/setup_local_models.py --which both
+# Danach auch ohne Internetverbindung:
+python -m streamclipper
+```
+
+Die zwei neuen Checkboxen der GUI aktivieren optional **Sprache (Whisper)**
+und **Spielbilder (CLIP)**. Die vorgegebenen Modellpfade werden nach dem Setup
+automatisch gefunden. Alternativ einzelne lokale Modellverzeichnisse wählen.
+Große KI-Modelle benötigen mehr Arbeitsspeicher und Zeit als der reine Audio-MVP;
+GPU-Ausführung wird nach Verfügbarkeit ausgewählt, aber nicht garantiert.
+
+Auch über die CLI nutzbar:
+
+```powershell
+streamclipper-cli analyze "C:\Videos\Gaming.mkv" --speech-model "$env:LOCALAPPDATA\StreamClipper\models\whisper-small" --vision-model "$env:LOCALAPPDATA\StreamClipper\models\clip-vit-base-patch32" --max-visual-frames 180
+```
+
+**Was die Scores bedeuten:** Das Ergebnis ist eine **nicht kalibrierte,
+erklärbare Priorisierung** von Hinweisen, ausdrücklich **keine** verlässliche
+Unfallerkennung, Emotionserkennung, Viralitätswahrscheinlichkeit oder
+TikTok-Empfehlung. Whisper kann Worte falsch erkennen; die Reaktionssuche nutzt
+zunächst deutsche/englische Formulierungen. CLIP vergleicht einzelne
+Screenshot-Ähnlichkeiten mit neutralen und aktionsbezogenen Beschreibungen.
+Eine visuelle Ähnlichkeit ist **kein Beweis**, dass wirklich ein Unfall oder
+eine Verfolgungsjagd stattfand. Standardmäßig werden bis zu 180
+über die gesamte Aufnahmedauer verteilte Bildstichproben per FFmpeg-Seeking
+klassifiziert; kurze Ereignisse können deshalb verpasst werden.
+
+Das Analyseprogramm öffnet **keine Netzwerkverbindung** und lädt **keine
+Modellgewichte automatisch**. Nur das ausdrücklich gestartete Setup-Skript
+benötigt Internet und lädt Modelle von Hugging Face. Gewichte sind **nicht
+Teil des Apache-2.0-Repositories** und unterliegen ihren jeweiligen
+Lizenzbedingungen. Die Textauszüge aus dem Transkript landen im lokalen
+JSON-Bericht; solche Berichte nicht unbedacht öffentlich teilen.
+
+**Abnahmegrenze:** Unit-/synthetische Integrationstests verwenden keine
+gekauften oder privaten Gameplay-Dateien und keine echten Modellgewichte.
+Ein Funktions- und Qualitätsvergleich mit realen Windows-11-Gaming-Aufnahmen
+sowie das Packaging der KI-Modelle sind noch offen.

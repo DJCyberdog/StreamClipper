@@ -7,6 +7,7 @@ from typing import Callable
 
 from .media import audio_levels, probe_video
 from .models import AnalysisResult, Candidate
+from .semantic import EventEvidence, fuse_events, recognize_gameplay, transcribe_reactions
 
 
 def _bounds(center: float, duration: float, clip_seconds: int, preroll: float = 8.0) -> tuple[float, float]:
@@ -52,7 +53,40 @@ def find_candidates(levels: list[float], duration: float, clip_seconds: int = 25
 
 def analyze(path: str, clip_seconds: int = 25, max_clips: int = 8,
             progress: Callable[[int], None] | None = None,
-            cancelled: Callable[[], bool] | None = None) -> AnalysisResult:
+            cancelled: Callable[[], bool] | None = None,
+            speech_model: str | None = None, vision_model: str | None = None,
+            max_visual_frames: int = 180) -> AnalysisResult:
+    """Analyze audio and, when requested, local transcript / gameplay images.
+
+    No model downloads and no external API calls. Model paths are opt-in.
+    """
     video = probe_video(path)
-    levels = audio_levels(video, progress=progress, cancelled=cancelled)
-    return AnalysisResult(video, find_candidates(levels, video.duration, clip_seconds, max_clips))
+    use_models = bool(speech_model or vision_model)
+    def stage(base: int, portion: int):
+        return (lambda value: progress(base + round(value * portion / 100))) if progress else None
+
+    levels = audio_levels(video, progress=stage(0, 35 if use_models else 100),
+                          cancelled=cancelled)
+    baseline = find_candidates(levels, video.duration, clip_seconds, max_clips)
+    if not use_models:
+        return AnalysisResult(video, baseline)
+
+    # Baseline peak scores are only heuristic proxies. Keep them as weak
+    # evidence so language and image matches can take precedence.
+    peak_candidates = find_candidates(levels, video.duration, clip_seconds,
+                                      max(24, max_clips * 4))
+    evidence = [EventEvidence(c.peak_at, "audio", 0.28,
+                              c.reason) for c in peak_candidates if c.score > 30]
+    if speech_model:
+        evidence.extend(transcribe_reactions(video, speech_model,
+                         progress=stage(35, 35 if vision_model else 65),
+                         cancelled=cancelled))
+    if vision_model:
+        evidence.extend(recognize_gameplay(video, vision_model,
+                         max_frames=max_visual_frames, progress=stage(70 if speech_model else 35,
+                         30 if speech_model else 65), cancelled=cancelled))
+    ranked = fuse_events(evidence, video.duration, clip_seconds, max_clips)
+    if progress:
+        progress(100)
+    return AnalysisResult(video, ranked or baseline,
+                          method="multimodal-evidence-v1")

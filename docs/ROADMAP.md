@@ -23,12 +23,12 @@
 
 ## M2 — Gaming-Detektoren / Erklärbare Highlight-Fusion
 
-- [ ] Optionale lokale Spracherkennung mit Zeitstempeln (faster-whisper)
-- [ ] Szenenschnitt-Erkennung aus gesampelten Frames
-- [ ] Zusammensetzen mehrerer Evidenzen; Score **kalibrieren oder klar als Heuristik ausweisen**
-- [ ] Kontext vor/nach erkannter Aktion erhalten; nicht mitten in Pointe schneiden
+- [x] Optionale lokale Spracherkennung mit Zeitstempeln (faster-whisper); reale Modellabnahme offen
+- [x] Gesampelte Frames + optionale lokale CLIP-Bildähnlichkeit; echte Ereignisvalidierung offen
+- [x] Zusammensetzen mehrerer Evidenzen; Score ausdrücklich als **unkalibrierte Heuristik** ausgewiesen
+- [ ] Kontext vor/nach erkannter Aktion präziser validieren; derzeit feste Preroll-Fenster
 - [ ] Aufnahmearten getrennt auswerten (Gaming + Mikrofon, gemischter Stream, VOD)
-- [ ] Tests anhand von vom Nutzer freigegebenem Aufnahme-Material
+- [ ] Reale Windows-/Modell-Abnahme anhand von vom Nutzer freigegebenem Aufnahme-Material
 
 ## M3 — Shorts-Qualität
 
@@ -44,3 +44,11 @@ Jedes Issue/PR benötigt reproduzierbare Tests, klare Einschränkungen und
 Demo-Evidenz. Niemand darf die Software als KI-Verständnis oder erfolgssichere
 TikTok-Optimierung verkaufen, bevor entsprechende Methoden implementiert,
 validiert und messbar verglichen wurden.
+
+## M2a — Nacharbeiten aus dem experimentellen Multimodal-Modus
+
+- [ ] CLI/GUI mit echten lokal geladenen Whisper-/CLIP-Gewichten unter Windows 11 testen
+- [ ] AI-fähiges Windows-Packaging ohne übergroßes Standard-EXE-Artefakt
+- [ ] Manuell annotiertes Gaming-Evaluationsset und Fehlerratenmessung
+- [ ] Zeitliche Szenen-/Ereigniserkennung statt Einzelbild-Ähnlichkeit
+- [ ] Transkript- und Gameplay-Hinweise für Sprache/Mischspur und Kontext verbessern
