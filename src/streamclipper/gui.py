@@ -5,6 +5,10 @@ import sys
 import threading
 from pathlib import Path
 
+from .portable import configure_portable_environment
+
+configure_portable_environment()
+
 from PySide6.QtCore import Qt, QThread, QUrl, Signal
 from PySide6.QtGui import QColor
 from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
