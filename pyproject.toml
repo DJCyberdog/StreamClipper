@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "streamclipper"
+version = "0.1.0"
+description = "Offline gaming stream highlight finder and vertical clip exporter for Windows"
+requires-python = ">=3.11,<3.15"
+dependencies = []
+
+[project.optional-dependencies]
+gui = ["PySide6>=6.8,<7"]
+dev = ["pytest>=8,<10"]
+build = ["PyInstaller>=6.11,<7"]
+
+[project.scripts]
+streamclipper-cli = "streamclipper.cli:main"
+streamclipper = "streamclipper.gui:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

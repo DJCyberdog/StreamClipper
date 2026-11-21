@@ -1,0 +1,6 @@
+Arbeite in diesem Repository als Implementierungsagent. Lies zuerst AGENTS.md,
+README.md, docs/ARCHITECTURE.md und codex/NEXT_TASK.md. Setze ausschließlich
+SC-P0-01 um. Erzeuge Tests vor dem Fix, implementiere robustes Abbrechen und
+atomare Exporte, führe pytest und compileall aus, dokumentiere Einschränkungen
+und eröffne einen Draft-PR gegen main. Keine zusätzlichen Features, keine
+Änderung an bestehenden privaten Dateien, kein automatischer Merge.
