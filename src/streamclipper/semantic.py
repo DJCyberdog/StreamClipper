@@ -199,9 +199,8 @@ def recognize_gameplay(video: VideoInfo, model_directory: str, *,
                        cancelled: Cancelled | None = None) -> list[EventEvidence]:
     """Local CLIP zero-shot resemblance on a bounded sample of JPEG video frames."""
     from .media import CancelledError, sampled_jpeg_frames
-    folder = Path(model_directory).expanduser()
-    if not folder.is_dir():
-        raise FileNotFoundError(f"CLIP-Modellordner fehlt: {folder}")
+    from .model_checks import validate_clip_model
+    folder = validate_clip_model(model_directory)
     if max_frames < 1 or max_frames > 2000:
         raise ValueError("max_frames muss zwischen 1 und 2000 liegen")
     try:
