@@ -76,10 +76,14 @@ class ExportThread(QThread):
                 if self._cancelled.is_set():
                     raise CancelledError("Export abgebrochen")
                 target = safe_destination(self.directory, f"{stem}_clip_{i:02d}.mp4")
-                export_clip(self.analysis.video, clip.start, clip.end, target,
-                            self.mode, cancelled=self._cancelled.is_set)
-                outputs.append(str(target))
-                self.progress_changed.emit(round(i / len(self.items) * 100))
+                actual = export_clip(
+                    self.analysis.video, clip.start, clip.end, target,
+                    self.mode, cancelled=self._cancelled.is_set,
+                    progress=lambda value, i=i: self.progress_changed.emit(
+                        round(((i - 1) + value / 100) / len(self.items) * 100)
+                    ),
+                )
+                outputs.append(str(actual))
             self.done.emit(outputs)
         except Exception as exc:
             self.failed.emit(str(exc))
