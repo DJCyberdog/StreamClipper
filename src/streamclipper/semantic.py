@@ -92,7 +92,7 @@ def transcribe_video(video: VideoInfo, model_directory: str, *,
             raise
         raise RuntimeError(
             "Whisper/PyAV inkompatibel: bitte in der StreamClipper-Umgebung "
-            '.\\.venv\\Scripts\\python.exe -m pip install "av==17.1.0" ausführen.'
+            r'.\\.venv\\Scripts\\python.exe -m pip install "av==17.1.0" ausführen.'
         ) from exc
     if progress:
         progress(100)
