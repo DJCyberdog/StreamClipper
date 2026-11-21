@@ -15,7 +15,7 @@ from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
 from PySide6.QtMultimediaWidgets import QVideoWidget
 from PySide6.QtWidgets import (
     QApplication, QCheckBox, QComboBox, QFileDialog, QHBoxLayout, QLabel, QLineEdit, QMainWindow,
-    QMessageBox, QProgressBar, QPushButton, QSlider, QSpinBox, QSplitter,
+    QMessageBox, QProgressBar, QPushButton, QSlider, QSpinBox, QDoubleSpinBox, QSplitter,
     QTableWidget, QTableWidgetItem, QTabWidget, QVBoxLayout, QWidget,
 )
 
@@ -68,13 +68,15 @@ class ExportThread(QThread):
     failed = Signal(str)
 
     def __init__(self, analysis: AnalysisResult, items: list[Candidate], directory: str,
-                 mode: str, parent=None, burn_subtitles: bool = False):
+                 mode: str, parent=None, burn_subtitles: bool = False,
+                 subtitle_offset: float = 0.0):
         super().__init__(parent)
         self.analysis = analysis
         self.items = items
         self.directory = directory
         self.mode = mode
         self.burn_subtitles = burn_subtitles
+        self.subtitle_offset = subtitle_offset
         self._cancelled = threading.Event()
 
     def cancel(self) -> None:
@@ -93,6 +95,7 @@ class ExportThread(QThread):
                     self.mode, cancelled=self._cancelled.is_set,
                     transcript=self.analysis.transcript,
                     burn_subtitles=self.burn_subtitles,
+                    subtitle_offset=self.subtitle_offset,
                     progress=lambda value, i=i: self.progress_changed.emit(
                         round(((i - 1) + value / 100) / len(self.items) * 100)
                     ),
@@ -265,6 +268,20 @@ class MainWindow(QMainWindow):
         actions.addWidget(self.transcript_button)
         main.addLayout(actions)
 
+        caption_options = QHBoxLayout()
+        caption_options.addWidget(QLabel("Untertitelversatz"))
+        self.caption_offset = QDoubleSpinBox()
+        self.caption_offset.setRange(-3.0, 3.0)
+        self.caption_offset.setDecimals(1)
+        self.caption_offset.setSingleStep(0.1)
+        self.caption_offset.setValue(0.4)
+        self.caption_offset.setSuffix(" s")
+        self.caption_offset.setToolTip("Positive Werte: Untertitel erscheinen später. Negative: früher.")
+        caption_options.addWidget(self.caption_offset)
+        caption_options.addWidget(QLabel("+ = später, − = früher · ohne erneute Transkription"))
+        caption_options.addStretch()
+        main.addLayout(caption_options)
+
         self.progress = QProgressBar()
         self.progress.setValue(0)
         main.addWidget(self.progress)
@@ -294,6 +311,7 @@ class MainWindow(QMainWindow):
         self.report_button.setEnabled(ready)
         self.transcript_button.setEnabled(ready and bool(self.analysis.transcript if self.analysis else []))
         self.burn_subtitles.setEnabled(ready and bool(self.analysis.transcript if self.analysis else []))
+        self.caption_offset.setEnabled(ready and bool(self.analysis.transcript if self.analysis else []))
 
     def open_video(self) -> None:
         source, _ = QFileDialog.getOpenFileName(self, "Aufnahme öffnen", "",
@@ -451,7 +469,8 @@ class MainWindow(QMainWindow):
         self.worker = ExportThread(self.analysis, items, directory,
                                    str(self.mode.currentData()), self,
                                    burn_subtitles=self.burn_subtitles.isChecked()
-                                   and bool(self.analysis.transcript))
+                                   and bool(self.analysis.transcript),
+                                   subtitle_offset=self.caption_offset.value())
         self.worker.progress_changed.connect(self.progress.setValue)
         self.worker.done.connect(self.export_finished)
         self.worker.failed.connect(self.job_failed)
