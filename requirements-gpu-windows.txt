@@ -1,0 +1,6 @@
+# NVIDIA-authored Python wheels; Windows x86-64 only.
+# Kept separate from the default install so CPU-only users needn't fetch >1 GB.
+# Revisions may need adjustment to match the installed NVIDIA graphics driver.
+nvidia-cublas-cu12==12.9.2.10
+nvidia-cudnn-cu12==9.28.1.4
+nvidia-cuda-runtime-cu12==12.9.79
