@@ -77,15 +77,23 @@ def transcribe_video(video: VideoInfo, model_directory: str, *,
     segments, _ = model.transcribe(video.path, beam_size=2, vad_filter=True,
                                    condition_on_previous_text=False)
     spans: list[TranscriptSegment] = []
-    for seg in segments:
-        if cancelled and cancelled():
-            raise CancelledError("Analyse abgebrochen")
-        start, end = float(seg.start), float(seg.end)
-        phrase = " ".join(str(seg.text).split())
-        if math.isfinite(start) and math.isfinite(end) and 0 <= start < end and phrase:
-            spans.append(TranscriptSegment(start, end, phrase))
-        if progress:
-            progress(min(100, int(100 * seg.end / video.duration)))
+    try:
+        for seg in segments:
+            if cancelled and cancelled():
+                raise CancelledError("Analyse abgebrochen")
+            start, end = float(seg.start), float(seg.end)
+            phrase = " ".join(str(seg.text).split())
+            if math.isfinite(start) and math.isfinite(end) and 0 <= start < end and phrase:
+                spans.append(TranscriptSegment(start, end, phrase))
+            if progress:
+                progress(min(100, int(100 * seg.end / video.duration)))
+    except TypeError as exc:
+        if "metadata_errors" not in str(exc):
+            raise
+        raise RuntimeError(
+            "Whisper/PyAV inkompatibel: bitte in der StreamClipper-Umgebung "
+            '.\\.venv\\Scripts\\python.exe -m pip install "av==17.1.0" ausführen.'
+        ) from exc
     if progress:
         progress(100)
     return spans
