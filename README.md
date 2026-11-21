@@ -381,3 +381,33 @@ Nach dem nächsten Start dieselbe Aufnahme öffnen und **Analyse laden (JSON)**
 wählen; die Erkennung durch Whisper wird dadurch nicht erneut gestartet.
 Der anschließende MP4-Export verwendet das korrigierte Transkript unmittelbar.
 Originaldateien und die ursprüngliche Audio-/Videospur werden nicht geändert.
+
+
+## CLIP-Modell unvollständig: model.safetensors fehlt
+
+Wenn die Meldung \`Error no file named model.safetensors, or pytorch_model.bin\`
+erscheint, ist der gewählte CLIP-Modellordner ohne lesbare Gewichtsdatei.
+Oft wurden nur die Konfigurationsdateien heruntergeladen oder der
+Download wurde unterbrochen.
+
+**Nur CLIP reparieren (PowerShell in D:\StreamClipper):**
+
+```powershell
+.\.venv\Scripts\python.exe scripts\setup_local_models.py --which vision
+Get-ChildItem .\data\models\clip-vit-base-patch32\ -Filter "*.safetensors"
+```
+
+
+Die Setup-Routine lädt bevorzugt \`model.safetensors\` und kann bei fehlender
+Safetensors-Datei \`pytorch_model.bin\` als Fallback herunterladen. Sie meldet
+\`Bereit und überprüft\` erst, nachdem eine Gewichtsdatei und \`config.json\`
+vorliegen.
+
+Für **lange Aufnahmen (3–6 Stunden)** prüft StreamClipper die lokalen
+CLIP-Dateien jetzt unmittelbar vor der Analyse, nicht erst nach der
+Audio- und Whisper-Verarbeitung. Die Prüfung ist offline und lädt keine
+Dateien ohne expliziten Setup-Aufruf herunter.
+
+**Temporäre Alternative:** Häkchen bei „Spielbilder (lokales CLIP)“
+deaktivieren. Dann sind weiterhin Audio- und Whisper-Highlights möglich;
+visuelle Bildähnlichkeiten werden nicht berücksichtigt.
