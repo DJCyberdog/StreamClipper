@@ -406,3 +406,36 @@ Bei CLI-Exports lässt sich dieselbe Korrektur manuell setzen:
 Hinweis: Whisper liefert Segment- statt präzise Wort-Zeitstempel. Bei
 stark variierendem Sprechtempo kann ein einheitlicher Versatz nicht alle
 Wörter korrekt ausrichten. Spätere Versionen können Wort-Alignment ergänzen.
+
+
+## Whisper-Transkript manuell korrigieren
+
+Whisper versteht nicht jedes gesprochene Wort richtig. Im Reiter **Transkript**
+kannst du deshalb nach einer Analyse jeden Abschnitt direkt bearbeiten:
+
+- **Zeile auswählen** springt zur entsprechenden Stelle im Video.
+- **Doppelklick auf „Erkannter Text“** öffnet den Texteditor. Nach Bestätigung
+  mit Enter wird die Korrektur sofort für den nächsten Untertitel-MP4-Export
+  übernommen.
+- **Doppelklick auf „Start“ oder „Ende“** erlaubt genaue Zeitkorrekturen.
+  Format: `HH:MM:SS.mmm`, z. B. `00:03:12.450`. Auch reine Sekunden
+  und Dezimalkomma sind möglich.
+- Ungültige Zeitgrenzen und leere Texte werden abgewiesen, damit ein
+  versehentlicher Tippfehler keine ungültigen Untertitel erzeugt.
+- Mit **„Analyse als JSON speichern“** werden Highlights und korrigiertes
+  Transkript gemeinsam gespeichert. Beim Schließen oder erneuten Analysieren
+  wird vor dem Verwerfen ungespeicherter Korrekturen nachgefragt.
+- Beim nächsten Start: zuerst dasselbe Video laden, anschließend
+  **„Analyse laden (JSON)“**. Das Transkript ist sofort wieder verfügbar;
+  **Whisper muss nicht erneut laufen**. Eine andere Datei oder Aufnahme
+  wird nicht versehentlich mit diesem Transkript verknüpft.
+
+Der Videoexport verwendet das korrigierte Transkript automatisch; SRT/VTT/TXT
+und CLI-Exporte aus der gespeicherten Analyse enthalten dieselben Änderungen.
+Das Originalvideo und die ursprüngliche Audiospur bleiben unverändert.
+Wenn du die Zeitstempel einzeln korrigiert hast, kannst du den zusätzlichen
+globalen **Untertitelversatz** auf `0,0 s` stellen.
+
+**Grenzen der ersten Editor-Version:** Einfügen/Löschen, Aufteilen oder
+Zusammenfügen von Abschnitten, Undo/Redo und automatische Wort-Zeitmarken
+sind noch nicht umgesetzt. Der Editor verarbeitet vorhandene Whisper-Segmente.
