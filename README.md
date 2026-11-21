@@ -381,3 +381,30 @@ Nach dem nächsten Start dieselbe Aufnahme öffnen und **Analyse laden (JSON)**
 wählen; die Erkennung durch Whisper wird dadurch nicht erneut gestartet.
 Der anschließende MP4-Export verwendet das korrigierte Transkript unmittelbar.
 Originaldateien und die ursprüngliche Audio-/Videospur werden nicht geändert.
+
+## Fehlerbehebung: CLIP findet keine Modellgewichte
+
+Falls die Analyse meldet, dass weder `model.safetensors` noch
+`pytorch_model.bin` im Modellordner vorhanden ist, war der
+CLIP-Modelldownload unvollständig. Bei `openai/clip-vit-base-patch32` liegt
+auf dem offiziellen Hauptbranch die Gewichtsdatei `pytorch_model.bin`.
+Die frühere Filterliste schloss sie versehentlich aus.
+
+**Reparatur mit dem korrigierten Modell-Setup:**
+
+```powershell
+cd D:\StreamClipper
+.\.venv\Scripts\python.exe scripts\setup_local_models.py --which vision
+Get-Item .\data\models\clip-vit-base-patch32\pytorch_model.bin | Select Name,Length
+```
+
+Der Installer lädt die Gewichtsdatei (ca. 605 MB) und meldet erst danach
+„Bereit und überprüft“. Bereits installierte Whisper-Modelle bleiben erhalten.
+Der Download erfordert Internet; die Videoanalyse selbst bleibt offline.
+
+Fehlt CLIP, bricht die Analyse jetzt vor der Verarbeitung einer langen
+Aufnahme ab. Alternativ „Spielbilder (lokales CLIP)“ deaktivieren und
+Whisper/Audio allein auswerten.
+
+Die Datei-Prüfung testet die Existenz der Gewichte und von config.json;
+ein echter Offline-Modellstart ist für die vollständige Abnahme zusätzlich nötig.
