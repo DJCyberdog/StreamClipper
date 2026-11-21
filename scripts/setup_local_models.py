@@ -9,6 +9,7 @@ from streamclipper.portable import configure_portable_environment
 configure_portable_environment()
 
 from streamclipper.semantic import default_models_directory
+from streamclipper.model_checks import validate_clip_model, CLIP_WEIGHTS
 
 MODELS = {
     "speech": ("Systran/faster-whisper-small", "whisper-small"),
@@ -35,7 +36,21 @@ def main(argv: list[str] | None = None) -> None:
                     else ["*.json", "*.txt", "*.model", "*.safetensors", "vocab.json", "merges.txt"])
         snapshot_download(repo_id=repository, local_dir=str(destination),
                           allow_patterns=patterns)
-        print(f"Bereit: {destination}")
+        if which == "vision":
+            if not any((destination / name).is_file() and
+                       (destination / name).stat().st_size > 0
+                       for name in CLIP_WEIGHTS):
+                # The official CLIP main branch currently provides
+                # pytorch_model.bin, not model.safetensors. Download it explicitly.
+                print("CLIP-Gewichte fehlen; lade pytorch_model.bin ...")
+                snapshot_download(repo_id=repository, local_dir=str(destination),
+                                  allow_patterns=["pytorch_model.bin"])
+            validate_clip_model(destination)
+        elif which == "speech":
+            if not (destination / "model.bin").is_file():
+                raise FileNotFoundError(
+                    f"Whisper-Modell unvollständig: model.bin fehlt in {destination}")
+        print(f"Bereit und überprüft: {destination}")
     print("Nur die ausgewählten Modelle wurden geladen. Die Analyse benötigt keine Internetverbindung.")
 
 
