@@ -15,11 +15,11 @@
 ## M1 — Robuster Aufnahme-/Export-Workflow (Codex-P0)
 
 - [ ] Problemfälle: Videos ohne Ton, mehrere OBS-Tonspuren, variable Framerate, beschädigte Eingabe
-- [ ] Fortschritt/Abbruch während FFmpeg-Export, atomare Dateinamen, Teil-Dateien bereinigen
+- [x] Fortschritt/Abbruch während FFmpeg-Export, atomare Dateinamen, Teil-Dateien bereinigen (SC-P0-01; Windows-Praxistest offen)
 - [ ] Vorschau im tatsächlichen 9:16-Layout, Crop-Position anpassbar
 - [ ] Clipgrenzen vor Export manuell veränderbar
 - [ ] Windows GUI-Smoke-Test / Build-Artefakt verifizieren
-- [ ] Tests für Unicode-Pfade, lange Videos, Überschreibschutz
+- [ ] Tests für sehr lange Videos (Unicode und Überschreibschutz durch SC-P0-01 abgedeckt)
 
 ## M2 — Gaming-Detektoren / Erklärbare Highlight-Fusion
 
