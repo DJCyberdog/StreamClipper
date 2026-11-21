@@ -4,6 +4,10 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
+from .portable import configure_portable_environment
+
+configure_portable_environment()
+
 from .analyze import analyze
 from .media import export_clip, probe_video
 
