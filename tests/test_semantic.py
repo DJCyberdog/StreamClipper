@@ -60,6 +60,7 @@ def test_same_modality_does_not_fabricate_multimodal_bonus():
 def test_multimodal_analyze_calls_both_detectors(monkeypatch):
     video = VideoInfo("fake.mkv", 160.0, 1920, 1080, 60, True)
     monkeypatch.setattr(analyzer, "probe_video", lambda path: video)
+    monkeypatch.setattr(analyzer, "validate_clip_model", lambda path: None)
     monkeypatch.setattr(analyzer, "audio_levels", lambda *_args, **_kwargs: [-45.0] * 160)
     called = []
     def fake_speech(*args, **kwargs):
