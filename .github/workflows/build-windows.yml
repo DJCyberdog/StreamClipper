@@ -1,5 +1,6 @@
 name: Windows portable build
 on:
+  pull_request:
   workflow_dispatch:
   push:
     tags: ['v*']
@@ -17,6 +18,12 @@ jobs:
         run: python -m pip install -e ".[gui,build]"
       - name: Build portable Windows executable
         run: pyinstaller --noconfirm --clean --onedir --windowed --name StreamClipper --paths src scripts/launch.py
+      - name: Verify binary exists
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "dist/StreamClipper/StreamClipper.exe")) {
+            throw "Windows EXE not created"
+          }
       - name: Include startup notes
         shell: pwsh
         run: |
