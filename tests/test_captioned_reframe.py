@@ -141,3 +141,44 @@ def test_caption_pixels_are_really_burned_into_mp4(short_video, tmp_path):
     burned = frame(subtitled)
     assert len(original) == len(burned) == 320 * 180
     assert sum(abs(a-b) for a,b in zip(original, burned)) > 1000
+
+
+def test_caption_positive_offset_delays_text_not_video():
+    sample = [TranscriptSegment(10.0, 12.0, "Test der zeitlichen Synchronisation")]
+    baseline = clip_captions(sample, 9, 13)
+    delayed = clip_captions(sample, 9, 13, offset_seconds=0.4)
+    assert delayed[0][0] == pytest.approx(baseline[0][0] + 0.4)
+    assert delayed[0][1] == pytest.approx(baseline[0][1] + 0.4)
+    assert delayed[0][2] == baseline[0][2]
+    ass = render_ass(sample, 9, 13, offset_seconds=0.4)
+    assert "Dialogue: 0,0:00:01.40,0:00:03.40" in ass
+
+
+def test_caption_offset_applied_before_clip_boundaries():
+    sample = [TranscriptSegment(9.6, 10.2, "geht jetzt los")]
+    # Source begins before clip, but its delayed display should remain visible.
+    result = clip_captions(sample, 10, 11, offset_seconds=0.5)
+    assert result == [(pytest.approx(.1), pytest.approx(.7), "geht jetzt los")]
+    # Negative shifts never produce negative/invalid ASS start times.
+    result = clip_captions([TranscriptSegment(10, 11, "zu früh")], 10, 11,
+                           offset_seconds=-0.4)
+    assert result[0][0] == 0
+    assert result[0][1] == pytest.approx(.6)
+
+
+@pytest.mark.parametrize("offset", [float("inf"), float("nan"), -5.1, 5.1])
+def test_caption_offset_rejects_invalid_values(offset):
+    with pytest.raises(ValueError, match="Untertitelversatz"):
+        clip_captions([TranscriptSegment(1, 2, "test")], 0, 3,
+                      offset_seconds=offset)
+
+
+def test_subtitle_offset_does_not_modify_original_media(short_video, tmp_path):
+    source, info = short_video
+    before = source.read_bytes()
+    out = export_clip(info, 0, 2.5, tmp_path / "subtitle-delayed.mp4",
+                      mode="crop", width=320, height=180,
+                      transcript=[TranscriptSegment(.2, 1.5, "Audio zuerst, Text danach")],
+                      burn_subtitles=True, subtitle_offset=0.5)
+    assert out.is_file()
+    assert source.read_bytes() == before
