@@ -1,6 +1,6 @@
-# StreamClipper 0.3
+# StreamClipper 0.4 (experimenteller Export)
 
-**Lokale Windows-App für Gaming-/Twitch-Highlights mit vertikalem TikTok-Export.**
+**Lokale Windows-App für Gaming-/Twitch-Highlights mit optionalen eingebrannten Untertiteln und dynamischem 16:9-/9:16-Export.**
 
 Das ist ein *funktionsfähiger MVP*, noch kein vollständig KI-gestützter Viral-Clip-Generator.
 Der Baseline-Analyzer benutzt RMS-Lautstärkespitzen als messbare Heuristik. Der optionale
@@ -247,3 +247,50 @@ Dialogen falsch transkribieren. Originalvideos bleiben unverändert.
 
 Der Transkripttext wird bei einer gespeicherten Highlight-JSON-Analyse auch
 im JSON hinterlegt; dieses JSON gegebenenfalls vertraulich behandeln.
+
+## 0.4 – Untertitel im Bild und dynamischer Kameraausschnitt (experimentell)
+
+Whisper wird während der Analyse **einmal** ausgeführt und erzeugt zeitgestempelte
+Textabschnitte im Analyseergebnis. Wähle in der GUI **„Sprache + Transkript
+(lokales Whisper)“**, starte die Analyse und anschließend bei Export
+**„Untertitel direkt ins Video“**. Die fertige MP4 enthält die Untertitel
+fest eingebrannt – TikTok braucht keine separate SRT/TXT-Datei.
+
+Neue Exportmodi (GUI und CLI):
+
+- **smart16**: 16:9 (standardmäßig 1920×1080), sanfter digitaler Zoom (ca. 18 %)
+  mit gleitendem Ausschnitt anhand lokaler Bildbewegungen.
+- **smart9**: 9:16 (standardmäßig 1080×1920), beweglicher Hochformat-Ausschnitt.
+- **blur/crop**: unveränderte bestehende feste Hochformat-Layouts.
+
+Der Tracking-Algorithmus dekodiert **nur den ausgewählten Clip**, mit
+kleinen Graustufenbildern und maximal 120 Samples (standardmäßig 2 fps).
+Er folgt einem geglätteten Schwerpunkt lokaler Bewegungsunterschiede. Dies
+ist **keine** Objekt-/Gesichts-/Spielerkennung: bei Kamerawechseln, HUD,
+Explosionen oder sehr schnellen Bewegungen kann der Ausschnitt falsch liegen.
+Insbesondere wird kein Motiv garantiert über die ganze Szene verfolgt.
+
+Die Untertitel sind lesbar mit weißer Schrift, schwarzer Kontur und
+sicherer Behandlung von Sonderzeichen. Der Zwischenschritt ist eine temporäre
+ASS-Datei, die nach dem Rendern entfernt wird. Bei Abbruch oder Fehler wird
+keine teilweise gerenderte finale MP4 veröffentlicht. Externe FFmpeg-Builds
+müssen den **ass/libass-Filter** enthalten. Die von Gyan gebaute Windows
+Full-Version enthält ihn üblicherweise; mit `ffmpeg -filters` prüfen.
+
+**CLI-Beispiel mit vorhandener Analyse-JSON** (nicht noch einmal transkribieren):
+
+```powershell
+.\.venv\Scripts\python.exe -m streamclipper.cli export "D:\Videos\gameplay.mkv" `
+  --start 120 --end 145 --mode smart16 `
+  --transcript-json "D:\Videos\gameplay.highlights.json" --burn-subtitles `
+  --output "D:\Clips\highlight.mp4"
+```
+
+Die SRT/TXT/VTT-Exportmöglichkeit bleibt freiwillig, ist für den fertigen
+Clip aber **nicht** erforderlich. Der Vorschaubereich spielt weiterhin die
+Originalaufnahme; eine Vorschau **mit** eingebrannten Untertiteln und
+Auto-Reframing kann derzeit erst nach dem Export betrachtet werden.
+
+**Tests:** synthetische FFmpeg-Integration für 16:9 und 9:16, Untertitel,
+Unicode-Namen, Datensicherheit; echte Whisper-Inferenz, echte 3+-Stunden-
+OBS-Aufnahmen und die Windows-GUI sind noch separat abzunehmen.

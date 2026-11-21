@@ -52,3 +52,15 @@ validiert und messbar verglichen wurden.
 - [ ] Manuell annotiertes Gaming-Evaluationsset und Fehlerratenmessung
 - [ ] Zeitliche Szenen-/Ereigniserkennung statt Einzelbild-Ähnlichkeit
 - [ ] Transkript- und Gameplay-Hinweise für Sprache/Mischspur und Kontext verbessern
+
+## M4 – eingebrannte Untertitel / dynamische Bildführung (experimentell)
+
+- [x] Whisper-Transkript einmal pro Analyse behalten und für Clip-Captions wiederverwenden
+- [x] Fest eingebrannte Untertitel beim MP4-Export (ASS/FFmpeg, deutsche/englische Texte)
+- [x] Automatischer 16:9-Zoom/Pan und 9:16-Reframe anhand lokaler Bildbewegungen
+- [x] Pro Clip getrennte Motion-Sampling-Pipeline, temporäre Assets gelöscht
+- [x] Synthetische Untertitel-/Motion-/FFmpeg-Tests ohne externe KI-Gewichte
+- [ ] Windows-11-Praxistest mit echten OBS-Streams und Whisper-Modell
+- [ ] Objektbasierte Erkennung statt einfacher Bewegungsheuristik
+- [ ] Echtzeit-Vorschau des endgültigen Untertitel-/Kameralayouts
+- [ ] Qualitätstest für ganze drei- bis vierstündige Aufnahmen

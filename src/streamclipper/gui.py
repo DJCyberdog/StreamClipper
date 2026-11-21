@@ -68,12 +68,13 @@ class ExportThread(QThread):
     failed = Signal(str)
 
     def __init__(self, analysis: AnalysisResult, items: list[Candidate], directory: str,
-                 mode: str, parent=None):
+                 mode: str, parent=None, burn_subtitles: bool = False):
         super().__init__(parent)
         self.analysis = analysis
         self.items = items
         self.directory = directory
         self.mode = mode
+        self.burn_subtitles = burn_subtitles
         self._cancelled = threading.Event()
 
     def cancel(self) -> None:
@@ -90,6 +91,8 @@ class ExportThread(QThread):
                 actual = export_clip(
                     self.analysis.video, clip.start, clip.end, target,
                     self.mode, cancelled=self._cancelled.is_set,
+                    transcript=self.analysis.transcript,
+                    burn_subtitles=self.burn_subtitles,
                     progress=lambda value, i=i: self.progress_changed.emit(
                         round(((i - 1) + value / 100) / len(self.items) * 100)
                     ),
@@ -103,7 +106,7 @@ class ExportThread(QThread):
 class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
-        self.setWindowTitle("StreamClipper – Gaming Highlights 0.3")
+        self.setWindowTitle("StreamClipper – Gaming Highlights 0.4 (experimentell)")
         self.resize(1200, 760)
         self.source: str | None = None
         self.analysis: AnalysisResult | None = None
@@ -151,6 +154,7 @@ class MainWindow(QMainWindow):
         speech_default = default_models_directory() / "whisper-small"
         if speech_default.is_dir():
             self.speech_path.setText(str(speech_default))
+            self.speech_enabled.setChecked(True)
         models.addWidget(self.speech_path, 2)
         speech_browse = QPushButton("…")
         speech_browse.clicked.connect(lambda: self.choose_model(self.speech_path))
@@ -192,7 +196,7 @@ class MainWindow(QMainWindow):
         playback.addWidget(self.time_label)
         preview_layout.addLayout(playback)
         preview_layout.addWidget(QLabel(
-            "Vorschau zeigt das Original; Ausgabe ist vertikal 1080 × 1920."
+            "Vorschau zeigt das Original; Ausgabeformat und Untertitel wirken erst beim Export."
         ))
         splitter.addWidget(preview_container)
 
@@ -232,11 +236,17 @@ class MainWindow(QMainWindow):
         main.addWidget(splitter, 1)
 
         actions = QHBoxLayout()
-        actions.addWidget(QLabel("Bildformat"))
+        actions.addWidget(QLabel("Exportformat"))
         self.mode = QComboBox()
-        self.mode.addItem("Gameplay komplett, unscharfer Hintergrund", "blur")
-        self.mode.addItem("Hochformat-Ausschnitt (Mitte)", "crop")
+        self.mode.addItem("16:9 – dynamische Kamera (sanfter Zoom)", "smart16")
+        self.mode.addItem("9:16 – dynamischer Ausschnitt für TikTok", "smart9")
+        self.mode.addItem("9:16 – ganzes Bild / unscharfer Hintergrund", "blur")
+        self.mode.addItem("9:16 – fester Mittel-Ausschnitt", "crop")
         actions.addWidget(self.mode)
+        self.burn_subtitles = QCheckBox("Untertitel direkt ins Video")
+        self.burn_subtitles.setChecked(True)
+        self.burn_subtitles.setToolTip("Benötigt eine durch Whisper transkribierte Aufnahme.")
+        actions.addWidget(self.burn_subtitles)
         self.single_export = QPushButton("Ausgewählten Clip exportieren")
         self.single_export.clicked.connect(lambda: self.start_export(False))
         self.single_export.setEnabled(False)
@@ -283,6 +293,7 @@ class MainWindow(QMainWindow):
         self.all_export.setEnabled(ready and bool(self.analysis.candidates if self.analysis else []))
         self.report_button.setEnabled(ready)
         self.transcript_button.setEnabled(ready and bool(self.analysis.transcript if self.analysis else []))
+        self.burn_subtitles.setEnabled(ready and bool(self.analysis.transcript if self.analysis else []))
 
     def open_video(self) -> None:
         source, _ = QFileDialog.getOpenFileName(self, "Aufnahme öffnen", "",
@@ -438,7 +449,9 @@ class MainWindow(QMainWindow):
             return
         self.progress.setValue(0)
         self.worker = ExportThread(self.analysis, items, directory,
-                                   str(self.mode.currentData()), self)
+                                   str(self.mode.currentData()), self,
+                                   burn_subtitles=self.burn_subtitles.isChecked()
+                                   and bool(self.analysis.transcript))
         self.worker.progress_changed.connect(self.progress.setValue)
         self.worker.done.connect(self.export_finished)
         self.worker.failed.connect(self.job_failed)

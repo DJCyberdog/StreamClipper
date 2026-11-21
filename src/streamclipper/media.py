@@ -14,7 +14,7 @@ import subprocess
 import sys
 from typing import Callable
 
-from .models import VideoInfo
+from .models import VideoInfo, TranscriptSegment
 
 Progress = Callable[[int], None]
 Cancelled = Callable[[], bool]
@@ -139,19 +139,40 @@ def safe_destination(folder: str | Path, basename: str) -> Path:
     return candidate
 
 
+def video_dimensions(mode: str, width: int = 1080, height: int = 1920) -> tuple[int, int]:
+    """Keep old 9:16 default but make smart16 landscape by default."""
+    if mode == "smart16" and (width, height) == (1080, 1920):
+        return 1920, 1080
+    return width, height
+
+
 def build_export_command(video: VideoInfo, start: float, end: float, destination: str | Path,
                          mode: str = "blur", width: int = 1080, height: int = 1920,
-                         ffmpeg_executable: str = "ffmpeg") -> list[str]:
-    if mode not in {"blur", "crop"}:
-        raise ValueError("Ungültiger Bildmodus: blur oder crop")
+                         ffmpeg_executable: str = "ffmpeg", *,
+                         motion_points=None, burned_captions: bool = False) -> list[str]:
+    """Construct command without a shell. Optional captions use a local ASS file.
+
+    If burned_captions, the caller must write `captions.ass` in the FFmpeg cwd.
+    Paths never enter the filtergraph, avoiding Windows `C:`/Unicode escaping.
+    """
+    if mode not in {"blur", "crop", "smart16", "smart9"}:
+        raise ValueError("Ungültiger Bildmodus: blur, crop, smart16 oder smart9")
+    width, height = video_dimensions(mode, width, height)
     if width <= 0 or height <= 0 or width % 2 or height % 2:
         raise ValueError("Breite und Höhe müssen positive gerade Zahlen sein")
     if not (0 <= start < end <= video.duration + 0.1):
         raise ValueError("Ungültiges Clip-Zeitfenster")
-    if mode == "crop":
+    final_label = "base" if burned_captions else "v"
+    if mode in {"smart16", "smart9"}:
+        from .reframe import FocusPoint, smart_crop_filter
+        if not motion_points:
+            motion_points = [FocusPoint(0., .5, .5)]
+        zoom = 1.18 if mode == "smart16" else 1.0
+        chain = f"[0:v:0]{smart_crop_filter(width, height, motion_points, zoom=zoom)}[{final_label}]"
+    elif mode == "crop":
         chain = (
             f"[0:v:0]scale={width}:{height}:force_original_aspect_ratio=increase,"
-            f"crop={width}:{height},setsar=1,format=yuv420p[v]"
+            f"crop={width}:{height},setsar=1,format=yuv420p[{final_label}]"
         )
     else:
         chain = (
@@ -161,8 +182,10 @@ def build_export_command(video: VideoInfo, start: float, end: float, destination
             f"[fg]scale={width}:{height}:force_original_aspect_ratio=decrease,"
             "pad=ceil(iw/2)*2:ceil(ih/2)*2:0:0[front];"
             "[back][front]overlay=(W-w)/2:(H-h)/2:shortest=1,"
-            "setsar=1,format=yuv420p[v]"
+            f"setsar=1,format=yuv420p[{final_label}]"
         )
+    if burned_captions:
+        chain += ";[base]ass=filename=captions.ass,format=yuv420p[v]"
     return [ffmpeg_executable, "-hide_banner", "-nostdin", "-loglevel", "error", "-n",
             "-ss", f"{start:.3f}", "-i", video.path, "-t", f"{end-start:.3f}",
             "-filter_complex", chain, "-map", "[v]", "-map", "0:a:0?",
@@ -228,7 +251,9 @@ def _publish_without_overwrite(partial: Path, requested: Path) -> Path:
 def export_clip(video: VideoInfo, start: float, end: float, destination: str | Path,
                 mode: str = "blur", width: int = 1080, height: int = 1920,
                 cancelled: Cancelled | None = None,
-                progress: Progress | None = None) -> Path:
+                progress: Progress | None = None, *,
+                transcript: list[TranscriptSegment] | None = None,
+                burn_subtitles: bool = False) -> Path:
     """Encode with cancellable progress and publish only validated, complete MP4s.
 
     The temporary file is on the destination filesystem for atomic publication.
@@ -242,17 +267,30 @@ def export_clip(video: VideoInfo, start: float, end: float, destination: str | P
         raise CancelledError("Export abgebrochen")
     duration = end - start
     # Validate parameters before allocating temp files or starting FFmpeg.
+    width, height = video_dimensions(mode, width, height)
     build_export_command(video, start, end, output, mode, width, height)
+    if burn_subtitles and not transcript:
+        raise ValueError("Untertitel benötigen zuerst ein Whisper-Transkript.")
 
     with tempfile.TemporaryDirectory(prefix=f".{output.stem}-", dir=output.parent) as workdir:
         partial = Path(workdir) / f"{output.stem}.partial.mp4"
+        motion_points = None
+        if mode in {"smart16", "smart9"}:
+            from .reframe import clip_motion_path
+            motion_points = clip_motion_path(video, start, end, cancelled=cancelled)
+        if burn_subtitles:
+            from .captioning import render_ass
+            (Path(workdir) / "captions.ass").write_text(
+                render_ass(transcript or [], start, end, width=width, height=height),
+                encoding="utf-8-sig", newline="\n")
         cmd = build_export_command(video, start, end, partial, mode, width, height,
-                                   tool_path("ffmpeg"))
+                                   tool_path("ffmpeg"), motion_points=motion_points,
+                                   burned_captions=burn_subtitles)
         cmd[1:1] = ["-progress", "pipe:1", "-stats_period", "0.25"]
         with tempfile.TemporaryFile(mode="w+b") as stderr_log:
             proc = subprocess.Popen(
                 cmd, stdout=subprocess.PIPE, stderr=stderr_log,
-                text=True, encoding="utf-8", errors="replace",
+                text=True, encoding="utf-8", errors="replace", cwd=workdir,
             )
             updates: queue.Queue[float] = queue.Queue()
 
