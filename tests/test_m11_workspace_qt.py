@@ -67,3 +67,38 @@ def test_multitrack_tab_atomic_edits_and_project_history(tmp_path,monkeypatch):
         window._autosave_timer.stop()
         window.close()
         app.processEvents()
+
+
+def test_graphical_track_canvas_drag_and_selection():
+    from PySide6.QtCore import QPoint, Qt
+    from PySide6.QtTest import QTest
+    from streamclipper.track_canvas import TrackCanvas
+    from streamclipper.editor_project import initial_project, add_item
+    app=QApplication.instance() or QApplication([])
+    source=VideoInfo("not-opened.mp4",300,1920,1080,30,True)
+    project=add_item(initial_project(source),"music",100,110,20,"Dramatische Musik")
+    canvas=TrackCanvas()
+    canvas.resize(850,300)
+    canvas.set_project(project)
+    canvas.set_visible_range(0,100)
+    moved=[]
+    selected=[]
+    canvas.clipMoved.connect(lambda item_id,pos: moved.append((item_id,pos)))
+    canvas.clipSelected.connect(selected.append)
+    canvas.show()
+    app.processEvents()
+    try:
+        # Music is lane index 2 (third lane); clip spans timeline seconds 20..30.
+        x=round(canvas._x(25))
+        y=canvas._TOP + 2*canvas._ROW + 15
+        QTest.mousePress(canvas,Qt.MouseButton.LeftButton,pos=QPoint(x,y))
+        QTest.mouseMove(canvas,QPoint(x+70,y))
+        QTest.mouseRelease(canvas,Qt.MouseButton.LeftButton,pos=QPoint(x+70,y))
+        assert selected==[project.items[-1].id]
+        assert len(moved)==1
+        assert moved[0][0]==project.items[-1].id
+        assert moved[0][1]>20
+        assert canvas.view_end-canvas.view_start==100
+    finally:
+        canvas.close()
+        app.processEvents()
