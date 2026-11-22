@@ -1693,6 +1693,13 @@ class MainWindow(QMainWindow):
             return False
         self.report_path = filename
         self.transcript_dirty = False
+        self._autosave_timer.stop()
+        if self.source:
+            try:
+                clear_autosave(self.source)
+            except OSError:
+                pass  # manual report is safe; stale recovery can be removed later
+        self.autosave_hint.setText("✓ Projekt gespeichert")
         self.statusBar().showMessage("Korrigierte Analyse gespeichert: " + filename)
         return True
 
@@ -1709,7 +1716,15 @@ class MainWindow(QMainWindow):
             QMessageBox.StandardButton.Save)
         if answer == QMessageBox.StandardButton.Save:
             return self.save_report()
-        return answer == QMessageBox.StandardButton.Discard
+        if answer == QMessageBox.StandardButton.Discard:
+            self._autosave_timer.stop()
+            if self.source:
+                try:
+                    clear_autosave(self.source)
+                except OSError:
+                    pass
+            return True
+        return False
 
     def load_report(self) -> None:
         if not self.source:
