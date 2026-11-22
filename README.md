@@ -436,3 +436,38 @@ mit; der Import selbst lädt sonst keine Python-Abhängigkeiten nach.
 Twitch bietet einen offiziellen Download eigener VODs über den Video Producer;
 `yt-dlp` ist ein unabhängiges Drittanbieterwerkzeug, dessen Funktion sich
 bei Änderungen an Twitch jederzeit ändern kann.
+
+## M6: Zoom-Timeline und Schnitt mit Untertitelvorschau (experimentell)
+
+Im Hauptfenster liegt jetzt eine **Timeline** mit drei Spuren: Audio-Wellenform,
+Highlight-Regionen und zeitgestempelte Whisper-Untertitel. Die Wellenform
+wird unabhängig von KI in einem abbrechbaren FFmpeg-Hintergrundthread erstellt.
+Sie besteht aus maximal 8.192 Amplitudenpunkten, selbst bei sechs Stunden
+Aufnahme – es werden keine Roh-Audiosamples im Arbeitsspeicher gesammelt.
+
+**Bedienung:**
+
+- **Klick auf die Timeline** springt zur Stelle im Video; rote Linie = Abspielkopf.
+- **Gelbe IN-/OUT-Markierungen ziehen** verändert den Schnittbereich;
+  **Umschalt + Ziehen** wählt einen neuen Bereich.
+- **Zoom** (Gesamt / 5× / 15× / 30× / 60× / 120×) und der horizontale
+  Scrollregler navigieren in langen Aufnahmen. IN/OUT können zusätzlich in
+  Dezimalsekunden auf eine Millisekunde genau eingegeben werden; die Anzeige
+  daneben nutzt HH:MM:SS.mmm.
+- **▶ Auswahl abspielen** spielt nur die markierte Region.
+- **★ Auswahl als Highlight** legt einen neuen manuellen Clip an;
+  über **Ausgewählten Clip exportieren** wird er wie bisher gerendert.
+- **✂ Markiertes Highlight trimmen** ändert ausschließlich den markierten
+  manuellen Clip (KI-Vorschläge werden nicht verdeckt überschrieben).
+- **Untertitel auf der unteren Timeline-Spur anklicken** wechselt zum
+  vorhandenen Korrektureditor. In der Video-Vorschau erscheinen vereinfachte
+  eingeblendete Textgruppen (je maximal acht Wörter) mit dem gewählten
+  Untertitelversatz. Korrekturen sind ohne erneute Whisper-Inferenz sichtbar.
+
+**Grenzen:** Die Live-Vorschau zeigt das Originalbild mit einer vereinfachten
+Untertitel-Überlagerung; das finale ASS-Fontlayout und die dynamische
+16:9-/9:16-Kameraführung werden weiterhin **erst beim Export** gerendert.
+Das ist ein erster Schnitt-Workflow, noch kein vollständiger Mehrspur-NLE:
+kein Mehrclip-Arrangement, keine Übergänge/Keyframes und kein Undo-Stack.
+Die Bedienung auf dem echten Windows-/NVIDIA-Zielrechner und sechs Stunden
+reales Videomaterial sind noch separat zu verifizieren.

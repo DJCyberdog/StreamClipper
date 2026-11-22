@@ -397,3 +397,54 @@ def sampled_jpeg_frames(video: VideoInfo, *, max_frames: int = 180,
             proc.wait()
             if proc.stdout:
                 proc.stdout.close()
+
+
+def waveform_peaks(video: VideoInfo, *, max_bins: int = 8192,
+                   cancelled: Cancelled | None = None,
+                   sample_rate: int = 600) -> list[float]:
+    """Compute a bounded audio waveform suitable for a 6+ hour Qt timeline.
+
+    Stream decoded mono PCM at a low sample rate; never buffer the entire
+    recording. The result holds <= max_bins normalized RMS amplitudes.
+    This is optional and independent of Whisper/CLIP and highlight scoring.
+    """
+    if not video.has_audio:
+        return []
+    if not 100 <= max_bins <= 65536 or not 100 <= sample_rate <= 8000:
+        raise ValueError("Ungültige Wellenform-Auflösung")
+    if cancelled and cancelled():
+        raise CancelledError("Wellenform abgebrochen")
+    # ceil ensures the whole recording needs at most max_bins output buckets.
+    samples_per_bin = max(1, math.ceil(video.duration * sample_rate / max_bins))
+    command = [tool_path("ffmpeg"), "-hide_banner", "-nostdin", "-loglevel", "error",
+               "-i", video.path, "-map", "0:a:0", "-vn", "-ac", "1",
+               "-ar", str(sample_rate), "-f", "s16le", "pipe:1"]
+    proc = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    levels: list[float] = []
+    try:
+        assert proc.stdout is not None
+        while True:
+            if cancelled and cancelled():
+                raise CancelledError("Wellenform abgebrochen")
+            blob = proc.stdout.read(samples_per_bin * 2)
+            if not blob:
+                break
+            data = array("h")
+            data.frombytes(blob[:len(blob) // 2 * 2])
+            if sys.byteorder != "little":
+                data.byteswap()
+            if not data:
+                break
+            rms = math.sqrt(sum(int(v) * int(v) for v in data) / len(data)) / 32768
+            if len(levels) < max_bins:
+                levels.append(rms)
+        if proc.wait() != 0:
+            raise RuntimeError("FFmpeg konnte die Wellenform nicht erzeugen.")
+        high = max(levels, default=0.0)
+        return [round(math.sqrt(v / high), 5) for v in levels] if high > 0 else levels
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+        proc.wait()
+        if proc.stdout:
+            proc.stdout.close()

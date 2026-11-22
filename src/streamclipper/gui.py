@@ -9,7 +9,7 @@ from .portable import configure_portable_environment
 
 configure_portable_environment()
 
-from PySide6.QtCore import Qt, QThread, QUrl, Signal
+from PySide6.QtCore import QEvent, Qt, QThread, QUrl, Signal
 from PySide6.QtGui import QColor, QKeySequence, QShortcut
 from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
 from PySide6.QtMultimediaWidgets import QVideoWidget
@@ -22,16 +22,18 @@ from PySide6.QtWidgets import (
 )
 
 from .analyze import analyze
-from .media import CancelledError, export_clip, probe_video, safe_destination, tool_path
+from .media import CancelledError, export_clip, probe_video, safe_destination, tool_path, waveform_peaks
 from .model_checks import validate_clip_model
 from .models import AnalysisResult, Candidate
-from .manual_highlights import add_manual_highlight, remove_manual_highlight
+from .manual_highlights import add_manual_highlight, remove_manual_highlight, trim_manual_highlight
 from .twitch_import import download_twitch_vod, parse_twitch_vod_url
 from .portable import installation_directory
 from .transcript_editor import (apply_segment_changes, format_timestamp,
                                 load_analysis_report, parse_timestamp)
 from .semantic import default_models_directory
 from .transcript import save_transcript
+from .timeline import caption_at_time
+from .timeline_widget import TimelineWidget
 
 
 def display_time(seconds: float) -> str:
@@ -138,11 +140,36 @@ class TwitchImportThread(QThread):
             self.failed.emit(str(exc))
 
 
+class WaveformThread(QThread):
+    """Decode the audio overview in the background, without Whisper."""
+    done = Signal(str, object)
+    failed = Signal(str, str)
+
+    def __init__(self, filename: str, parent=None):
+        super().__init__(parent)
+        self.filename = filename
+        self._cancelled = threading.Event()
+
+    def cancel(self):
+        self._cancelled.set()
+
+    def run(self):
+        try:
+            video = probe_video(self.filename)
+            peaks = waveform_peaks(video, cancelled=self._cancelled.is_set)
+            if not self._cancelled.is_set():
+                self.done.emit(self.filename, (video, peaks))
+        except CancelledError:
+            pass
+        except (OSError, ValueError, RuntimeError) as exc:
+            self.failed.emit(self.filename, str(exc))
+
+
 class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
-        self.setWindowTitle("StreamClipper – Gaming Highlights 0.4 (experimentell)")
-        self.resize(1200, 760)
+        self.setWindowTitle("StreamClipper – Timeline M6 (experimentell)")
+        self.resize(1440, 920)
         self.source: str | None = None
         self.analysis: AnalysisResult | None = None
         self.worker: AnalysisThread | ExportThread | TwitchImportThread | None = None
@@ -153,6 +180,9 @@ class MainWindow(QMainWindow):
         self._manual_from: float | None = None
         self._manual_to: float | None = None
         self._manual_pending: list[Candidate] = []
+        self._waveform_workers: list[WaveformThread] = []
+        self._source_duration: float = 0.0
+        self._active_caption: tuple[int, int] | None = None
 
         self.player = QMediaPlayer(self)
         self.audio = QAudioOutput(self)
@@ -226,8 +256,17 @@ class MainWindow(QMainWindow):
         preview_layout = QVBoxLayout(preview_container)
         preview_layout.setContentsMargins(0, 0, 0, 0)
         self.video_widget = QVideoWidget()
-        self.video_widget.setMinimumHeight(320)
+        self.video_widget.setMinimumHeight(290)
         self.player.setVideoOutput(self.video_widget)
+        self.caption_overlay = QLabel(self.video_widget)
+        self.caption_overlay.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter)
+        self.caption_overlay.setWordWrap(True)
+        self.caption_overlay.setStyleSheet(
+            "color: white; background-color: rgba(0,0,0,165); font-size: 19px; "
+            "font-weight: bold; border-radius: 5px; padding: 7px;")
+        self.caption_overlay.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        self.caption_overlay.hide()
+        self.video_widget.installEventFilter(self)
         preview_layout.addWidget(self.video_widget, 1)
         playback = QHBoxLayout()
         self.play_button = QPushButton("▶ Wiedergabe / Pause")
@@ -241,7 +280,8 @@ class MainWindow(QMainWindow):
         playback.addWidget(self.time_label)
         preview_layout.addLayout(playback)
         preview_layout.addWidget(QLabel(
-            "Vorschau zeigt das Original; Ausgabeformat und Untertitel wirken erst beim Export."
+            "Vorschau: Originalvideo + zeitlich passende Untertitel. "
+            "Dynamischer 16:9/9:16-Bildausschnitt erst im Export."
         ))
         splitter.addWidget(preview_container)
 
@@ -377,6 +417,63 @@ class MainWindow(QMainWindow):
         splitter.setSizes([580, 620])
         main.addWidget(splitter, 1)
 
+        # M6: zoomable waveform editing. Waveform is decoded on a background
+        # thread and has a fixed upper bound independent of VOD duration.
+        timeline_header = QHBoxLayout()
+        timeline_header.addWidget(QLabel("TIMELINE · Audio / Highlights / Untertitel"))
+        timeline_header.addStretch()
+        timeline_header.addWidget(QLabel("Zoom"))
+        self.timeline_zoom = QComboBox()
+        for label, amount in (("Gesamt", 1), ("5×", 5), ("15×", 15),
+                              ("30×", 30), ("60×", 60), ("120×", 120)):
+            self.timeline_zoom.addItem(label, amount)
+        self.timeline_zoom.currentIndexChanged.connect(self.change_timeline_zoom)
+        timeline_header.addWidget(self.timeline_zoom)
+        self.timeline_status = QLabel("Keine Aufnahme geladen")
+        timeline_header.addWidget(self.timeline_status)
+        main.addLayout(timeline_header)
+
+        self.timeline = TimelineWidget()
+        self.timeline.playheadMoved.connect(self.timeline_seek)
+        self.timeline.selectionChanged.connect(self.timeline_range_changed)
+        self.timeline.subtitleSelected.connect(self.timeline_select_subtitle)
+        main.addWidget(self.timeline)
+        self.timeline_scroll = QSlider(Qt.Orientation.Horizontal)
+        self.timeline_scroll.setMinimum(0)
+        self.timeline_scroll.setMaximum(0)
+        self.timeline_scroll.valueChanged.connect(self.timeline_scroll_changed)
+        main.addWidget(self.timeline_scroll)
+        clip_tools = QHBoxLayout()
+        clip_tools.addWidget(QLabel("IN"))
+        self.timeline_in = QDoubleSpinBox()
+        self.timeline_in.setDecimals(3)
+        self.timeline_in.setSingleStep(.1)
+        self.timeline_in.setSuffix(" s")
+        self.timeline_in.setMaximum(24 * 3600)
+        self.timeline_in.valueChanged.connect(self.timeline_fields_changed)
+        clip_tools.addWidget(self.timeline_in)
+        clip_tools.addWidget(QLabel("OUT"))
+        self.timeline_out = QDoubleSpinBox()
+        self.timeline_out.setDecimals(3)
+        self.timeline_out.setSingleStep(.1)
+        self.timeline_out.setSuffix(" s")
+        self.timeline_out.setMaximum(24 * 3600)
+        self.timeline_out.valueChanged.connect(self.timeline_fields_changed)
+        clip_tools.addWidget(self.timeline_out)
+        self.timeline_selection_label = QLabel("00:00:00.000 – 00:00:25.000")
+        clip_tools.addWidget(self.timeline_selection_label)
+        self.timeline_play = QPushButton("▶ Auswahl abspielen")
+        self.timeline_play.clicked.connect(self.preview_timeline_selection)
+        clip_tools.addWidget(self.timeline_play)
+        self.timeline_add = QPushButton("★ Auswahl als Highlight")
+        self.timeline_add.clicked.connect(self.add_timeline_highlight)
+        clip_tools.addWidget(self.timeline_add)
+        self.timeline_trim = QPushButton("✂ Markiertes Highlight trimmen")
+        self.timeline_trim.clicked.connect(self.trim_timeline_highlight)
+        clip_tools.addWidget(self.timeline_trim)
+        clip_tools.addStretch()
+        main.addLayout(clip_tools)
+
         actions = QHBoxLayout()
         actions.addWidget(QLabel("Exportformat"))
         self.mode = QComboBox()
@@ -419,7 +516,9 @@ class MainWindow(QMainWindow):
         self.caption_offset.setSingleStep(0.1)
         self.caption_offset.setValue(0.4)
         self.caption_offset.setSuffix(" s")
-        self.caption_offset.setToolTip("Positive Werte: Untertitel erscheinen später. Negative: früher.")
+        self.caption_offset.valueChanged.connect(self.caption_offset_changed)
+        self.timeline.set_caption_offset(self.caption_offset.value())
+        self.caption_offset.setToolTip("Positive Werte: Untertitel erscheinen später. Negative: früher.\nVorschau und Export verwenden denselben Versatz.")
         caption_options.addWidget(self.caption_offset)
         caption_options.addWidget(QLabel("+ = später, − = früher · ohne erneute Transkription"))
         caption_options.addStretch()
@@ -429,6 +528,11 @@ class MainWindow(QMainWindow):
         self.progress.setValue(0)
         main.addWidget(self.progress)
         self.statusBar().showMessage("Bereit")
+        self._timeline_buttons = (self.timeline_in, self.timeline_out,
+                                  self.timeline_play, self.timeline_add,
+                                  self.timeline_trim, self.timeline_zoom,
+                                  self.timeline_scroll)
+        self._busy(False)
         self.setStyleSheet("""
             QMainWindow, QWidget { background: #151922; color: #edf2fa; font-size: 13px; }
             QPushButton { background: #26344a; border: 1px solid #41516a;
@@ -447,6 +551,11 @@ class MainWindow(QMainWindow):
     def _busy(self, busy: bool) -> None:
         self.open_button.setEnabled(not busy)
         self.twitch_button.setEnabled(not busy)
+        for control in self._timeline_buttons:
+            control.setEnabled(bool(self.source) and not busy)
+        clip = self.selected_candidate()
+        self.timeline_trim.setEnabled(bool(self.source) and not busy
+                                      and clip is not None and clip.origin == "manual")
         self.analyze_button.setEnabled(bool(self.source) and not busy)
         self.cancel_button.setEnabled(busy)
         ready = self.analysis is not None and not busy
@@ -480,7 +589,12 @@ class MainWindow(QMainWindow):
     def load_video_source(self, source: str) -> bool:
         if not self.confirm_discard_edits():
             return False
+        for old in self._waveform_workers:
+            old.cancel()
         self.source = source
+        self._source_duration = 0.0
+        self.caption_overlay.hide()
+        self._active_caption = None
         self.transcript_dirty = False
         self.report_path = None
         self.analysis = None
@@ -496,10 +610,170 @@ class MainWindow(QMainWindow):
         self.tabs.setCurrentIndex(0)
         self.source_label.setText(source)
         self.player.setSource(QUrl.fromLocalFile(source))
+        self.timeline.set_duration(1)
+        self.timeline.set_annotations([], [])
+        self.timeline_status.setText("Wellenform wird berechnet …")
+        # A different file can be opened while the old worker shuts down;
+        # stale results are ignored by the exact source-path comparison.
+        worker = WaveformThread(source, self)
+        self._waveform_workers.append(worker)
+        worker.done.connect(self.waveform_finished)
+        worker.failed.connect(self.waveform_failed)
+        worker.finished.connect(lambda w=worker: self._cleanup_waveform_thread(w))
+        worker.start()
         self.progress.setValue(0)
         self._busy(False)
         self.statusBar().showMessage("Aufnahme geladen – Analyse starten")
         return True
+
+    def _cleanup_waveform_thread(self, worker: WaveformThread):
+        if worker in self._waveform_workers:
+            self._waveform_workers.remove(worker)
+        worker.deleteLater()
+
+    def waveform_finished(self, filename: str, result: object):
+        if filename != self.source:
+            return
+        video, peaks = result
+        preserve = self._source_duration > 0
+        current_selection = (self.timeline.in_point, self.timeline.out_point)
+        self._source_duration = video.duration
+        self.timeline.set_duration(video.duration)
+        self.timeline.set_peaks(peaks)
+        if preserve:
+            self.timeline.set_selection(*current_selection)
+        else:
+            self.timeline.set_selection(0, min(video.duration, self.length.value()))
+        self.timeline_range_changed(self.timeline.in_point, self.timeline.out_point)
+        self._sync_timeline_scroll()
+        if self.analysis:
+            self.timeline.set_annotations(self.analysis.candidates, self.analysis.transcript)
+        self.timeline_status.setText(
+            f"{format_timestamp(video.duration)} · {len(peaks)} Audio-Punkte")
+
+    def waveform_failed(self, filename: str, reason: str):
+        if filename == self.source:
+            self.timeline_status.setText("Keine Wellenform verfügbar")
+            self.statusBar().showMessage("Wellenform: " + reason)
+
+    def change_timeline_zoom(self):
+        if self._source_duration <= 0:
+            return
+        zoom = float(self.timeline_zoom.currentData() or 1.0)
+        self.timeline.set_zoom(zoom, center=self.player.position() / 1000)
+        self._sync_timeline_scroll()
+
+    def _sync_timeline_scroll(self):
+        start, end = self.timeline.visible()
+        limit = max(0, round(self.timeline.duration - (end - start)))
+        self.timeline_scroll.blockSignals(True)
+        try:
+            self.timeline_scroll.setRange(0, limit)
+            self.timeline_scroll.setPageStep(max(1, round(end-start)))
+            self.timeline_scroll.setValue(round(start))
+        finally:
+            self.timeline_scroll.blockSignals(False)
+
+    def timeline_scroll_changed(self, value: int):
+        self.timeline.set_offset(float(value))
+
+    def timeline_seek(self, second: float):
+        self.preview_end = None
+        self.player.setPosition(round(second * 1000))
+
+    def timeline_range_changed(self, start: float, end: float):
+        self.timeline_in.blockSignals(True)
+        self.timeline_out.blockSignals(True)
+        try:
+            self.timeline_in.setValue(start)
+            self.timeline_out.setValue(end)
+            self.timeline_selection_label.setText(
+                f"{format_timestamp(start)} – {format_timestamp(end)}")
+        finally:
+            self.timeline_in.blockSignals(False)
+            self.timeline_out.blockSignals(False)
+
+    def timeline_fields_changed(self):
+        if not self.source or self._source_duration <= 0:
+            return
+        start, end = self.timeline_in.value(), self.timeline_out.value()
+        if end <= start or start >= self.timeline.duration:
+            return
+        self.timeline.set_selection(start, end)
+
+    def timeline_select_subtitle(self, index: int):
+        if not self.analysis or not 0 <= index < len(self.analysis.transcript):
+            return
+        self.tabs.setCurrentIndex(1)
+        self.transcript_table.selectRow(index)
+        item = self.transcript_table.item(index, 0)
+        if item:
+            self.transcript_table.scrollToItem(item)
+
+    def add_timeline_highlight(self):
+        if self._source_duration > 0:
+            self.add_manual_interval(self.timeline.in_point, self.timeline.out_point)
+
+    def trim_timeline_highlight(self):
+        if not self.analysis:
+            return
+        index = self.table.currentRow()
+        try:
+            self.analysis = trim_manual_highlight(
+                self.analysis, index, self.timeline.in_point, self.timeline.out_point)
+        except ValueError as exc:
+            QMessageBox.warning(self, "Schnittbereich ungültig", str(exc))
+            return
+        self.transcript_dirty = True
+        self.refresh_highlight_table()
+        self.table.selectRow(index)
+        self.statusBar().showMessage("Highlight getrimmt – Projekt speichern")
+
+    def preview_timeline_selection(self):
+        if not self.source:
+            return
+        self.player.pause()
+        self.preview_end = self.timeline.out_point
+        self.player.setPosition(round(self.timeline.in_point * 1000))
+        self.player.play()
+
+    def eventFilter(self, watched, event):
+        if watched is self.video_widget and event.type() == QEvent.Type.Resize:
+            width = max(10, self.video_widget.width() - 32)
+            height = 90
+            self.caption_overlay.setGeometry(
+                16, max(0, self.video_widget.height() - height - 30), width, height)
+            self.caption_overlay.raise_()
+        return super().eventFilter(watched, event)
+
+    def caption_offset_changed(self, value: float):
+        self.timeline.set_caption_offset(value)
+        self._active_caption = None
+        self._update_caption_overlay(self.player.position()/1000)
+
+    def _update_caption_overlay(self, seconds: float):
+        cues = self.analysis.transcript if self.analysis else []
+        index = caption_at_time(cues, seconds, self.caption_offset.value())
+        if index is None or not self.burn_subtitles.isChecked():
+            if self._active_caption is not None:
+                self._active_caption = None
+                self.caption_overlay.hide()
+            return
+        cue = cues[index]
+        # Match the 8-word proportional splits made by captioning.clip_captions.
+        words = cue.text.strip().split()
+        if not words:
+            self.caption_overlay.hide()
+            return
+        elapsed = seconds - cue.start - self.caption_offset.value()
+        fraction = max(0.0, min(.999999, elapsed / (cue.end - cue.start)))
+        chunk_start = min(len(words)-1, int(fraction * len(words))) // 8 * 8
+        current = (index, chunk_start)
+        if current != self._active_caption:
+            self._active_caption = current
+            self.caption_overlay.setText(" ".join(words[chunk_start:chunk_start + 8]))
+            self.caption_overlay.show()
+            self.caption_overlay.raise_()
 
     def import_twitch_video(self) -> None:
         url, accepted = QInputDialog.getText(
@@ -597,6 +871,7 @@ class MainWindow(QMainWindow):
             self.table.blockSignals(False)
         if self.analysis.candidates:
             self.table.selectRow(0)
+        self.timeline.set_annotations(self.analysis.candidates, self.analysis.transcript)
 
     def analysis_finished(self, result: AnalysisResult) -> None:
         preserved_manual = bool(self._manual_pending)
@@ -616,6 +891,9 @@ class MainWindow(QMainWindow):
         finally:
             self.transcript_table.blockSignals(False)
         self.transcript_dirty = preserved_manual
+        self.timeline.set_annotations(result.candidates, result.transcript)
+        self._active_caption = None
+        self._update_caption_overlay(self.player.position()/1000)
         self._editor_row = None
         self._busy(False)
         if result.transcript:
@@ -697,6 +975,7 @@ class MainWindow(QMainWindow):
             return
         self.refresh_highlight_table()
         self.table.selectRow(len(self.analysis.candidates) - 1)
+        self.timeline.set_selection(start, end)
         self._manual_from = self._manual_to = None
         self.update_manual_mark_label()
         self.manual_label.clear()
@@ -731,6 +1010,9 @@ class MainWindow(QMainWindow):
             self.single_export.setEnabled(False)
             return
         self.preview_end = clip.end
+        self.timeline.set_selection(clip.start, clip.end)
+        self.timeline.ensure_visible(clip.start)
+        self._sync_timeline_scroll()
         self.player.pause()
         self.player.setPosition(round(clip.start * 1000))
         self.single_export.setEnabled(not bool(self.worker and self.worker.isRunning()))
@@ -816,6 +1098,9 @@ class MainWindow(QMainWindow):
             self.transcript_table.blockSignals(False)
         self.fill_transcript_editor(row)
         self.transcript_dirty = True
+        self.timeline.set_annotations(self.analysis.candidates, self.analysis.transcript)
+        self._active_caption = None
+        self._update_caption_overlay(self.player.position()/1000)
         self.statusBar().showMessage(
             "Untertitel korrigiert – Projekt speichern (Strg+S). "
             "Export nutzt bereits die neue Fassung.")
@@ -913,12 +1198,24 @@ class MainWindow(QMainWindow):
         if not self.seek.isSliderDown():
             self.seek.setValue(pos)
         self.time_label.setText(display_time(pos / 1000))
+        self.timeline.set_position(pos / 1000)
+        if self.timeline.zoom > 1.0 and self.player.playbackState() == QMediaPlayer.PlaybackState.PlayingState:
+            a, b = self.timeline.visible()
+            if pos / 1000 > b or pos / 1000 < a:
+                self.timeline.set_offset(pos / 1000 - (b-a) * .20)
+                self._sync_timeline_scroll()
+        self._update_caption_overlay(pos / 1000)
         if self.preview_end is not None and pos >= int(self.preview_end * 1000):
             if self.player.playbackState() == QMediaPlayer.PlaybackState.PlayingState:
                 self.player.pause()
 
     def _duration_changed(self, duration: int) -> None:
         self.seek.setRange(0, max(1, duration))
+        # Waveform worker normally provides ffprobe duration first; the player
+        # can supply a fallback while FFmpeg is still preparing the overview.
+        if duration > 0 and self._source_duration <= 0:
+            self._source_duration = duration / 1000
+            self.timeline.set_duration(self._source_duration)
 
     def seek_to(self, pos: int) -> None:
         self.preview_end = None  # manual scrubbing may leave suggested time span
@@ -1028,6 +1325,15 @@ class MainWindow(QMainWindow):
         if not self.confirm_discard_edits():
             event.ignore()
             return
+        for worker in self._waveform_workers:
+            worker.cancel()
+        for worker in list(self._waveform_workers):
+            if not worker.wait(3000):
+                QMessageBox.information(
+                    self, "Wellenform wird beendet",
+                    "FFmpeg beendet die Wellenform noch. Bitte gleich erneut schließen.")
+                event.ignore()
+                return
         self.player.stop()
         event.accept()
 

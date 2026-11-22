@@ -71,3 +71,19 @@ validiert und messbar verglichen wurden.
 - [x] Öffentliche Twitch-VODs per URL mit optionalem yt-dlp herunterladen und lokal laden (Windows-Praxistest offen)
 - [ ] Sechs-Stunden-Langlauftest, Checkpoints, Wiederaufnahme KI-Analyse
 - [ ] Authentifizierte VODs, Twitch-Clips, Bildvorschaubilder für Imports und Diskspace-Abfrage
+
+## M6 – S-Tier: Interaktive Timeline und Untertitelreview (MVP)
+
+- [x] Zeichnen einer skalierten Audio-Wellenform (speicherbegrenzt, asynchron)
+- [x] Zeitskala mit Zoom/Scroll, Abspielkopf und verschiebbaren IN/OUT-Punkten
+- [x] Highlight-Regionen sowie eigene Untertitelspur anzeigen
+- [x] Timeline-Bereich vorhören, als manuellen Clip anlegen, manuelle Clips trimmen
+- [x] Korrigierbare Untertitel mit zeitabhängiger Videoüberlagerung (vereinfachte Darstellung)
+- [x] Automatisierte Sechs-Stunden-Geometrie-/Zeitstempel-/FFmpeg-Tests
+- [ ] Fenster-Bedienung und Overlay mit echter Windows 11 / Qt Multimedia prüfen
+- [ ] Exportgetreue 16:9/9:16-Kameravorschau samt libass-Fontlayout
+- [ ] Undo/Redo, Multi-Clip-Arrangement, Übergänge, editierbare Keyframes
+
+**Prioritätsbeschluss:** Projektverwaltung, Twitch-Chat-Auswertung und semantische
+Videosuche sind D-Tier. Datenintegrität/gespeicherte Korrekturen bleiben nötig,
+aber es werden keine erweiterten Projektmanagement-Funktionen in M6 gebaut.

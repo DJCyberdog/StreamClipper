@@ -15,15 +15,14 @@ jobs:
         with:
           python-version: '3.12'
       - name: Install dependencies
-        run: python -m pip install -e ".[gui,build]"
-      - name: Build portable Windows executable
-        run: pyinstaller --noconfirm --clean --onedir --windowed --name StreamClipper --paths src scripts/launch.py
-      - name: Verify binary exists
+        run: python -m pip install -e ".[gui,build,dev]"
+      - name: Verify desktop GUI and timeline offscreen
         shell: pwsh
         run: |
-          if (-not (Test-Path "dist/StreamClipper/StreamClipper.exe")) {
-            throw "Windows EXE not created"
-          }
+          $env:QT_QPA_PLATFORM = "offscreen"
+          python -m pytest -q tests/test_timeline_qt.py
+      - name: Build portable Windows executable
+        run: pyinstaller --noconfirm --clean --onedir --windowed --name StreamClipper --paths src scripts/launch.py
       - name: Include startup notes
         shell: pwsh
         run: |
