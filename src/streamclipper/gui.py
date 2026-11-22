@@ -755,9 +755,8 @@ class MainWindow(QMainWindow):
         cues = self.analysis.transcript if self.analysis else []
         index = caption_at_time(cues, seconds, self.caption_offset.value())
         if index is None or not self.burn_subtitles.isChecked():
-            if self._active_caption is not None:
-                self._active_caption = None
-                self.caption_overlay.hide()
+            self._active_caption = None
+            self.caption_overlay.hide()
             return
         cue = cues[index]
         # Match the 8-word proportional splits made by captioning.clip_captions.
