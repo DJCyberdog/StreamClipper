@@ -1,6 +1,8 @@
 """Optional Qt smoke test for own highlight phrase settings dialog."""
 import os
 
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
 import pytest
 
 
