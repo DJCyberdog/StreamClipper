@@ -895,27 +895,34 @@ class MainWindow(QMainWindow):
             self.player.setPosition(self._media_position_ms(original_ms))
 
     def _update_proxy_controls(self) -> None:
-        running = bool(self.proxy_worker and self.proxy_worker.isRunning())
+        # A QThread can be scheduled but not yet report isRunning().
+        # Keep the button locked until its finished signal cleans up.
+        running = self.proxy_worker is not None
         ready = bool(self._video_info) and not self._history_blocked
         self.proxy_create.setEnabled(ready and not running and self._proxy_state is None)
         self.proxy_cancel.setEnabled(running)
         self.proxy_mode.setEnabled(ready and not running and self._proxy_state is not None)
 
     def _create_proxy(self) -> None:
-        if not self._video_info or self._history_blocked or (
-                self.proxy_worker and self.proxy_worker.isRunning()):
+        if not self._video_info or self._history_blocked or self.proxy_worker:
             return
         self.proxy_progress.setValue(0)
         self.proxy_status.setText("Proxy wird im Hintergrund erstellt …")
         worker = ProxyThread(self._video_info, self)
         self.proxy_worker = worker
-        worker.progress_changed.connect(self.proxy_progress.setValue)
+        worker.progress_changed.connect(
+            lambda value, w=worker: self._proxy_worker_progress(w, value))
         worker.done.connect(self._proxy_ready)
         worker.failed.connect(self._proxy_failed)
         worker.was_cancelled.connect(self._proxy_cancelled)
         worker.finished.connect(lambda w=worker: self._proxy_worker_finished(w))
         worker.start()
         self._update_proxy_controls()
+
+    def _proxy_worker_progress(self, worker: ProxyThread, value: int) -> None:
+        # Ignore delayed queued signals from a previous source/worker.
+        if self.proxy_worker is worker and self.source == worker.video.path:
+            self.proxy_progress.setValue(value)
 
     def _cancel_proxy(self) -> None:
         if self.proxy_worker and self.proxy_worker.isRunning():
