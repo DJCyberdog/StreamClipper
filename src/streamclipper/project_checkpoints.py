@@ -90,7 +90,7 @@ def create_checkpoint(project: EditorProject, name: str,
         _validate_analysis(analysis, project.source)
 
     info = CheckpointInfo(uuid4().hex, label,
-                          datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                          datetime.now(timezone.utc).isoformat(timespec="microseconds"),
                           analysis is not None)
     data = {"format_version": FORMAT_VERSION, "info": asdict(info),
             "project": asdict(project),
