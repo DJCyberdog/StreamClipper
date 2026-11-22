@@ -351,7 +351,8 @@ def export_clip(video: VideoInfo, start: float, end: float, destination: str | P
 
 
 def sampled_jpeg_frames(video: VideoInfo, *, max_frames: int = 180,
-                        cancelled: Cancelled | None = None):
+                        cancelled: Cancelled | None = None,
+                        timestamps: list[float] | None = None):
     """Seek across the entire VOD; do not decode hours of intervening frames.
 
     Each requested timestamp is decoded into one JPEG via FFmpeg. Peak resident
@@ -362,13 +363,20 @@ def sampled_jpeg_frames(video: VideoInfo, *, max_frames: int = 180,
         raise ValueError("max_frames muss zwischen 1 und 2000 liegen")
     if video.duration <= 0:
         raise ValueError("Ungültige Videodauer")
-    count = max(1, min(max_frames, int(math.ceil(video.duration / 3.0))))
-    interval = video.duration / count
+    if timestamps is not None:
+        if len(timestamps) > max_frames or any(
+                not math.isfinite(at) or at < 0 or at >= video.duration
+                for at in timestamps):
+            raise ValueError("Ungültige CLIP-Zeitstempel")
+        positions = sorted(set(timestamps))
+    else:
+        count = max(1, min(max_frames, int(math.ceil(video.duration / 3.0))))
+        interval = video.duration / count
+        positions = [(index + 0.5) * interval for index in range(count)]
     ffmpeg = tool_path("ffmpeg")
-    for index in range(count):
+    for at in positions:
         if cancelled and cancelled():
             raise CancelledError("Analyse abgebrochen")
-        at = (index + 0.5) * interval
         cmd = [ffmpeg, "-hide_banner", "-nostdin", "-loglevel", "error",
                "-ss", f"{at:.3f}", "-i", video.path,
                "-map", "0:v:0", "-an", "-sn", "-frames:v", "1",

@@ -100,3 +100,14 @@ aber es werden keine erweiterten Projektmanagement-Funktionen in M6 gebaut.
 - [ ] Native Windows-GUI-Interaktion auf Zielrechner prüfen
 - [ ] 6-Stunden-GPU-Whisper-Langlauftest mit echtem Gameplay
 - [ ] Exaktes WYSIWYG des finalen ASS-Layouts und Kamera-Keyframe-Vorschau
+
+
+## M8 – Zeitliche Gameplay-Evidenz (experimentell)
+
+- [x] Streaming-Szenenscan auf 96 × 54 / 2 FPS mit konstantem Frame-Puffer
+- [x] Gezielte, zeitlich über die gesamte Aufnahme verteilte CLIP-Bilder
+- [x] Audio-/Whisper-/Bewegungs-/CLIP-Evidenz im Ranking berücksichtigen
+- [x] Erklärbare Labels ohne falschen Anspruch auf sichere Spielereignisse
+- [x] Regression für echte synthetische FFmpeg-Bewegung, 6h-Sampling und Cancellation
+- [ ] Windows-Abnahme mit echtem GTA-VI-Video; False-Positive-/Recall-Messung
+- [ ] Objektbasierte Unfallerkennung und gezieltes Nachsampling kurzer Ereignisse

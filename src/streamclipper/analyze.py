@@ -7,6 +7,7 @@ from typing import Callable
 
 from .media import audio_levels, probe_video
 from .model_checks import validate_clip_model
+from .gameplay import scan_temporal_activity, select_scene_timestamps
 from .models import AnalysisResult, Candidate
 from .semantic import EventEvidence, fuse_events, recognize_gameplay, transcribe_video, transcript_cues
 
@@ -61,7 +62,7 @@ def analyze(path: str, clip_seconds: int = 25, max_clips: int = 8,
 
     No model downloads and no external API calls. Model paths are opt-in.
     """
-    # Missing CLIP weights must fail before decoding hours of audio or running Whisper.
+    # Fail before decoding hours of audio or transcribing with Whisper.
     if vision_model:
         validate_clip_model(vision_model)
     video = probe_video(path)
@@ -69,7 +70,10 @@ def analyze(path: str, clip_seconds: int = 25, max_clips: int = 8,
     def stage(base: int, portion: int):
         return (lambda value: progress(base + round(value * portion / 100))) if progress else None
 
-    levels = audio_levels(video, progress=stage(0, 35 if use_models else 100),
+    # The visual path has an extra sequential, bounded-memory scene scan.
+    # Whisper-only and audio-only paths keep their previous work budgets.
+    audio_budget = 25 if vision_model else (35 if speech_model else 100)
+    levels = audio_levels(video, progress=stage(0, audio_budget),
                           cancelled=cancelled)
     baseline = find_candidates(levels, video.duration, clip_seconds, max_clips)
     if not use_models:
@@ -84,15 +88,22 @@ def analyze(path: str, clip_seconds: int = 25, max_clips: int = 8,
     transcript = []
     if speech_model:
         transcript = transcribe_video(video, speech_model,
-                         progress=stage(35, 35 if vision_model else 65),
+                         progress=stage(audio_budget, 35 if vision_model else 65),
                          cancelled=cancelled)
         evidence.extend(transcript_cues((s.start, s.end, s.text) for s in transcript))
     if vision_model:
-        evidence.extend(recognize_gameplay(video, vision_model,
-                         max_frames=max_visual_frames, progress=stage(70 if speech_model else 35,
-                         30 if speech_model else 65), cancelled=cancelled))
+        scan_start = 60 if speech_model else 25
+        motion = scan_temporal_activity(
+            video, progress=stage(scan_start, 22), cancelled=cancelled)
+        evidence.extend(motion)
+        positions = select_scene_timestamps(evidence, video.duration,
+                                            max_frames=max_visual_frames)
+        evidence.extend(recognize_gameplay(
+            video, vision_model, max_frames=max_visual_frames,
+            timestamps=positions, progress=stage(scan_start + 22, 18 if speech_model else 53),
+            cancelled=cancelled))
     ranked = fuse_events(evidence, video.duration, clip_seconds, max_clips)
     if progress:
         progress(100)
     return AnalysisResult(video, ranked or baseline,
-                          method="multimodal-evidence-v1", transcript=transcript)
+                          method="multimodal-temporal-evidence-v2" if vision_model else "multimodal-evidence-v1", transcript=transcript)

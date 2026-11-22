@@ -511,3 +511,39 @@ Kameraführung des fertigen 9:16/16:9-Videos.
 **Nicht Teil von M7:** unabhängige Wort-Sprechererkennung, automatisch
 perfekte Wortausrichtung, Mehrspur-Compositing oder vollwertiger Undo-Stack.
 Die Windows-/NVIDIA-Praxisabnahme und ein sechsstündiger Realfilm bleiben offen.
+
+
+## M8 – intelligentere Gameplay-Hinweise (experimentell)
+
+Aktiviere **Gameplay-Dynamik + CLIP (lokal)**. Die Analyse arbeitet jetzt in
+zwei Stufen:
+
+1. Ein FFmpeg-Durchlauf prüft den **zeitlichen Szenenverlauf** mit 2 niedrig
+   aufgelösten Graustufenbildern pro Sekunde (96 × 54 Pixel). Der Vergleich
+   erkennt auffällige Bewegungs-/Bildänderungsspitzen gegenüber der lokalen
+   Bewegungsbasis. Dies kann beispielsweise von schnellen Fahrmanövern,
+   Schnitten, HUD-Einblendungen oder Kollisionen stammen. **Es ist kein
+   verlässlicher Nachweis einer Kollision.** Der Puffer ist konstant klein;
+   maximal 360 Zeitfenster pro Aufnahme werden als Kandidaten behalten.
+2. Die Bildprüfung mit lokalem **CLIP** verteilt ihre begrenzten Stichproben
+   (standardmäßig bis zu 180 Bilder) über die gesamte Aufnahme, gewichtet
+   ungewöhnliche Bildveränderungen, Sprachreaktionen und Audio-Peaks und
+   prüft oft mehrere Frames nahe eines auffälligen Moments. Eine plausible
+   semantische Ähnlichkeit gilt nur als **Indiz**, nie als sicheres Ereignis.
+
+Zeitlich benachbarte Bild-, Sprach- und Audiobeobachtungen werden für einen
+begründeten Highlight-Vorschlag kombiniert. Der **Score ist eine Heuristik**,
+keine kalibrierte Trefferwahrscheinlichkeit. Gespeicherte manuelle Highlights
+und die Wort-Transkripte werden wie bisher erhalten.
+
+**Sechs Stunden:** Die Verarbeitung verbraucht keinen proportional steigenden
+Videobild-Puffer. Es wird jedoch das gesamte Video zur Szenenanalyse
+dekodiert; die Laufzeit hängt stark vom Codec, PC und gewähltem Modell ab.
+Die Begrenzung auf 180 CLIP-Bilder kann kurze Ereignisse weiterhin übersehen.
+Es gibt noch **keine** zuverlässige objekt- oder handlungsbasierte
+GTA-VI-Klassifikation, kein trainiertes Crash-Modell und keinen vollständigen
+Windows-Sechs-Stunden-Langlauftest.
+
+Um wie zuvor nur Audio und Whisper zu analysieren, die Option
+**Gameplay-Dynamik + CLIP** deaktivieren. Modelle werden während einer
+Analyse weiterhin **nicht** online geladen.

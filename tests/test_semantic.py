@@ -70,12 +70,15 @@ def test_multimodal_analyze_calls_both_detectors(monkeypatch):
         called.append(("vision", args[1], kwargs["max_frames"]))
         return [EventEvidence(41, "visual", 0.60, "Bildähnlichkeit")]
     monkeypatch.setattr(analyzer, "transcribe_video", fake_speech)
+    monkeypatch.setattr(analyzer, "scan_temporal_activity",
+                        lambda *_args, **_kwargs: [EventEvidence(40, "motion", .52,
+                            "Ungewöhnliche Bildveränderung – kein bestätigtes Spielereignis")])
     monkeypatch.setattr(analyzer, "recognize_gameplay", fake_vision)
     percentages = []
     result = analyzer.analyze("fake.mkv", speech_model="whisper-dir", vision_model="clip-dir",
                               max_visual_frames=24, progress=percentages.append)
     assert called == [("speech", "whisper-dir"), ("vision", "clip-dir", 24)]
-    assert result.method == "multimodal-evidence-v1"
+    assert result.method == "multimodal-temporal-evidence-v2"
     assert result.transcript == [TranscriptSegment(39, 41, "Oh mein Gott! Alter!")]
     assert result.candidates[0].score >= 70
     assert percentages and percentages[-1] == 100

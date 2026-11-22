@@ -12,6 +12,7 @@ import math
 import os
 import warnings
 import re
+from bisect import bisect_left, bisect_right
 from typing import Callable, Iterable
 
 from .models import Candidate, TranscriptSegment, TranscriptWord, VideoInfo
@@ -202,10 +203,38 @@ def visual_match(scores: dict[str, float], at: float) -> EventEvidence | None:
                          f"Bildähnlichkeit: {_VISUAL_NAMES[name]} (nicht verifiziert)")
 
 
+def temporal_visual_consensus(hits: list[EventEvidence]) -> list[EventEvidence]:
+    """Merge nearby same-label CLIP observations into one *qualified* hint.
+
+    Multiple views of a scene strengthen the observation slightly, but do not
+    establish that the action in the text prompt actually happened.
+    """
+    groups: list[list[EventEvidence]] = []
+    for hit in sorted(hits, key=lambda item: item.at):
+        if (groups and hit.at - groups[-1][-1].at <= 2.5 and
+                hit.description == groups[-1][-1].description):
+            groups[-1].append(hit)
+        else:
+            groups.append([hit])
+    combined = []
+    for group in groups:
+        representative = max(group, key=lambda item: item.strength)
+        if len(group) > 1:
+            combined.append(EventEvidence(
+                round(sum(item.at for item in group) / len(group), 3),
+                "visual", min(.86, representative.strength + .07),
+                representative.description.replace("(nicht verifiziert)",
+                   f"({len(group)} Frames ähnlich; nicht verifiziert)")))
+        else:
+            combined.append(representative)
+    return combined
+
+
 def recognize_gameplay(video: VideoInfo, model_directory: str, *,
                        max_frames: int = 180,
                        progress: Progress | None = None,
-                       cancelled: Cancelled | None = None) -> list[EventEvidence]:
+                       cancelled: Cancelled | None = None,
+                       timestamps: list[float] | None = None) -> list[EventEvidence]:
     """Local CLIP zero-shot resemblance on a bounded sample of JPEG video frames."""
     from .media import CancelledError, sampled_jpeg_frames
     from .model_checks import validate_clip_model
@@ -227,8 +256,10 @@ def recognize_gameplay(video: VideoInfo, model_directory: str, *,
     labels = [name for name, _, _ in _VISUAL_LABELS]
     prompts = [prompt for _, prompt, _ in _VISUAL_LABELS]
     results = []
+    count = len(timestamps) if timestamps is not None else max_frames
     for index, (at, data) in enumerate(sampled_jpeg_frames(video, max_frames=max_frames,
-                                                          cancelled=cancelled)):
+                                                           timestamps=timestamps,
+                                                           cancelled=cancelled)):
         if cancelled and cancelled():
             raise CancelledError("Analyse abgebrochen")
         with Image.open(BytesIO(data)) as image:
@@ -241,10 +272,10 @@ def recognize_gameplay(video: VideoInfo, model_directory: str, *,
         if hit:
             results.append(hit)
         if progress:
-            progress(min(100, int(100 * (index + 1) / max_frames)))
+            progress(min(100, int(100 * (index + 1) / max(count, 1))))
     if progress:
         progress(100)
-    return results
+    return temporal_visual_consensus(results)
 
 
 def fuse_events(events: Iterable[EventEvidence], duration: float,
@@ -254,13 +285,16 @@ def fuse_events(events: Iterable[EventEvidence], duration: float,
         raise ValueError("Ungültige Analysedaten oder Parameter")
     from .analyze import _bounds
     valid = [ev for ev in events if math.isfinite(ev.at) and 0 <= ev.at <= duration
-             and math.isfinite(ev.strength) and ev.kind in {"audio", "speech", "visual"}]
+             and math.isfinite(ev.strength) and ev.kind in {"audio", "speech", "visual", "motion"}]
     if not valid:
         return []
     valid.sort(key=lambda ev: (ev.at, ev.kind, ev.description))
+    time_index = [item.at for item in valid]
     proposed = []
     for anchor in valid:
-        nearby = [event for event in valid if abs(event.at - anchor.at) <= 5.0]
+        left = bisect_left(time_index, anchor.at - 5.0)
+        right = bisect_right(time_index, anchor.at + 5.0)
+        nearby = valid[left:right]
         kinds = {event.kind for event in nearby}
         strongest = max(nearby, key=lambda e: (e.strength, e.kind))
         # Multiple independent modalities are more useful than many nearby

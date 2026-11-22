@@ -239,7 +239,11 @@ class MainWindow(QMainWindow):
         speech_browse = QPushButton("…")
         speech_browse.clicked.connect(lambda: self.choose_model(self.speech_path))
         models.addWidget(speech_browse)
-        self.vision_enabled = QCheckBox("Spielbilder (lokales CLIP)")
+        self.vision_enabled = QCheckBox("Gameplay-Dynamik + CLIP (lokal)")
+        self.vision_enabled.setToolTip(
+            "Untersucht zeitliche Bildveränderungen und prüft auffällige Szenen mit CLIP. "
+            "Unfälle/Explosionen sind Hinweise, keine bestätigten Spielereignisse. "
+            "Sechs Stunden können je nach PC länger dauern.")
         models.addWidget(self.vision_enabled)
         self.vision_path = QLineEdit()
         self.vision_path.setPlaceholderText("CLIP-Modellordner")
@@ -297,7 +301,7 @@ class MainWindow(QMainWindow):
         results_layout.addWidget(self.tabs, 1)
         highlights_tab = QWidget()
         highlights_layout = QVBoxLayout(highlights_tab)
-        highlights_layout.addWidget(QLabel("Highlight-Vorschläge (Audio / Sprache / Spielbilder)"))
+        highlights_layout.addWidget(QLabel("Highlight-Vorschläge (Audio / Sprache / Szenendynamik / CLIP)"))
         self.table = QTableWidget(0, 4)
         self.table.setHorizontalHeaderLabels(["Start", "Ende", "Score", "Erkennungsgrund"])
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
