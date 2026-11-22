@@ -1,32 +1,28 @@
-# NEXT_TASK – M11c: Projekt-Checkpoints, Proxy-Editing und Render-Anbindung
+# NEXT_TASK – M11c / Teil 2: Einheitlicher Undo-Verlauf und Shortcut-Gates
 
-**Bisheriger Stack:** M10.5-Draft #31 → M11a-Draft #34 →
-M11b-Workspace-/Spurplan-Draft. Es liegt **noch keine vollständige reale
-Windows-/6h-Abnahme** vor. `main` bleibt unverändert.
+**Stand:** M10.5-Draft #31 → M11a-Draft #34 → M11b-Draft #36 →
+M11c-Checkpoint-Entwicklungsbranch `feat/sc-m11c-project-checkpoints`.
+Der Checkpoint-Branch ergänzt atomische benannte Projektstände
+(Spurplan + optionale Analyse) und bündelt deren Bedienung im Menü
+**Datei & Projekt**. CI, Windows-Offscreen und echte Windows-11-Tests
+müssen pro genauem Commit geprüft werden; `main` bleibt unverändert.
 
-## M11b – umgesetztes Teilpaket (Review offen)
+## Nächster abgegrenzter Arbeitsschritt
 
-- GUI mit permanent sichtbarer Vorschau und Timeline; Sidebar-Register für
-  Highlights, Untertitel, KI & Modelle, Spuren, Export; scrollbare Panels.
-- Einklappbarer Worteditor, automatisch beim Wortklick expandiert.
-- Versioniertes, reines Python-Spurmodell mit Clip-Zeiten, Sperren, Mute,
-  Anordnung, atomischer lokaler Speicherung und eigenem Spur-Undo/Redo.
-- Bestands-Analyseprojekte werden nicht überschrieben. Der bisherige
-  Video-/Highlight-Export liest die neuen Spuren noch **nicht**.
-- Tests Core und Qt-Offscreen. Reale Windows-Ergonomie bei kleinen Fenstern
-  und 6h-Quellen noch prüfen.
+1. Getrennte Analyse- und Spur-Undo/Redo-Verläufe zu **einem**
+   quellengebundenen, transaktionalen Editierverlauf zusammenführen.
+2. Ein einziges Strg+Z / Strg+Umschalt+Z im aktiven Studio;
+   bisherige Spur-Undo/Redo-Buttons entweder anbinden oder entfernen.
+3. Bestehende History-Tests, neue gemischte Interleavings und Qt-Offscreen-
+   Tests für Fokus-/Shortcut-Konflikte ergänzen.
+4. Mindestens ein fehlschlagender Test vor der Änderung, anschließend
+   `python -m pytest -q`, `python -m compileall -q src`.
+5. Real-Windows-Abnahme (1366×768/FullHD) und 6h-VOD nicht behaupten.
 
-## M11c – nächste Implementierungswelle
+## Danach noch offen in M11c
 
-1. **Einheitlicher Bearbeitungsverlauf** für Spur- und Analyseänderungen
-   (bislang getrennte Undo-Stapel) plus Shortcut-Konfliktprüfung.
-2. Import/Migration der bestehenden AnalysisResult-Clips in den
-   Projektspurplan mit bewusst gewählter Zuordnung, ohne Dubletten.
-3. Versionierte, benannte Projekt-Checkpoints; Liste, Wiederherstellung,
-   Aufbewahrungsgrenzen und überprüfte Crash-Recovery.
-4. Proxies für lange Aufnahmen, exakte Quellzeitzuordnung.
-5. Vor dem M12-Render-Vertrag keine Zusage, dass Stummschaltung oder
-   Spurposition bereits den exportierten Film beeinflussen.
-
-Windows-End-to-End-Proben und 6h-VOD/RAM/VRAM weiterhin ausstehend.
-Tests: `python -m pytest -q`, `python -m compileall -q src`.
+- Analyseclips ohne Dubletten in den Spurplan migrieren.
+- Proxy-Videos mit exakt dokumentierter Quellzeitabbildung und Rückfall.
+- Checkpoint-/Autosave-Interaktion unter simulierten Crashes und
+  großen Transkripten weiter härten.
+- Vor M12 weiter **keine** exportgetreue Mehrspur-Komposition behaupten.
