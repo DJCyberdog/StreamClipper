@@ -664,3 +664,22 @@ zukünftig separat neu bewertet werden (noch nicht als UI-Funktion umgesetzt).
 
 **Offene Praxisabnahme:** Windows 11 / PySide6, eigene Streaming-Begriffe und
 realistische Fehlalarm-/Trefferquote auf längeren GTA-VI-Aufnahmen testen.
+
+## Fehlerbehebung: fehlendes `timm` bei DETR-Objekterkennung
+
+Wenn bei der Analyse `TimmBackbone requires the timm library` erscheint,
+fehlt eine optionale Abhängigkeit des DETR-/Transformers-Backbones. Für eine
+bestehende Windows-Quellcodeinstallation in `D:\\StreamClipper`:
+
+```powershell
+cd D:\StreamClipper
+.\.venv\Scripts\python.exe -m pip install -e ".[vision]"
+```
+
+Alternativ genügt als Sofortlösung
+`.\.venv\Scripts\python.exe -m pip install timm`. Anschließend StreamClipper
+vollständig neu starten. `timm` gehört jetzt zur `vision`-Installationsgruppe;
+bei neuen Setups zieht `setup_windows.bat` diese Abhängigkeit automatisch mit.
+Für die gepackte Windows-EXE genügt ein `pip install` in einer separaten
+`.venv` dagegen nicht; der portable Build muss neu erzeugt werden.
+
