@@ -43,6 +43,9 @@ from .editor_project import (EditorProject, initial_project,
     add_track, remove_track, rename_track, move_track, toggle_track,
     add_item, edit_item, load_project, save_project)
 from .track_canvas import TrackCanvas
+from .proxy import (
+    ProxyState, cached_proxy, ensure_proxy, original_to_proxy_ms,
+    proxy_to_original_ms)
 from .highlight_import import import_analysis_candidates
 from .project_checkpoints import create_checkpoint, list_checkpoints, load_checkpoint
 
@@ -199,6 +202,36 @@ class WaveformThread(QThread):
             self.failed.emit(self.filename, str(exc))
 
 
+class ProxyThread(QThread):
+    """Small preview transcode stays off the Qt UI thread."""
+    progress_changed = Signal(int)
+    done = Signal(str, object)
+    failed = Signal(str, str)
+    was_cancelled = Signal(str)
+
+    def __init__(self, video: VideoInfo, parent=None) -> None:
+        super().__init__(parent)
+        self.video = video
+        self._cancelled = threading.Event()
+
+    def cancel(self) -> None:
+        self._cancelled.set()
+
+    def run(self) -> None:
+        try:
+            result = ensure_proxy(
+                self.video, cancelled=self._cancelled.is_set,
+                progress=self.progress_changed.emit)
+            if self._cancelled.is_set():
+                self.was_cancelled.emit(self.video.path)
+            else:
+                self.done.emit(self.video.path, result)
+        except CancelledError:
+            self.was_cancelled.emit(self.video.path)
+        except (OSError, ValueError, RuntimeError) as exc:
+            self.failed.emit(self.video.path, str(exc))
+
+
 class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
@@ -217,6 +250,13 @@ class MainWindow(QMainWindow):
         self._waveform_workers: list[WaveformThread] = []
         self.model_worker: ModelDownloadThread | None = None
         self._source_duration: float = 0.0
+        self._video_info: VideoInfo | None = None
+        self._proxy_state: ProxyState | None = None
+        self._proxy_active = False
+        self._preview_switching = False
+        self._proxy_pending_original_ms = 0
+        self._proxy_resume_playing = False
+        self.proxy_worker: ProxyThread | None = None
         self._active_caption: str | None = None
         self._word_ref: tuple[int, int] | None = None
         self._word_refs: list[tuple[int, int]] = []
@@ -235,6 +275,7 @@ class MainWindow(QMainWindow):
         self.player.setAudioOutput(self.audio)
         self.player.positionChanged.connect(self._position_changed)
         self.player.durationChanged.connect(self._duration_changed)
+        self.player.mediaStatusChanged.connect(self._proxy_media_status_changed)
 
         root = QWidget()
         self.setCentralWidget(root)
@@ -375,9 +416,33 @@ class MainWindow(QMainWindow):
         self.time_label = QLabel("00:00:00")
         playback.addWidget(self.time_label)
         preview_layout.addLayout(playback)
+        proxy_row = QHBoxLayout()
+        proxy_row.addWidget(QLabel("Vorschau"))
+        self.proxy_mode = QComboBox()
+        self.proxy_mode.addItem("Original", "original")
+        self.proxy_mode.addItem("Proxy (480p)", "proxy")
+        self.proxy_mode.currentIndexChanged.connect(self._select_preview_source)
+        proxy_row.addWidget(self.proxy_mode)
+        self.proxy_create = QPushButton("Proxy erstellen")
+        self.proxy_create.setToolTip(
+            "Kleine lokale Vorschau erzeugen, unabhängig vom Original-Export")
+        self.proxy_create.clicked.connect(self._create_proxy)
+        proxy_row.addWidget(self.proxy_create)
+        self.proxy_cancel = QPushButton("Abbrechen")
+        self.proxy_cancel.clicked.connect(self._cancel_proxy)
+        proxy_row.addWidget(self.proxy_cancel)
+        preview_layout.addLayout(proxy_row)
+        self.proxy_progress = QProgressBar()
+        self.proxy_progress.setRange(0, 100)
+        self.proxy_progress.setValue(0)
+        self.proxy_progress.setMaximumHeight(12)
+        preview_layout.addWidget(self.proxy_progress)
+        self.proxy_status = QLabel(
+            "Proxy optional · Schnittmarken und Export nutzen immer das Original.")
+        self.proxy_status.setWordWrap(True)
+        preview_layout.addWidget(self.proxy_status)
         preview_layout.addWidget(QLabel(
-            "Vorschau: Originalvideo + zeitlich passende Untertitel. "
-            "Dynamischer 16:9/9:16-Bildausschnitt erst im Export."
+            "Vorschau: Originalbild + Untertitel. 16:9/9:16-Reframing erst im Export."
         ))
         splitter.addWidget(preview_container)
 
