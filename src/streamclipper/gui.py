@@ -1159,9 +1159,9 @@ class MainWindow(QMainWindow):
     def _update_track_actions(self) -> None:
         if not hasattr(self, "track_add_button"):
             return
-        ready = self.editor_project is not None
-        selected = self._selected_track_id()
-        clip = self._selected_clip_id()
+        ready = self.editor_project is not None and not self._history_blocked
+        selected = self._selected_track_id() if ready else None
+        clip = self._selected_clip_id() if ready else None
         for control in (self.track_add_button,):
             control.setEnabled(ready)
         for control in (self.track_rename_button, self.track_remove_button,
@@ -1174,7 +1174,7 @@ class MainWindow(QMainWindow):
         self._update_history_controls()
 
     def _apply_project_edit(self, action, *args, **kwargs) -> bool:
-        if not self.editor_project:
+        if not self.editor_project or self._history_blocked:
             return False
         before = self.editor_project
         try:
