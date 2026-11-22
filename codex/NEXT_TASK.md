@@ -1,32 +1,36 @@
-# NEXT_TASK – M11c / Teil 3: Analyseclips in Spurplan migrieren
+# NEXT_TASK – M11c / Teil 4: Proxy Editing für lange Aufnahmen
 
-**Stack:** M10.5 #31 → M11a #34 → M11b #36 → M11c Checkpoints #37
-→ Draft-Branch `feat/sc-m11c-unified-undo`.
-`main` bleibt unverändert; jeder gestapelte PR benötigt eigene Tests/CI.
+**Stack:** M10.5 #31 → M11a #34 → M11b #36 →
+M11c Checkpoints #37 → M11c Undo #38 →
+M11c Highlight-Import (Draft) #39.
+`main` bleibt unverändert; kein unfreigegebener Merge.
 
-## Fertig zur Prüfung in Teil 2
+## Teil 3 – Implementierung zur Prüfung
 
-- Ein globaler, quellengebundener und zeitlich sortierter Undo-/Redo-Verlauf
-  für Clip-/Wort-/Transkript- und Spuränderungen.
-- Kompakte Transkript-Deltas statt 6h-Vollkopien.
-- Strg+Z und Strg+Umschalt+Z: zuerst natives Undo fokussierter
-  editierbarer Textfelder, sonst Studio-Verlauf.
-- Doppelte Undo-/Redo-Buttons aus Spurregister entfernt.
-- Bei gescheiterter Spurpersistenz bleibt History und UI unverändert.
-- Core-Tests, Qt-Offscreen und Windows-Build als Gate.
+- Expliziter Import vorhandener Analyse-Highlights in die eigene Spur
+  `highlights_import` oder vom User gewählte vorhandene Videospur.
+- Vorherige Prüfung von Quelle, Zeiten, Typ, Sperren und Projektgrenzen;
+  kein Import auf Hintergrundjob.
+- Stabile importierte Clip-IDs aus Quellpfad und Millisekundenfenster,
+  idempotent beim Reimport, kein Überschreiben manuell bearbeiteter Clips.
+- Eine atomische Spurplan-Persistenz und gemeinsamer Undo-Schritt.
+- GUI-Status zeigt hinzugefügte und ausgelassene Highlights.
+- Kein Einfluss auf Videoexport oder tatsächliche Audio-Komposition.
 
-## Nächster abgeschlossener Arbeitsschritt: M11c Teil 3
+## Nächste abgegrenzte Aufgabe: M11c Teil 4
 
-1. Legacy-AnalysisResult-Clips auf explizite Nutzeraktion in den
-   Spurplan übernehmen; Quelle und Zeitbereiche validieren.
-2. Idempotenz/Deduplizierung über stabilen Metadatenbezug,
-   ohne manuelle Spurelemente zu überschreiben.
-3. Gesperrte Spuren und bestehende Projektstände unverändert respektieren.
-4. Bei unerwarteten Daten und Schreibfehlern Fail-Closed / atomische
-   Speicherung, Core- und Qt-Tests vor der Umsetzung.
-5. Danach M11c Teil 4: Proxies für 6h-VOD, Rückabbildung exakter Quellzeiten.
+1. Proxy-Konzept und reproduzierbare, quellzeitgetreue Metadatenabbildung
+   entwickeln: VFR, Drift und Cut-In/Out unter Test.
+2. Lange 6h-Aufnahmen mit Streaming-/bounded-memory-Prozess statt
+   Komplettdecodierung; Hardwarepfade nur optional.
+3. Proxy-Dateien separat unter `data/proxies/` mit Source-Fingerprint,
+   Cache-Invalidierung und atomischer Erstellung; niemals Original ändern.
+4. GUI-Auswahl Proxy / Original sowie Status im Vorschau-Bereich,
+   ohne zusätzliche Hauptregisterkarte. Keine Jobs auf UI-Thread.
+5. Pytest / compileall / Windows-Qt-Smokes; reale Windows 1366×768,
+   FullHD, 6h-VOD/RAM/VRAM gesondert abnehmen.
 
 ## Nicht behaupten
 
-Keine Mehrspur-Abmischung, kein exportgetreuer Renderer vor M12.
-Keine reale Windows-11-Abnahme oder 6h-Messung ohne Messbeleg.
+Kein M12 exportgetreuer Mehrspur-Renderer und keine fertige gemischte
+Mehrspurvorschau. `main` bleibt bis expliziter Owner-Freigabe unberührt.
