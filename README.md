@@ -1,5 +1,24 @@
 # StreamClipper 0.4 (experimenteller Export)
 
+## M11c / Teil 1 – Benannte Projektstände (Draft)
+
+Über das neue Menü **Datei & Projekt** lassen sich Projektstände benennen,
+sichern (**Strg+Alt+S**) und wiederherstellen (**Strg+Alt+O**).
+Ein Stand umfasst den versionierten Spurplan und, falls eine Analyse geladen
+ist, die Highlight- und Transkriptkorrekturen. Beim Wiederherstellen wird die
+Aufnahmezuordnung (Pfad, Dauer, Auflösung) geprüft. Ein beschädigter Stand
+wird nicht zur Wiederherstellung angeboten; Quellvideo und bestehende
+Analyseberichte werden nie überschrieben. Standardmäßig bleiben die 20
+neuesten gültigen Projektstände pro Aufnahme erhalten.
+
+**Grenzen:** Projektstände sind lokale JSON-Metadatensicherungen, keine
+Kopien der Videodatei. Spuren verändern weiterhin nicht das Renderergebnis;
+es gibt weiterhin getrennte Undo-Verläufe für Spuren und Analyse. M11c ist
+noch **nicht vollständig abgenommen**: gemeinsame Undo-/Shortcut-Führung,
+Clipmigration, Proxy-Editing und lange Windows-End-to-End-Proben fehlen.
+Das Menü verhindert einen weiteren überfüllten Editor-Reiter.
+
+
 ## M11b – Übersichtlichere Oberfläche und Spurplan (experimentell)
 
 Die Bearbeitungsoberfläche zeigt die **Videovorschau und Timeline dauerhaft**.
