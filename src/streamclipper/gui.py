@@ -26,7 +26,7 @@ from .media import CancelledError, export_clip, probe_video, safe_destination, t
 from .model_checks import validate_clip_model
 from .model_catalog import (DEFAULTS, download_preset, is_installed, preset,
                             preset_path, presets_for, validate_model_dir)
-from .models import AnalysisResult, Candidate
+from .models import AnalysisResult, Candidate, VideoInfo
 from .manual_highlights import add_manual_highlight, remove_manual_highlight, trim_manual_highlight
 from .twitch_import import download_twitch_vod, parse_twitch_vod_url
 from .portable import installation_directory
@@ -872,6 +872,138 @@ class MainWindow(QMainWindow):
             QProgressBar::chunk { background: #338dce; border-radius: 5px; }
         """)
 
+    def _source_position_ms(self) -> int:
+        if self._preview_switching:
+            return self._proxy_pending_original_ms
+        position = self.player.position()
+        if self._proxy_active and self._proxy_state:
+            return proxy_to_original_ms(position, self._proxy_state.timing)
+        return position
+
+    def _source_position_seconds(self) -> float:
+        return max(0, self._source_position_ms()) / 1000.0
+
+    def _media_position_ms(self, original_ms: int) -> int:
+        if self._proxy_active and self._proxy_state:
+            return original_to_proxy_ms(original_ms, self._proxy_state.timing)
+        return max(0, original_ms)
+
+    def _set_preview_position(self, original_ms: int) -> None:
+        if self._preview_switching:
+            self._proxy_pending_original_ms = original_ms
+        else:
+            self.player.setPosition(self._media_position_ms(original_ms))
+
+    def _update_proxy_controls(self) -> None:
+        running = bool(self.proxy_worker and self.proxy_worker.isRunning())
+        ready = bool(self._video_info) and not self._history_blocked
+        self.proxy_create.setEnabled(ready and not running and self._proxy_state is None)
+        self.proxy_cancel.setEnabled(running)
+        self.proxy_mode.setEnabled(ready and not running and self._proxy_state is not None)
+
+    def _create_proxy(self) -> None:
+        if not self._video_info or self._history_blocked or (
+                self.proxy_worker and self.proxy_worker.isRunning()):
+            return
+        self.proxy_progress.setValue(0)
+        self.proxy_status.setText("Proxy wird im Hintergrund erstellt …")
+        worker = ProxyThread(self._video_info, self)
+        self.proxy_worker = worker
+        worker.progress_changed.connect(self.proxy_progress.setValue)
+        worker.done.connect(self._proxy_ready)
+        worker.failed.connect(self._proxy_failed)
+        worker.was_cancelled.connect(self._proxy_cancelled)
+        worker.finished.connect(lambda w=worker: self._proxy_worker_finished(w))
+        worker.start()
+        self._update_proxy_controls()
+
+    def _cancel_proxy(self) -> None:
+        if self.proxy_worker and self.proxy_worker.isRunning():
+            self.proxy_worker.cancel()
+            self.proxy_status.setText("Proxy-Abbruch angefordert …")
+
+    def _proxy_worker_finished(self, worker: ProxyThread) -> None:
+        if self.proxy_worker is worker:
+            self.proxy_worker = None
+        worker.deleteLater()
+        self._update_proxy_controls()
+
+    def _proxy_ready(self, source: str, state: ProxyState) -> None:
+        if self.source != source or not self._video_info:
+            return
+        verified = cached_proxy(self._video_info)
+        if verified is None or verified != state:
+            self.proxy_status.setText("Proxy-Cache nicht mehr gültig · Original aktiv")
+            self.proxy_progress.setValue(0)
+            return
+        self._proxy_state = state
+        self.proxy_progress.setValue(100)
+        self.proxy_status.setText(
+            "✓ Proxy (480p) bereit · Export und Analyse nutzen weiterhin das Original")
+        self._update_proxy_controls()
+
+    def _proxy_failed(self, source: str, reason: str) -> None:
+        if source == self.source:
+            self.proxy_status.setText("⚠ Proxy fehlgeschlagen · Original weiterhin nutzbar")
+            self.proxy_progress.setValue(0)
+            QMessageBox.warning(self, "Proxy konnte nicht erstellt werden", reason)
+
+    def _proxy_cancelled(self, source: str) -> None:
+        if source == self.source:
+            self.proxy_status.setText("Proxy abgebrochen · Original unverändert")
+            self.proxy_progress.setValue(0)
+
+    def _select_preview_source(self, _index: int) -> None:
+        requested = self.proxy_mode.currentData() == "proxy"
+        if not self.source or (requested and not self._proxy_state):
+            self.proxy_mode.blockSignals(True)
+            self.proxy_mode.setCurrentIndex(0)
+            self.proxy_mode.blockSignals(False)
+            return
+        if requested != self._proxy_active:
+            self._switch_preview_media(requested)
+
+    def _switch_preview_media(self, use_proxy: bool, *,
+                              original_ms: int | None = None) -> None:
+        if not self.source:
+            return
+        source_ms = self._source_position_ms() if original_ms is None else original_ms
+        resume = (self.player.playbackState()
+                  == QMediaPlayer.PlaybackState.PlayingState)
+        self.player.pause()
+        self._proxy_active = use_proxy and self._proxy_state is not None
+        self._proxy_pending_original_ms = source_ms
+        self._proxy_resume_playing = resume
+        self._preview_switching = True
+        filename = (str(self._proxy_state.media_path)
+                    if self._proxy_active and self._proxy_state else self.source)
+        self.player.setSource(QUrl.fromLocalFile(filename))
+        self.proxy_status.setText(
+            "Proxy-Vorschau · Export bleibt original" if self._proxy_active
+            else "Original-Vorschau · Originalzeitbasis")
+
+    def _proxy_media_status_changed(self, status) -> None:
+        if (status == QMediaPlayer.MediaStatus.InvalidMedia
+                and self._proxy_active and self.source):
+            source_ms = self._source_position_ms()
+            self._proxy_state = None
+            self.proxy_mode.blockSignals(True)
+            self.proxy_mode.setCurrentIndex(0)
+            self.proxy_mode.blockSignals(False)
+            self._switch_preview_media(False, original_ms=source_ms)
+            self.proxy_status.setText("⚠ Proxy nicht abspielbar · Original aktiviert")
+            self._update_proxy_controls()
+            return
+        if (self._preview_switching and status in (
+                QMediaPlayer.MediaStatus.LoadedMedia,
+                QMediaPlayer.MediaStatus.BufferedMedia)):
+            source_ms = self._proxy_pending_original_ms
+            self._preview_switching = False
+            self._set_preview_position(source_ms)
+            if self._proxy_resume_playing:
+                self.player.play()
+            self._proxy_resume_playing = False
+
     def _busy(self, busy: bool) -> None:
         self._history_blocked = busy
         self.open_button.setEnabled(not busy)
@@ -916,6 +1048,7 @@ class MainWindow(QMainWindow):
         self._update_history_controls(not busy)
         self._update_track_actions()
         self._update_checkpoint_actions()
+        self._update_proxy_controls()
 
     def _update_history_controls(self, enabled: bool = True) -> None:
         active = enabled and not self._history_blocked
@@ -1490,7 +1623,7 @@ class MainWindow(QMainWindow):
         if self._source_duration <= 0:
             return
         zoom = float(self.timeline_zoom.currentData() or 1.0)
-        self.timeline.set_zoom(zoom, center=self.player.position() / 1000)
+        self.timeline.set_zoom(zoom, center=self._source_position_seconds())
         self.timeline_zoom_hint.setText(f"{self.timeline.zoom:.0f}×")
         self._sync_timeline_scroll()
 
@@ -1512,7 +1645,7 @@ class MainWindow(QMainWindow):
 
     def timeline_seek(self, second: float):
         self.preview_end = None
-        self.player.setPosition(round(second * 1000))
+        self._set_preview_position(round(second * 1000))
 
     def timeline_range_changed(self, start: float, end: float):
         if not self.apply_word_editor():
@@ -1597,7 +1730,7 @@ class MainWindow(QMainWindow):
             f"Wort {self._word_refs.index((segment,word)) + 1}/{len(self._word_refs)} · {source}")
         self.player.pause()
         self.preview_end = None
-        self.player.setPosition(round(max(0, cue.start - .15) * 1000))
+        self._set_preview_position(round(max(0, cue.start - .15) * 1000))
         self._busy(False)
 
     def navigate_word(self, step: int):
@@ -1655,7 +1788,7 @@ class MainWindow(QMainWindow):
         if (i, j) in self._word_refs:
             self.timeline.set_selected_word(i, j)
         self._active_caption = None
-        self._update_caption_overlay(self.player.position()/1000)
+        self._update_caption_overlay(self._source_position_seconds())
         self.word_hint.setText("✓ Wort korrigiert · Projekt speichern (Strg+S)")
         self.statusBar().showMessage("Wortkorrektur im Highlight übernommen – Export nutzt neue Zeiten")
         return True
@@ -1673,7 +1806,7 @@ class MainWindow(QMainWindow):
         i, j = self._word_ref
         cue = effective_words(self.analysis.transcript[i])[j]
         self.player.pause()
-        self.player.setPosition(round(max(0, cue.start - .2) * 1000))
+        self._set_preview_position(round(max(0, cue.start - .2) * 1000))
         self.preview_end = min(self.analysis.video.duration, cue.end + .3)
         self.player.play()
 
@@ -1702,7 +1835,7 @@ class MainWindow(QMainWindow):
             return
         self.player.pause()
         self.preview_end = self.timeline.out_point
-        self.player.setPosition(round(self.timeline.in_point * 1000))
+        self._set_preview_position(round(self.timeline.in_point * 1000))
         self.player.play()
 
     def eventFilter(self, watched, event):
@@ -1717,7 +1850,7 @@ class MainWindow(QMainWindow):
     def caption_offset_changed(self, value: float):
         self.timeline.set_caption_offset(value)
         self._active_caption = None
-        self._update_caption_overlay(self.player.position()/1000)
+        self._update_caption_overlay(self._source_position_seconds())
 
     def _update_caption_overlay(self, seconds: float):
         segments = self.analysis.transcript if self.analysis else []
@@ -1923,7 +2056,7 @@ class MainWindow(QMainWindow):
         self._word_ref = None
         self._refresh_word_refs()
         self._active_caption = None
-        self._update_caption_overlay(self.player.position()/1000)
+        self._update_caption_overlay(self._source_position_seconds())
         self._editor_row = None
         self._busy(False)
         self._update_history_controls()
@@ -1968,7 +2101,7 @@ class MainWindow(QMainWindow):
         return True
 
     def _current_video_second(self) -> float:
-        return max(0.0, self.player.position() / 1000)
+        return max(0.0, self._source_position_seconds())
 
     def update_manual_mark_label(self) -> None:
         a = "–" if self._manual_from is None else format_timestamp(self._manual_from)
@@ -2058,7 +2191,7 @@ class MainWindow(QMainWindow):
         self.timeline.ensure_visible(clip.start)
         self._sync_timeline_scroll()
         self.player.pause()
-        self.player.setPosition(round(clip.start * 1000))
+        self._set_preview_position(round(clip.start * 1000))
         self.single_export.setEnabled(not bool(self.worker and self.worker.isRunning()))
         self.transcript_from_highlight.setEnabled(bool(self.analysis.transcript))
         self.manual_delete.setEnabled(clip.origin == "manual")
@@ -2150,7 +2283,7 @@ class MainWindow(QMainWindow):
         self.timeline.set_annotations(self.analysis.candidates, self.analysis.transcript)
         self._refresh_word_refs()
         self._active_caption = None
-        self._update_caption_overlay(self.player.position()/1000)
+        self._update_caption_overlay(self._source_position_seconds())
         self.statusBar().showMessage(
             "Untertitel korrigiert – Projekt speichern (Strg+S). "
             "Export nutzt bereits die neue Fassung.")
@@ -2212,7 +2345,7 @@ class MainWindow(QMainWindow):
         cue = self.analysis.transcript[self._editor_row]
         self.player.pause()
         self.preview_end = cue.end
-        self.player.setPosition(round(max(0, cue.start - 0.3) * 1000))
+        self._set_preview_position(round(max(0, cue.start - 0.3) * 1000))
         self.player.play()
 
     def jump_to_transcript(self, row: int, _column: int) -> None:
@@ -2220,7 +2353,7 @@ class MainWindow(QMainWindow):
             return
         self.preview_end = None
         self.player.pause()
-        self.player.setPosition(round(self.analysis.transcript[row].start * 1000))
+        self._set_preview_position(round(self.analysis.transcript[row].start * 1000))
 
     def save_transcript_dialog(self) -> None:
         if not self.analysis or not self.analysis.transcript or not self.apply_transcript_editor():
@@ -2269,7 +2402,7 @@ class MainWindow(QMainWindow):
 
     def seek_to(self, pos: int) -> None:
         self.preview_end = None  # manual scrubbing may leave suggested time span
-        self.player.setPosition(pos)
+        self._set_preview_position(pos)
 
     def start_export(self, all_clips: bool) -> None:
         if not self.analysis or not self.apply_word_editor() or not self.apply_transcript_editor():
