@@ -132,6 +132,25 @@ def object_track_evidence(detections: Sequence[Detection],
     return sorted(best.values(), key=lambda ev: (-ev.strength, ev.at))[:max_evidence]
 
 
+def _load_detector_model(model_class, folder: Path):
+    """Load locally; explain optional timm dependency problems to Windows users."""
+    try:
+        return model_class.from_pretrained(str(folder), local_files_only=True)
+    except (ImportError, RuntimeError) as exc:
+        message = str(exc).lower()
+        if "timm" in message and (
+            "not found" in message or "no module named" in message
+            or "requires the timm" in message
+        ):
+            raise RuntimeError(
+                "Für den DETR-Objektdetektor fehlt das Python-Paket 'timm'. "
+                "StreamClipper schließen und im Projektordner Folgendes ausführen: "
+                r'.\.venv\Scripts\python.exe -m pip install -e ".[vision]"'
+                " – anschließend StreamClipper neu starten."
+            ) from exc
+        raise
+
+
 def detect_and_track(video: VideoInfo, model_directory: str | Path, *,
                      anchors: Sequence[EventEvidence], max_frames: int = 90,
                      cancelled: Cancelled | None = None,
@@ -153,7 +172,7 @@ def detect_and_track(video: VideoInfo, model_directory: str | Path, *,
     except ImportError as exc:
         raise RuntimeError('Objekterkennung benötigt das optionale Paket .[vision]') from exc
     processor = AutoImageProcessor.from_pretrained(str(folder), local_files_only=True)
-    model = AutoModelForObjectDetection.from_pretrained(str(folder), local_files_only=True)
+    model = _load_detector_model(AutoModelForObjectDetection, folder)
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     model.to(device).eval()
     stamps = select_scene_timestamps(anchors, video.duration, max_frames=max_frames)
