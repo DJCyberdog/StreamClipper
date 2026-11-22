@@ -620,3 +620,45 @@ Objekterkennungen und synthetischen FFmpeg-Videos getestet. Das tatsächliche
 Laden großer DETR-Gewichte, GPU-Betrieb auf Windows 11 und die Fehlerquote
 auf echten GTA-VI-Aufnahmen sind noch separat zu prüfen. Der Windows-
 PyInstaller-Build enthält die optionalen schweren KI-Pakete weiterhin nicht.
+
+
+## M10 – gepflegtes Highlight-Sprachlexikon (Deutsch und Englisch)
+
+**Was Whisper macht:** Whisper transkribiert die Aufnahme weiterhin ganz normal.
+Erst *danach* prüft die lokale Highlight-Analyse erkannte Sätze gegen ein
+regelbasiertes, erklärbares Wörterbuch. Es handelt sich **nicht** um Training,
+Selbstlernen oder eine Garantie für einen tatsächlichen Unfall/Spielmoment.
+
+Im Hauptfenster auf **„Highlight-Wörter …“** klicken. Der Dialog zeigt zwei
+Bereiche:
+
+- **Standardliste:** Von StreamClipper gepflegte, unveränderliche Vorlagen für
+  Überraschung, Reaktion, Lachen sowie Gefahr, Unfall, Kampf, Erfolg und
+  Verfolgung. Neue Standardbegriffe kommen mit regulären Updates samt Tests.
+- **Eigene Wörter:** Ausdruck eingeben, Kategorie und Priorität wählen, hinzufügen
+  oder einen markierten Eintrag ersetzen. Eigene Regeln werden getrennt in
+  `data/settings/highlight_words.json` gespeichert und durch Projekt-Updates
+  nicht überschrieben. Sie gelten für die *nächste* Analyse, nicht rückwirkend.
+  Ein eigener Eintrag mit demselben Wort kann die Priorität der Standardliste
+  überschreiben.
+
+**Priorität Hoch** erzeugt einen eigenständigen Sprachhinweis. **Mittel** und
+**Niedrig** sind **Kontexthinweise**: Begriffe wie „Polizei“ oder „Crash“
+erzeugen alleine kein neues Highlight. Erst zusammen mit einem Audio-Peak,
+einer Bildveränderung, CLIP-/Objekthinweisen oder einer starken Sprachreaktion
+werden sie bei der Bewertung berücksichtigt (Fenster ±5 Sekunden). Speech und
+Speech-Kontext zählen nicht fälschlich als zwei unabhängige Modalitäten.
+
+Nur vollständige Wörter/Wendungen werden erkannt; persönliche Eingaben sind
+**keine regulären Ausdrücke** und können daher keine Regex-Befehle einschleusen.
+Begrenzung: maximal 150 persönliche Wendungen mit je 2 bis 80 Zeichen. Bei
+beschädigter Konfigurationsdatei erscheint ein Fehler, bevor die mehrstündige
+Whisper-Analyse beginnt. Sicheres Speichern schützt vorherige Einstellungen.
+
+**Hinweis für lange VODs:** Die Wortliste wird ausschließlich im lokalen
+Textnachbearbeitungsschritt verwendet. Sie verursacht keine neuen Modell-Downloads
+und erfordert kein erneutes Training; ein bereits gespeichertes Transkript könnte
+zukünftig separat neu bewertet werden (noch nicht als UI-Funktion umgesetzt).
+
+**Offene Praxisabnahme:** Windows 11 / PySide6, eigene Streaming-Begriffe und
+realistische Fehlalarm-/Trefferquote auf längeren GTA-VI-Aufnahmen testen.
