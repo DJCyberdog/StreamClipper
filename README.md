@@ -1,5 +1,30 @@
 # StreamClipper 0.4 (experimenteller Export)
 
+## M11c / Teil 3 – Analyse-Highlights in den Spurplan übernehmen (Draft)
+
+Im **Spuren**-Arbeitsbereich gibt es nun **★ Highlights übernehmen …**.
+Erst nach einem bewussten Klick und der Auswahl einer Zielvideospur
+werden vorhandene Highlights als *Metadaten-Clips* aufgenommen. Standardziel:
+eine eigene Spur **Highlights (Import)**; vorhandene Videospuren können
+alternativ ausgewählt werden. Eine gesperrte Zielspur wird nicht verändert.
+
+Die Übernahme ist **idempotent**: Bereits importierte Zeitbereiche werden
+mit stabilen, quellenbezogenen Clip-Kennungen erkannt. Auch nach manuellem
+Verschieben/Trimmen eines importierten Spurclips wird er bei unveränderter
+Analyse nicht erneut importiert. Identische vorhandene Clips auf der
+gewählten Spur werden ausgelassen; andere manuelle Spurelemente bleiben
+unverändert. Ein später geändertes Highlight-Zeitfenster kann als neuer Clip
+übernommen werden; das Verfahren synchronisiert keine Bearbeitungen zurück
+ins AnalysisResult. Der gesamte Import ist eine gemeinsame Undo-Aktion
+und wird atomisch in der bestehenden Projektdatei gespeichert.
+Bei fehlerhaften Zeitgrenzen, falscher Aufnahme, gesperrten Spuren oder
+Schreibfehlern wird der Import abgewiesen.
+
+**Kein Renderer:** importierte Highlights verändern weiterhin weder
+Wiedergabe noch Videoexport. Auch die Quelldatei bleibt unberührt.
+Echte Windows-11-Ergonomie und 6h-End-to-End bleiben Abnahmepunkte.
+
+
 ## M11c / Teil 2 – Gemeinsamer Undo-/Redo-Verlauf (Draft)
 
 Highlights, Untertitelkorrekturen und Spurplan-Aktionen benutzen nun einen
