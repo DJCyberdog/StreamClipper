@@ -16,6 +16,7 @@ from bisect import bisect_left, bisect_right
 from typing import Callable, Iterable
 
 from .models import Candidate, TranscriptSegment, TranscriptWord, VideoInfo
+from .highlight_lexicon import PhraseRule, merged_rules, match_rules
 
 Cancelled = Callable[[], bool]
 Progress = Callable[[int], None]
@@ -29,31 +30,39 @@ class EventEvidence:
     description: str
 
 
-# Literal phrases in transcribed speech. No emotional state is inferred.
-_REACTIONS = (
-    re.compile(r"\b(?:oh\s+(?:mein\s+)?gott|ach\s+du\s+scheiße|was\s+zum\s+teufel|wtf|no\s+way|holy\s+shit|oh\s+my\s+god)\b", re.I),
-    re.compile(r"\b(?:alter|krass|unfassbar|wahnsinn|scheiße|scheisse|shit|fuck|wow|aua|heftig|unglaublich)\b", re.I),
-    re.compile(r"\b(?:lach(?:e|en|t)?|haha(?:ha)*|lol|lmao)\b", re.I),
-)
+def transcript_cues(segments: Iterable[tuple[float, float, str]], *,
+                    rules: Iterable[PhraseRule] | None = None) -> list[EventEvidence]:
+    """Emit weighted literal speech cues with contextual terms marked separately.
 
-
-def transcript_cues(segments: Iterable[tuple[float, float, str]]) -> list[EventEvidence]:
-    """Extract explicit *wording* cues; silence and ordinary speech do not score."""
+    Context words like "Polizei" cannot independently create a highlight; they
+    only contribute if another signal is present within the fusion window.
+    """
+    catalogue = tuple(rules) if rules is not None else merged_rules()
     evidence = []
     for start, end, raw in segments:
         if not math.isfinite(start) or not math.isfinite(end) or start < 0 or end <= start:
             continue
-        phrase = ' '.join(raw.split())
+        phrase = " ".join(raw.split())
         if not phrase:
             continue
-        matches = sum(bool(pattern.search(phrase)) for pattern in _REACTIONS)
+        matches = match_rules(phrase, catalogue)
         punctuation = bool(re.search(r"[!?]{2,}", phrase))
-        if not (matches or punctuation):
+        if not matches and not punctuation:
             continue
-        strength = min(0.86, 0.57 + 0.11 * max(0, matches - 1) + (0.09 if punctuation else 0))
+        if not matches:
+            evidence.append(EventEvidence(round((start + end) / 2, 3), "speech", 0.60,
+                            f"Transkript-Hinweis [Satzzeichen]: „{phrase[:88]}“"))
+            continue
+        top = max(matches, key=lambda rule: (rule.strength, len(rule.phrase)))
+        kind = "speech_context" if top.requires_context else "speech"
+        # Bonus is small and capped. Multiple synonyms from one utterance are
+        # one speech signal, not multiple independent modalities.
+        strength = min(0.86, top.strength + min(0.08, (len(matches) - 1) * 0.04)
+                       + (0.04 if punctuation else 0.0))
         display = phrase[:88] + ("…" if len(phrase) > 88 else "")
-        evidence.append(EventEvidence(round((start + end) / 2, 3), "speech", strength,
-                                      f"Transkript-Hinweis: „{display}“"))
+        suffix = " (nur mit weiteren Signalen)" if top.requires_context else ""
+        evidence.append(EventEvidence(round((start + end) / 2, 3), kind, strength,
+                                      f"Transkript-Hinweis [{top.category}]: „{display}“{suffix}"))
     return evidence
 
 
@@ -285,7 +294,7 @@ def fuse_events(events: Iterable[EventEvidence], duration: float,
         raise ValueError("Ungültige Analysedaten oder Parameter")
     from .analyze import _bounds
     valid = [ev for ev in events if math.isfinite(ev.at) and 0 <= ev.at <= duration
-             and math.isfinite(ev.strength) and ev.kind in {"audio", "speech", "visual", "motion", "object"}]
+             and math.isfinite(ev.strength) and ev.kind in {"audio", "speech", "speech_context", "visual", "motion", "object"}]
     if not valid:
         return []
     valid.sort(key=lambda ev: (ev.at, ev.kind, ev.description))
@@ -295,7 +304,12 @@ def fuse_events(events: Iterable[EventEvidence], duration: float,
         left = bisect_left(time_index, anchor.at - 5.0)
         right = bisect_right(time_index, anchor.at + 5.0)
         nearby = valid[left:right]
-        kinds = {event.kind for event in nearby}
+        # Context-only gaming nouns cannot initiate a highlight by themselves.
+        # Speech + context are the same modality, not two independent signals.
+        if not any(event.kind != "speech_context" for event in nearby):
+            continue
+        kinds = {"speech" if event.kind == "speech_context" else event.kind
+                 for event in nearby}
         strongest = max(nearby, key=lambda e: (e.strength, e.kind))
         # Multiple independent modalities are more useful than many nearby
         # frames of the same moment. Do not present score as probability.
@@ -304,11 +318,13 @@ def fuse_events(events: Iterable[EventEvidence], duration: float,
         ordering = sorted(nearby, key=lambda e: (-e.strength, e.kind))
         explanations = []
         for evidence in ordering:
-            if evidence.kind not in explanations:
-                explanations.append(evidence.kind)
+            group = "speech" if evidence.kind == "speech_context" else evidence.kind
+            if group not in explanations:
+                explanations.append(group)
         reasons = []
         for kind in explanations[:3]:
-            example = next(ev for ev in ordering if ev.kind == kind)
+            example = next(ev for ev in ordering
+                           if ("speech" if ev.kind == "speech_context" else ev.kind) == kind)
             reasons.append(example.description)
         start, end = _bounds(anchor.at, duration, clip_seconds)
         proposed.append(Candidate(start, end, score, " | ".join(reasons), round(anchor.at, 3)))
