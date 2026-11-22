@@ -116,3 +116,20 @@ def test_shortcut_preserves_text_widget_native_undo(tmp_path, monkeypatch):
         assert len(window.editor_project.tracks) == 5
     finally:
         shutdown(window)
+
+
+def test_processing_temporarily_blocks_track_metadata_edits(tmp_path, monkeypatch):
+    app = QApplication.instance() or QApplication([])
+    window, source = make_window(tmp_path, monkeypatch)
+    try:
+        window._busy(True)
+        assert not window.track_add_button.isEnabled()
+        assert not window._apply_project_edit(add_track, "audio", "Should not appear")
+        assert len(window.editor_project.tracks) == 5
+        window._busy(False)
+        assert window.track_add_button.isEnabled()
+        assert window._apply_project_edit(add_track, "audio", "Kommentar")
+        assert len(window.editor_project.tracks) == 6
+        assert source.read_bytes() == b"original"
+    finally:
+        shutdown(window)
