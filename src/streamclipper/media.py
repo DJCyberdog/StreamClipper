@@ -456,3 +456,111 @@ def waveform_peaks(video: VideoInfo, *, max_bins: int = 8192,
         proc.wait()
         if proc.stdout:
             proc.stdout.close()
+
+
+def stream_offsets(source: str | Path) -> tuple[float, float]:
+    """Return video-vs-container and audio-vs-video start offsets in seconds.
+
+    A preview proxy is permitted only for near-aligned streams. Large PTS
+    discontinuities must not be silently converted into a shifted timeline.
+    """
+    cmd = [tool_path("ffprobe"), "-v", "error", "-show_entries",
+           "format=start_time:stream=codec_type,start_time",
+           "-of", "json", str(source)]
+    result = subprocess.run(
+        cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        text=True, timeout=40)
+    document = json.loads(result.stdout)
+    streams = document.get("streams", [])
+    video_stream = next((s for s in streams if s.get("codec_type") == "video"), None)
+    audio_stream = next((s for s in streams if s.get("codec_type") == "audio"), None)
+    if video_stream is None:
+        raise ValueError("Proxy-Zeitbasis: Videospur fehlt")
+    format_start = float(document.get("format", {}).get("start_time") or 0)
+    video_start = float(video_stream.get("start_time") or format_start)
+    audio_start = float(audio_stream.get("start_time") or video_start) if audio_stream else video_start
+    if not all(math.isfinite(t) for t in (format_start, video_start, audio_start)):
+        raise ValueError("Proxy-Zeitbasis ist ungültig")
+    return video_start - format_start, audio_start - video_start
+
+
+def encode_preview_proxy(
+        video: VideoInfo, target: str | Path, *,
+        progress: Progress | None = None,
+        cancelled: Cancelled | None = None) -> None:
+    """Transcode a complete, small MP4 with VFR PTS spacing preserved.
+
+    This is a streaming FFmpeg operation: no video/audio bytes are buffered
+    in Python. Proxies are only preview media and never used for export.
+    The caller owns the temporary path and validates before publication.
+    """
+    if cancelled and cancelled():
+        raise CancelledError("Proxy-Erstellung abgebrochen")
+    if not math.isfinite(video.duration) or video.duration <= 0:
+        raise ValueError("Proxy benötigt eine gültige Videodauer")
+    command = [
+        tool_path("ffmpeg"), "-hide_banner", "-nostdin", "-loglevel", "error",
+        "-stats_period", "0.5", "-progress", "pipe:1", "-y",
+        "-i", video.path, "-map", "0:v:0", "-map", "0:a:0?",
+        "-map_metadata", "-1", "-map_chapters", "-1", "-sn", "-dn",
+        "-vf", ("setpts=PTS-STARTPTS,"
+                "scale=854:480:force_original_aspect_ratio=decrease:"
+                "force_divisible_by=2,setsar=1,format=yuv420p"),
+        "-fps_mode:v", "passthrough",
+        "-c:v", "libx264", "-preset", "veryfast", "-crf", "29",
+        "-pix_fmt", "yuv420p",
+    ]
+    if video.has_audio:
+        command += ["-af", "aresample=async=1:first_pts=0"]
+    command += [
+        "-c:a", "aac", "-b:a", "96k", "-movflags", "+faststart",
+        "-f", "mp4", str(target)]
+    with tempfile.TemporaryFile(mode="w+b") as stderr_log:
+        proc = subprocess.Popen(
+            command, stdout=subprocess.PIPE, stderr=stderr_log,
+            text=True, encoding="utf-8", errors="replace")
+        updates: queue.Queue[float] = queue.Queue(maxsize=2)
+        def drain_progress() -> None:
+            assert proc.stdout is not None
+            for line in proc.stdout:
+                key, sep, value = line.strip().partition("=")
+                if sep and key in {"out_time_us", "out_time_ms", "out_time"}:
+                    seconds = _progress_seconds(key, value)
+                    if seconds is not None:
+                        try:
+                            updates.put_nowait(seconds)
+                        except queue.Full:
+                            pass
+        reader = threading.Thread(
+            target=drain_progress, daemon=True, name="streamclipper-proxy-progress")
+        reader.start()
+        last = -1
+        try:
+            while proc.poll() is None or reader.is_alive() or not updates.empty():
+                if cancelled and cancelled():
+                    raise CancelledError("Proxy-Erstellung abgebrochen")
+                try:
+                    at = updates.get(timeout=0.15)
+                except queue.Empty:
+                    continue
+                percent = min(99, max(0, int(at / video.duration * 100)))
+                if progress and percent > last:
+                    progress(percent)
+                    last = percent
+            proc.wait()
+            if cancelled and cancelled():
+                raise CancelledError("Proxy-Erstellung abgebrochen")
+            if proc.returncode:
+                stderr_log.seek(0, os.SEEK_END)
+                stderr_log.seek(max(0, stderr_log.tell() - 1800))
+                error = stderr_log.read().decode("utf-8", errors="replace")
+                raise RuntimeError("FFmpeg-Proxy fehlgeschlagen: " + error)
+            if not Path(target).is_file() or Path(target).stat().st_size <= 0:
+                raise RuntimeError("FFmpeg hat keinen vollständigen Proxy erzeugt")
+            if progress:
+                progress(100)
+        finally:
+            _stop_process(proc)
+            reader.join(timeout=2)
+            if proc.stdout:
+                proc.stdout.close()
