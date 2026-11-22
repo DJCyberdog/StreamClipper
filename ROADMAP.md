@@ -148,7 +148,7 @@ Vorhandene *experimentelle* Implementierungen umfassen Audio-Highlighting, nicht
 
 | Milestone | Zusammengehöriger Bereich | Zugeordnete Feature-IDs nach Tier | Definition of Done |
 |---|---|---|---|
-| **M10.5** | Integration & Baseline | Bestehende Arbeit konsolidieren (keine zusätzlichen IDs) | Eine konsistente, start- und updatefähige Baseline ohne Import-/Modulkonflikte. |
+| **M10.5** | Integration & Baseline; **P1-UX-Fix #32: Fortschritt bei Modelldownloads** | Bestehende Arbeit konsolidieren (keine zusätzlichen Feature-IDs) | Start-/updatefähige Baseline; Modellgewichte laden mit sichtbarem, korrektem Downloadstatus im App-Fortschrittsbalken. |
 | **M11** | Editor, Timeline & Datenhaltung | S: S-B1, #02, #03, #04, #05 · C: #36 · D: D-B1 | Sechsstündiges VOD flüssig navigieren, Schnitte/Spuren editieren und nach Neustart inkl. Checkpoints wiederherstellen. |
 | **M12** | Preview, Render & Export-Engine | S: #01, #06, #07, #08 | Crop, Effekte und Untertitel laufen durch dieselbe Exportlogik; reproduzierbare Preview/Render-Vergleiche und geprüfte Job-Abbrüche. |
 | **M13** | Szenen, Smart Director & Overlays | A: A-B1, #09, #10, #11, #12 | Je Szene manuelle/automatische Kamera, 9:16-/16:9-Crop, Sperrzonen, Profile und Rendervergleich; manuelle Vorgaben haben Vorrang. |
@@ -164,13 +164,28 @@ Vorhandene *experimentelle* Implementierungen umfassen Audio-Highlighting, nicht
 
 ### 5.1 Meilensteinregeln und Abhängigkeiten
 
-1. **M10.5 zuerst:** Bestehende gestapelte Code-PRs integrieren und mit realen Windows-Daten testen, bevor neue komplexe Workflows darauf aufbauen.
+1. **M10.5 zuerst:** Bestehende gestapelte Code-PRs integrieren und mit realen Windows-Daten testen. **P1-Bugfix #32 (Modelldownload-Fortschritt) vor M10.5-Abnahme erledigen.** Erst dann neue komplexe Workflows aufbauen.
 2. **M11 (Editor) → M12 (Render-Vertrag) → M13 (Kamera):** Persistente Timeline-/Szenenstruktur und verlässliche Renderpipeline sind Voraussetzung für den Smart Director. M12 stellt die exportgetreue Grundlage bereit; M13 und M14 erweitern und verifizieren sie für ihre jeweiligen Effekte.
 3. **M14 (Captions) und M15 (Audio) → M16 (Intelligence):** Korrigierte Sprachdaten und Audiosignale können für hochwertige, nachvollziehbare Analyse genutzt werden.
 4. **M17 (Montage) → M19 (Publishing):** Clips müssen vollständig bearbeitbar und exportierbar sein, bevor sie über Dienste veröffentlicht werden.
 5. **M18 (Integrationen) und M19 (Online):** Netzwerkabhängige D-Tier-Funktionen sind **opt-in**. Keine verpflichtende Kontoverknüpfung, keine Cloud-Abhängigkeit der Basisapp.
 6. **M20 ist kein zusätzlicher Feature-Bucket:** Erst ein Gesamt-Regressionstest, Windows-End-to-End-Abnahme und nachweislich bestandene F-Tier-Schutzregeln erlauben den Release.
 7. **Kein D-Tier-Schlupfloch:** Ein niedrig priorisiertes Feature bleibt zwar innerhalb seines Milestones nachrangig, wird aber nicht still auf „nach 1.0“ verschoben. Soll es doch entfallen, ist ein **neuer Owner-Beschluss** erforderlich.
+
+### M10.5-P1-01 – Modelldownload-Fortschritt in der GUI ([Issue #32](https://github.com/DJCyberdog/StreamClipper/issues/32))
+
+**Fehlerbild:** Beim explizit gestarteten Download lokaler Whisper-/CLIP-/DETR-Modellgewichte zeigt die Konsole den Fortschritt von `huggingface_hub.snapshot_download`; der **untere Fortschrittsbalken in StreamClipper bleibt bei 0 %**. Das ist eine Regression/fehlende Anbindung des **bestehenden** Modell-Workflows (M9), **kein neues Hauptfeature und kein M12-Renderjob**.
+
+**Verbindliche P1-Abnahme vor Abschluss von M10.5:**
+
+- [ ] `ModelDownloadThread` sendet **thread-sichere Progress-Events** an die GUI; die untere Leiste zeigt den Download **sofort** und nennt das aktuell geladene Modell.
+- [ ] Wenn Bytes und Gesamtgröße tatsächlich bekannt sind: Fortschritt auf Basis **der aufsummierten heruntergeladenen Bytes über alle Dateien**; Nachladungen wie `pytorch_model.bin` korrekt berücksichtigen. **Keine** fiktiven Prozentwerte anhand des Dateizählers.
+- [ ] Bei unbekanntem Downloadumfang sowie Metadaten- oder Rekonstruktionsphasen: sichtbarer **unbestimmter Fortschritt (Busy/Indeterminate)** statt statischer `0 %`.
+- [ ] **100 %/Bereit erst nach vollständig validiertem Modell**; bei Fehler oder Abbruch verständlicher Zustand, Wiederholbarkeit und Erhalt bereits vorhandener Modelldateien.
+- [ ] Progress-Zustand für Modell, Twitch-Import, Analyse und Export überschreibt sich nicht gegenseitig; GUI bleibt bedienbar.
+- [ ] Reproduzierbare automatisierte Unit-/Qt-Offscreen-Tests mit simulierten Download-Events **und** realer Windows-Test mit mindestens einer großen Modellvariante (z. B. CLIP ViT-L/14).
+
+**Priorisierung:** **M10.5, P1 / vor dem Integrationsabschluss**, danach keine separate Aufschiebung in M12. Die Tierlist bleibt **60 Hauptfeatures** mit **58 vorgesehenen Implementierungen und zwei F-Ausschlüssen**.
 
 ### 5.2 M11 – Editor, Timeline & Projektlebenszyklus
 
