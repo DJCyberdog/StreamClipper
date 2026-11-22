@@ -156,7 +156,7 @@ Vorhandene *experimentelle* Implementierungen umfassen Audio-Highlighting, nicht
 | **M15** | Audio & Sprache | A: #13, #14, #15, #16 · B: #26, #33 · C: #38 | Reproduzierbare Audiomischung ohne Quellenüberschreibung, verständliche Artefakt-/Lautstärkewarnungen. |
 | **M16** | Gaming Intelligence, Review & Suche | S: S-B3 · A: #17, #18, #20 · C: #39, #40 · D: D-B2, D-B3 | Erst Benchmark/Baseline, dann zweistufige und temporale Erkennung, kalibrierbare Fusion, Sprach-/Spielprofile und Feedback; P@8, Recall, Fehlalarme und Laufzeit auf unabhängigen VODs nachweisen. |
 | **M17** | Montage, Effekte & Clip-Varianten | B: B-B1, #21, #22, #24, #25, #27, #29, #31, #32 | Story-aware Clipgrenzen (Aufbau → Ereignis → Reaktion), mehrere Highlights und Exportvarianten mit kontrollierbaren manuellen Korrekturen zusammenstellen. |
-| **M18** | Stream-Workflow & Integrationen | C: #34, #35, #37, #41, #42, #43 · D: #48 | Import/Marker/Exporte funktionieren nachvollziehbar; externe Zugriffe sind explizit aktivierbar und widerrufbar. |
+| **M18** | Stream-Workflow, **Multi-Plattform-Videoimport** & Integrationen | C: #34, #35, #37, #41, #42, #43 · D: #48 | Einzelauswahl per URL für Twitch, YouTube, Kick und weitere validierte Quellen; Import/Marker/Exporte mit Fortschritt, Abbruch und klarer Rechte-/Fehlerbehandlung. Automatischer Kanalimport bleibt getrennt, opt-in. |
 | **M19** | Publishing, Zusammenarbeit & Reichweite | B: B-B2 · D: #44, #45, #46, #47 | Bewusste Veröffentlichung, nachvollziehbare Freigaben, Rechte- und Datenschutzkontrollen; offline vollständig nutzbare Basis. |
 | **M20** | Feature Freeze, Gesamt-Abnahme & 1.0 | F: #49, #50 | Alle 58 umsetzbaren Features aus S–D abgenommen oder ausdrücklich durch Owner neu beschlossen; beide F-Prinzipien nachweislich nicht implementiert; erst dann 1.0 Stable. |
 
@@ -226,7 +226,7 @@ Vorhandene *experimentelle* Implementierungen umfassen Audio-Highlighting, nicht
 - **M15 Audio & Sprache:** Mischspuren, Cleanup, Sprechererkennung, Ducking und Voice-over teilen sich die Audiotimeline.
 - **M16 Gameplay Intelligence:** Benchmark, zweistufiges temporales Screening, bessere multimodale Fusion, Sprachreaktionen, Spielprofile, Feedback-Learning, Dubletten/Kontaktbögen sowie optional Twitch-Chat und semantische Suche – **mit unabhängigen Vergleichstests**; siehe M16a–M16f.
 - **M17 Montage:** Story-aware Clipgrenzen (Aufbau, Aktion, Pointe/Reaktion), Hooks/Kapitel, Geschwindigkeit, Standbilder, Sounds, Farbe, mehrere Längen und A/B-Varianten; siehe M17a.
-- **M18 Streaming-Integrationen:** OBS, Stream Deck, NLE, Tastatur-/Sprachoberfläche, Watch Folders und Kanalimport. **#36 Shortcuts sind bereits M11 zugeordnet**, damit sie von Beginn an editorweit wirken.
+- **M18 Streaming-Integrationen & Multi-Plattform-Import:** Einmalige URL-Imports für Twitch/YouTube/Kick und weitere unterstützte Plattformen mit einer gemeinsamen Download-Engine; OBS, Stream Deck, NLE, Tastatur-/Sprachoberfläche, Watch Folders und **separater** optionaler Kanalimport. **#36 Shortcuts sind bereits M11 zugeordnet**, damit sie von Beginn an editorweit wirken.
 - **M19 Publishing & Collaboration:** Veröffentlichung nur mit Freigabe; Cloud Review, Sync, Analytics und Companion App ergänzen den Publishing-Workflow, erzwingen aber **keinen** Cloud-Zugang für lokales Editing.
 
 ### 5.6 M16 – Gaming Intelligence: verbindlicher Qualitätsausbau
@@ -293,6 +293,46 @@ Dieses Paket gehört zu **M17 (Montage/Clip-Varianten)**, nutzt **M16-Ereignisze
 - Mehrteilige Ereignisse zusammenfassen und offensichtliche Dubletten vermeiden; bei mehreren Storybeats optional Montagevarianten anbieten.
 - **Vorschlag statt Zwang:** Nutzer:innen können alle Grenzen in der Timeline verändern; ein manuell gesetztes Intervall wird nicht durch erneute Analyse überschrieben.
 - Gegen M10.5-Fixfenster auf annotierten Momenten vergleichen: Anteil vollständig enthaltener Ereignisse, abgeschnittene Anfänge/Pointen, unnötige Leerlaufsekunden, Exportkonformität. Ein Quality-Gate darf nicht nur auf höheren Ranking-Scores basieren.
+
+### 5.8 M18a – Plattformübergreifender Videoimport (verbindlicher Erweiterungsauftrag)
+
+**Owner-Wunsch 22.11.2026:** Der bisherige manuelle Twitch-VOD-Import aus M5 wird zu einem **gemeinsamen Videoimport** erweitert, ohne pro Plattform einen unverbundenen Downloader zu implementieren. Der vorhandene `yt-dlp`-Adapter (`src/streamclipper/twitch_import.py`) liefert die Basis, erhält aber eine providerneutrale Schnittstelle. Dieses Paket ist **keine neue Hauptfeature-ID**; die Tierlist bleibt bei 60 und der Milestone bei M18. **D-Tier #48 bezeichnet dagegen die spätere optionale automatische Kanalaufnahme, nicht den manuellen URL-Import.**
+
+**M18a.1 – Einheitliche Importoberfläche**
+
+- Ein gemeinsames Eingabefeld für **YouTube (Einzelvideos, Shorts, veröffentlichte Aufzeichnungen), Kick (VODs/Clips), Twitch (VODs/Clips)** und nachweislich unterstützte weitere Plattformen (z. B. Vimeo/Dailymotion) sowie zulässige direkte Video-URLs.
+- Vor dem Download per Metadaten-Preflight anzeigen: Plattform, Titel/Kanal, Länge, verfügbare Bild-/Tonqualitäten, Ton-/Untertitelspuren (soweit geliefert), geschätzter Speicherbedarf und Downloadziel. Bei fehlenden Metadaten nichts erfinden.
+- Manuelle Wahl von Qualität (z. B. beste verfügbare, 1080p, 720p), Dateiformat/Audio soweit verfügbar; Originalqualität möglichst erhalten, keine unbeabsichtigte Neukodierung. Nach Download automatisch im Editor öffnen **nur auf ausdrückliche Auswahl**.
+- Klar zwischen einem Einzelvideo, einer Playlist und einem ganzen Kanal unterscheiden: **Standardmäßig genau ein Video**, kein stilles Playlist-/Kanal-Crawling oder Auto-Ingestion. Größere Stapel erst nach gesonderter Auswahl mit Mengen-/Speicherschutz.
+
+**M18a.2 – Gemeinsame Download-Engine und Zuverlässigkeit**
+
+- `yt-dlp`-/FFmpeg-Backend für die Provider gemeinsam nutzen, aber **Plattform-URL-Erkennung und erlaubte Hosts/Protokolle kontrollieren**. Keine blind akzeptierten lokalen Dateipfade, Loopback-/Privatnetz-Adressen oder unkontrollierten URL-Redirects (SSRF-Schutz).
+- Fortschrittsanzeige im **bestehenden unteren GUI-Fortschrittsbalken** einschließlich Dateigröße/Geschwindigkeit/Restzeit nur, wenn messbar. Bei unbekannter Größe Busy-Zustand; Download, Fragment-Reassembly und FFmpeg-Merge korrekt unterscheiden.
+- Abbruch, Wiederaufnahme (`.part`), Fehler/Netzausfall/Rate-Limits, sichere Zielnamen, kein Überschreiben, Speicherplatzprüfung, Mehrspur-Container und temporäre Dateien robust behandeln. Bestehenden Twitch-Import ohne Regression migrieren.
+- Vorhandene Untertiteldateien und Metadaten optional übernehmen, ohne unnötige Neutranskription. Importquellen/Zeitstempel dokumentieren; local-first Editor bleibt unabhängig vom Netzwerk.
+- Plattformen sind **Best-Effort**, nicht garantiert dauerhaft verfügbar. Browser-/Plattformänderungen, unzugängliche Videos und entfernte VODs erzeugen verständliche Fehler.
+
+**M18a.3 – Sicherheit, Rechte und Opt-in**
+
+- Download nur nach **explizitem Klick** und bei vorhandener Nutzungsberechtigung; öffentlich abrufbar ist **keine** pauschale Download-/Wiederveröffentlichungserlaubnis. Nutzende auf Plattformbedingungen und Rechte Dritter hinweisen.
+- Keine DRM-, Paywall-, Alters-/Zugangskontroll- oder Authentifizierungssperren umgehen. Falls eine Plattform erlaubte Authentifizierung für **eigene oder autorisierte Inhalte** bereitstellt, nur per gesondertem Opt-in und sicherer, nicht protokollierter Credential-Verwaltung.
+- Keine Tokens/Cookies in Logs, JSON-Projektdateien oder Repository; gültige URL-/Dateinamen nicht als Shell-Kommando interpretieren. Keine automatische Veröffentlichung.
+- Die Option **#48 – Automatic Channel Ingestion** wird in **M18b** getrennt implementiert und bleibt standardmäßig deaktiviert.
+
+**M18a-Abnahme vor 1.0:**
+
+- [ ] Für Twitch-, YouTube- und Kick-Testvideos **mit klarer Nutzungsberechtigung** je mindestens ein reproduzierbarer Import- und Fehlertest, einschließlich YouTube Shorts und Kick Clip soweit öffentlich und technisch unterstützt.
+- [ ] Plattformübergreifender Parser, Single-Video-Default, Quality-Preflight, Fortschritt, Abbruch/Wiederaufnahme, Datei-Integrität und fehlende Tonspuren automatisiert getestet; echte Windows-11-End-to-End-Testläufe dokumentiert.
+- [ ] Download-URL-/Redirect-/SSRF-/Pfadsicherheitsprüfungen sowie sicherer Umgang mit Metadaten und optionaler Authentifizierung abgenommen.
+- [ ] Vorhandene Twitch-M5-Workflows funktionieren weiter; kein unerwarteter Download einer Playlist/eines Kanals, keine kaputten Import-Dateien oder überschriebenen Originale.
+- [ ] Das importierte Video kann lokal sofort gesichtet, geschnitten und analysiert werden; Download bleibt optional und vollständig vom offline-first Editor getrennt.
+
+### 5.9 M18b – Automatische Kanalaufnahme (D-Tier #48)
+
+- **Nur opt-in**: Einzeln autorisierte Creator-/Kanalquellen auswählen, erlaubten Abrufrhythmus, Mengen-/Größenlimit und Zielordner festlegen.
+- Bereits importierte Video-IDs deduplizieren; klare Pause-/Löschen-/Fehlerfunktionen, keine Endlosschleifen oder ungefragten Downloads.
+- D-Tier bleibt niedriger priorisiert, wird nach dem manuellen M18a-Import umgesetzt und gehört gemäß Owner-Beschluss trotzdem zum 1.0-Umfang.
 
 ## 6. Ein einziger Release-Pfad: Alles vor 1.0
 
