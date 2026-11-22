@@ -123,3 +123,14 @@ aber es werden keine erweiterten Projektmanagement-Funktionen in M6 gebaut.
 - [ ] GTA VI: Recall/Fehlalarme für Fahrzeuge/Personen und schwierige Szenen messen
 - [ ] Mehrstündige reale Analyse mit GPU- und RAM-Profiling
 - [ ] Objektidentität bei Überdeckungen/Kameraschnitten und Explosions-/Schussklassifikation
+
+
+## M10 – kuratiertes Highlight-Sprachlexikon
+
+- [x] Deutsch/englische Kategorie-Regeln mit Prioritätsstufen statt starrer Regex-Blöcke
+- [x] Kontextwörter benötigen zusätzliche Evidenz (kein „Polizei“ = Highlight)
+- [x] Editierbare, getrennt gespeicherte persönliche Wortliste im Hauptfenster
+- [x] Lokale, versionierte JSON-Datei; atomare Speicherung und Eingabevalidierung
+- [x] Regressionstests für Wiederholungen, Wortgrenzen, Fehler und Langaufnahme-Vorprüfung
+- [ ] Echtes Windows-11-/Gaming-VOD-Tuning (False-Positives/False-Negatives)
+- [ ] Automatisierte lexikalische Updates / Remote-Downloads (nicht vorgesehen ohne Opt-in)
