@@ -42,6 +42,7 @@ from .highlight_lexicon_dialog import HighlightLexiconDialog
 from .editor_project import (EditorProject, ProjectHistory, initial_project,
     add_track, remove_track, rename_track, move_track, toggle_track,
     add_item, edit_item, load_project, save_project)
+from .track_canvas import TrackCanvas
 
 from .edit_history import EditHistory
 from .autosave import autosave_path, clear_autosave, load_autosave, save_autosave
@@ -503,6 +504,11 @@ class MainWindow(QMainWindow):
             "Wiedergabe und Export nutzen derzeit noch die Originalaufnahme.")
         tracks_intro.setWordWrap(True)
         tracks_layout.addWidget(tracks_intro)
+        self.track_canvas = TrackCanvas()
+        self.track_canvas.trackSelected.connect(self._select_project_track)
+        self.track_canvas.clipSelected.connect(self._select_project_clip)
+        self.track_canvas.clipMoved.connect(self._drag_project_clip)
+        tracks_layout.addWidget(self.track_canvas)
         self.tracks_table = QTableWidget(0, 5)
         self.tracks_table.setMinimumHeight(145)
         self.tracks_table.setHorizontalHeaderLabels(
@@ -546,7 +552,7 @@ class MainWindow(QMainWindow):
         self.track_clips_table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
         self.track_clips_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.track_clips_table.horizontalHeader().setStretchLastSection(True)
-        self.track_clips_table.itemSelectionChanged.connect(self._update_track_actions)
+        self.track_clips_table.itemSelectionChanged.connect(self._track_clip_selection_changed)
         tracks_layout.addWidget(self.track_clips_table, 1)
         row3 = QHBoxLayout()
         self.track_clip_add = QPushButton("Auswahl als Spurclip")
@@ -957,7 +963,34 @@ class MainWindow(QMainWindow):
         finally:
             self.tracks_table.blockSignals(False)
             self.track_clips_table.blockSignals(False)
+        self.track_canvas.set_project(project)
+        if self._source_duration > 0:
+            self.track_canvas.set_visible_range(*self.timeline.visible())
+        self.track_canvas.set_selected_clip(old_clip)
         self._update_track_actions()
+
+    def _select_project_track(self, track_id: str) -> None:
+        if not self.editor_project:
+            return
+        for row, track in enumerate(self.editor_project.tracks):
+            if track.id == track_id:
+                self.tracks_table.selectRow(row)
+                return
+
+    def _select_project_clip(self, item_id: str) -> None:
+        if not self.editor_project:
+            return
+        for row, item in enumerate(self.editor_project.items):
+            if item.id == item_id:
+                self.track_clips_table.selectRow(row)
+                return
+
+    def _track_clip_selection_changed(self) -> None:
+        self.track_canvas.set_selected_clip(self._selected_clip_id())
+        self._update_track_actions()
+
+    def _drag_project_clip(self, item_id: str, position: float) -> None:
+        self._apply_project_edit(edit_item, item_id, timeline_start=position)
 
     def _update_track_actions(self) -> None:
         if not hasattr(self, "track_add_button"):
@@ -1221,9 +1254,11 @@ class MainWindow(QMainWindow):
             self.timeline_scroll.setValue(round(start))
         finally:
             self.timeline_scroll.blockSignals(False)
+        self.track_canvas.set_visible_range(*self.timeline.visible())
 
     def timeline_scroll_changed(self, value: int):
         self.timeline.set_offset(float(value))
+        self.track_canvas.set_visible_range(*self.timeline.visible())
 
     def timeline_seek(self, second: float):
         self.preview_end = None
