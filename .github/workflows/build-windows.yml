@@ -20,7 +20,7 @@ jobs:
         shell: pwsh
         run: |
           $env:QT_QPA_PLATFORM = "offscreen"
-          python -m pytest -q tests/test_timeline_qt.py tests/test_highlight_lexicon_qt.py
+          python -m pytest -q tests/test_timeline_qt.py tests/test_highlight_lexicon_qt.py tests/test_m11_editor_qt.py
       - name: Build portable Windows executable
         run: pyinstaller --noconfirm --clean --onedir --windowed --name StreamClipper --paths src scripts/launch.py
       - name: Include startup notes

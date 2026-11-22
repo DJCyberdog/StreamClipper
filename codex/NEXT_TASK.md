@@ -1,37 +1,30 @@
-# NEXT_TASK – M10.5: Konsolidierungsabnahme
+# NEXT_TASK – M11: Editor, Timeline & Datenhaltung
 
-Die verbindliche Planung steht in **/ROADMAP.md**. Aktuelles Arbeitsziel ist
-**M10.5 – Integration & Baseline**, nicht das alte SC-P0-01-Ticket.
+**Basis:** Stack auf Draft-PR #31 / M10.5. Der Integrationsstand ist
+automatisiert getestet, jedoch nicht vollständig auf realem Windows und
+sechsstündigen Twitch-VODs abgenommen. Kein Merge nach main ohne Freigabe.
 
-## Sofortiger P1-Fix – [Issue #32](https://github.com/DJCyberdog/StreamClipper/issues/32)
+## M11a – dieser Branch (erster nutzbarer Editor-Schritt)
 
-**Vor M10.5-Abnahme** die Modelldownload-UX vollständig verbinden:
+- Compact EditHistory: manuelle Clips hinzufügen/entfernen/trimmen,
+  Wort- und Segmentkorrekturen rückgängig/wiederholen, Redo nach neuem
+  Edit invalidieren, keine kompletten Transkriptkopien je Schritt.
+- Qt-GUI: sichtbare Buttons, Strg+Z und Strg+Umschalt+Z.
+- Atomische Sicherung nach kurzer Bearbeitungspause im bestehenden JSON-
+  Format unter `data/projects/autosaves`. Kein Cloud-Upload.
+- Videoquelle erneut öffnen → Recovery-Dialog; Dauer/Auflösung validieren.
+  Explizites Speichern/Verwerfen entfernt zugehörige Sicherung.
+- Tests: Core und offscreen-Qt; echte Windows- und 6h-End-to-End-Abnahme
+  **noch offen**, großes JSON bei Auto-Sicherung auf UI-Latenz prüfen.
 
-- Fortschritt von `huggingface_hub.snapshot_download` im unteren Qt-Fortschrittsbalken
-  anzeigen (echte Bytewerte bei bekannten Größen, Busy-Modus bei unbekannten Größen).
-- Optionalen HF-Token **direkt in der App** maskiert einfügen, testen,
-  für alle Downloadphasen nutzen, bei Bedarf entfernen.
-- Bestehendes `HF_TOKEN`/HF-Login erkennen, aber niemals anzeigen oder überschreiben.
-- Standard: **nur Sitzungsspeicher**; optionale Persistenz ausschließlich nach
-  Zustimmung im Windows Credential Manager / entsprechend geschütztem OS-Store.
-  Keine Klartextspeicherung in `data/`, Config, Git, Logs oder Fehlermeldungen.
-- Authentifizierte/anonyme Downloads; verständliche 401/403-Meldungen,
-  Retry ohne Datenverlust; Unit-/Qt-Tests mit Fake-Tokens.
-- **Exakte P1-Abnahmekriterien:** `/ROADMAP.md`, Abschnitt **M10.5-P1-01**.
-  Das ist Teil des bestehenden Modellmanagements, kein 61. Hauptfeature.
+## M11b – nächstes inkrementelles Paket
 
-1. Den Draft-Integrations-PR `integration/m10-5-consolidated-baseline` prüfen und CI/Windows
-   auf dem exakten Integrationscommit auswerten.
-2. Windows 11: `run_windows.bat`, portable EXE, GUI/Timeline/Wort-Editor,
-   Modellwahl, Sprachlexikon, FFmpeg starten und bedienen.
-3. Echte Whisper-/CLIP-/DETR-Modellgewichte laden, GPU und CPU-Fallback testen.
-4. Testvideo: Highlight → Wortkorrektur → Wörterbuch → JSON-Persistenz → MP4.
-5. Öffentlicher Twitch-VOD-Import und ein vollständiges 6h-Gaming-VOD; RAM/
-   VRAM/Performance sowie Erkennungsfehler protokollieren.
-6. Offene Befunde in `docs/M10_5_INTEGRATION.md` ergänzen; Integration
-   erst nach Review/Freigabe mergen.
-7. Danach **M11 – Editor, Timeline & Datenhaltung**, einschließlich der vom
-   Owner vor 1.0 eingeplanten D-B1-Projektfunktionen.
+1. Versioniertes, PySide6-unabhängiges Projektmodell mit Gameplay-, Mikrofon-,
+   Musik-, Caption- und Overlay-Spuren.
+2. Spur-/Clipoperationen samt History und Migration aus altem Analyse-JSON.
+3. Erweiterte, benutzerkontrollierte Projekt-Checkpoints (D-B1) und Proxy-
+   Erzeugung/Zuordnung (#05). Projekt nicht auf eine Quelle fest verdrahten.
+4. Konfigurierbare Keyboard-Shortcuts (#36); keine voreiligen WYSIWYG-Claims
+   vor M12-Render-Vertrag.
 
-Prüfbefehle: `python -m pytest -q`, `python -m compileall -q src`.
-Keine stillen Uploads, kein Cloud-Zwang, kein ungefragtes Publishing.
+Testbefehle: `python -m pytest -q`, `python -m compileall -q src`.

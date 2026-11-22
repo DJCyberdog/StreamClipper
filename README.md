@@ -1,5 +1,28 @@
 # StreamClipper 0.4 (experimenteller Export)
 
+## M11a – Editor-Historie und Auto-Sicherung (Entwicklungsstand)
+
+Der erste, **noch nicht vollständig abgenommene** M11-Schritt unterstützt
+`Strg+Z` und `Strg+Umschalt+Z` sowie sichtbare Buttons für Rückgängig/
+Wiederholen von **manuellen Highlights, Trimmen und übernommenen Wort-/
+Transkriptkorrekturen**. Die Befehle speichern nur geänderte Einträge statt
+jedes Mal das gesamte sechsstündige Transkript zu kopieren.
+
+Ungespeicherte Änderungen werden nach kurzer Bearbeitungspause zusätzlich im
+bestehenden Analyse-JSON-Format **atomar** unter
+`data/projects/autosaves/` gesichert (lokal, ohne Cloud). Wenn dieselbe
+Videoquelle erneut geöffnet wird, erscheint bei vorhandener Sicherung eine
+Wiederherstellungsfrage. **Originalvideo und ausdrücklich gespeicherter
+Analysebericht werden nicht überschrieben.** Nach ausdrücklichem
+Speichern oder Verwerfen werden alte Auto-Sicherungen entfernt.
+
+**Noch offen für M11:** echte Mehrspur-Timeline, fortgeschrittene Projekt-/
+Checkpointverwaltung, Proxy-Editing, frei konfigurierbare Shortcuts,
+6h-Windows-Praxistest und die Gesamtabnahme. Der JSON-Autosave selbst
+arbeitet derzeit während des Idle-Timers; Zeit-/UI-Auswirkungen auf sehr
+große Berichte müssen auf Windows noch gemessen werden.
+
+
 > **Verbindliche Planung:** [ROADMAP.md](ROADMAP.md) – 60 Features, gebündelte M10.5–M20, 58 umzusetzende S–D-Funktionen vor Release 1.0. Dieser Code bleibt experimentell; CI ersetzt keinen Windows-Praxistest.
 
 **Lokale Windows-App für Gaming-/Twitch-Highlights mit optionalen eingebrannten Untertiteln und dynamischem 16:9-/9:16-Export.**

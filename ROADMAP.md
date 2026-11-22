@@ -198,6 +198,8 @@ Vorhandene *experimentelle* Implementierungen umfassen Audio-Highlighting, nicht
 
 ### 5.2 M11 – Editor, Timeline & Projektlebenszyklus
 
+**Umsetzungsstatus (experimentell):** M11a beginnt auf dem gestapelten Entwicklungsbranch `feat/sc-m11a-edit-history-recovery` mit kompaktem Undo/Redo und atomarer Wiederherstellung für bereits vorhandene Highlight-/Transkript-Edits. **M11 insgesamt ist NICHT abgenommen:** Mehrspur, vollständige Checkpoints, Proxy-Medien und Shortcut-Konfiguration stehen aus; eine echte Windows-/6h-Abnahme ist erforderlich.
+
 - Eine Timeline mit mehreren Spuren, zuverlässigem Undo/Redo, Proxy-Medien und nutzbaren Shortcuts.
 - Autosave/Crash Recovery (**#04**) und vollwertige Projektverwaltung mit Analyse-Checkpoints (**D-B1**) als **getrennte** Leistungsmerkmale im gleichen Editor-Datenmodell.
 - Lange Aufnahmen navigieren und Clipgrenzen editieren, ohne Videos erneut zu transkribieren; Datei- und Projektzustand nichtdestruktiv speichern.
