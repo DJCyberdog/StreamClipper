@@ -790,6 +790,8 @@ class MainWindow(QMainWindow):
             return False
         for old in self._waveform_workers:
             old.cancel()
+        self._autosave_timer.stop()
+        self._edit_history.clear()
         self.source = source
         self._source_duration = 0.0
         self.caption_overlay.hide()
@@ -827,6 +829,8 @@ class MainWindow(QMainWindow):
         worker.start()
         self.progress.setValue(0)
         self._busy(False)
+        self.autosave_hint.setText("Auto-Sicherung bereit")
+        self._update_history_controls()
         self.statusBar().showMessage("Aufnahme geladen – Analyse starten")
         return True
 
@@ -854,6 +858,8 @@ class MainWindow(QMainWindow):
             self.timeline.set_annotations(self.analysis.candidates, self.analysis.transcript)
         self.timeline_status.setText(
             f"{format_timestamp(video.duration)} · {len(peaks)} Audio-Punkte")
+        if not preserve and self.analysis is None:
+            self._offer_autosave_recovery(video)
 
     def waveform_failed(self, filename: str, reason: str):
         if filename == self.source:
@@ -1001,6 +1007,7 @@ class MainWindow(QMainWindow):
         if not self.analysis:
             return True
         i, j = self._word_ref
+        previous = self.analysis
         try:
             self.analysis = edit_word(self.analysis, i, j,
                                       self.word_start.value(), self.word_end.value(),
@@ -1019,7 +1026,7 @@ class MainWindow(QMainWindow):
             self.transcript_table.blockSignals(False)
         if self._editor_row == i:
             self.fill_transcript_editor(i)
-        self.transcript_dirty = True
+        self._register_edit(previous)
         self.timeline.set_annotations(self.analysis.candidates, self.analysis.transcript)
         self._refresh_word_refs()
         if (i, j) in self._word_refs:
@@ -1055,13 +1062,14 @@ class MainWindow(QMainWindow):
         if not self.analysis:
             return
         index = self.table.currentRow()
+        previous = self.analysis
         try:
             self.analysis = trim_manual_highlight(
                 self.analysis, index, self.timeline.in_point, self.timeline.out_point)
         except ValueError as exc:
             QMessageBox.warning(self, "Schnittbereich ungültig", str(exc))
             return
-        self.transcript_dirty = True
+        self._register_edit(previous)
         self.refresh_highlight_table()
         self.table.selectRow(index)
         self.statusBar().showMessage("Highlight getrimmt – Projekt speichern")
@@ -1264,8 +1272,10 @@ class MainWindow(QMainWindow):
             self.table.selectRow(0)
         self.timeline.set_annotations(self.analysis.candidates, self.analysis.transcript)
 
-    def analysis_finished(self, result: AnalysisResult) -> None:
-        preserved_manual = bool(self._manual_pending)
+    def analysis_finished(self, result: AnalysisResult, *, preserve_history: bool = False) -> None:
+        if not preserve_history:
+            self._edit_history.clear()
+        preserved_manual = bool(self._manual_pending) and not preserve_history
         if self._manual_pending and self.source and Path(result.video.path).resolve() == Path(self.source).resolve():
             from dataclasses import replace
             result = replace(result, candidates=result.candidates + self._manual_pending)
@@ -1285,7 +1295,7 @@ class MainWindow(QMainWindow):
                     self.transcript_table.setItem(row, column, QTableWidgetItem(value))
         finally:
             self.transcript_table.blockSignals(False)
-        self.transcript_dirty = preserved_manual
+        self.transcript_dirty = preserved_manual or preserve_history
         self.timeline.set_annotations(result.candidates, result.transcript)
         self._word_ref = None
         self._refresh_word_refs()
@@ -1293,6 +1303,9 @@ class MainWindow(QMainWindow):
         self._update_caption_overlay(self.player.position()/1000)
         self._editor_row = None
         self._busy(False)
+        self._update_history_controls()
+        if preserved_manual:
+            self._autosave_timer.start()
         if result.transcript:
             self.transcript_table.selectRow(0)
         self.statusBar().showMessage(
@@ -1364,6 +1377,7 @@ class MainWindow(QMainWindow):
     def add_manual_interval(self, start: float, end: float) -> None:
         if not self._ensure_manual_result():
             return
+        previous = self.analysis
         try:
             self.analysis = add_manual_highlight(self.analysis, start, end,
                                                   self.manual_label.text())
@@ -1376,20 +1390,21 @@ class MainWindow(QMainWindow):
         self._manual_from = self._manual_to = None
         self.update_manual_mark_label()
         self.manual_label.clear()
-        self.transcript_dirty = True
+        self._register_edit(previous)
         self._busy(False)
         self.statusBar().showMessage("Manuelles Highlight hinzugefügt – Projekt speichern")
 
     def delete_selected_manual_highlight(self) -> None:
         if not self.analysis:
             return
+        previous = self.analysis
         try:
             self.analysis = remove_manual_highlight(self.analysis, self.table.currentRow())
         except ValueError as exc:
             QMessageBox.warning(self, "Highlight kann nicht gelöscht werden", str(exc))
             return
         self.refresh_highlight_table()
-        self.transcript_dirty = True
+        self._register_edit(previous)
         self._busy(False)
         self.statusBar().showMessage("Manuelles Highlight entfernt – Projekt speichern")
 
@@ -1497,7 +1512,9 @@ class MainWindow(QMainWindow):
         except ValueError as exc:
             QMessageBox.warning(self, "Untertitel-Korrektur prüfen", str(exc))
             return False
+        previous = self.analysis
         self.analysis = new_result
+        self._register_edit(previous)
         cue = new_result.transcript[row]
         self.transcript_table.blockSignals(True)
         try:
@@ -1507,7 +1524,6 @@ class MainWindow(QMainWindow):
         finally:
             self.transcript_table.blockSignals(False)
         self.fill_transcript_editor(row)
-        self.transcript_dirty = True
         self.timeline.set_annotations(self.analysis.candidates, self.analysis.transcript)
         self._refresh_word_refs()
         self._active_caption = None
