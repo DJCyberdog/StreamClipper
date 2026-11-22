@@ -141,51 +141,78 @@ def test_object_detector_cancelled_before_import_or_fetch(tmp_path):
 
 
 def test_detection_adapter_uses_local_transformers_and_three_neighbor_frames(tmp_path, monkeypatch):
-    """Run real adapter control-flow with fake local weights, no ML download."""
-    from io import BytesIO
+    """Exercise the complete detector adapter without Torch, Pillow or network."""
+    from contextlib import nullcontext
     from types import SimpleNamespace
-    import torch
-    from PIL import Image
     import streamclipper.object_tracking as tracking
 
-    folder=tmp_path/'detector';folder.mkdir()
-    for name in ('config.json','preprocessor_config.json','model.safetensors'):
+    folder = tmp_path / 'detector'
+    folder.mkdir()
+    for name in ('config.json', 'preprocessor_config.json', 'model.safetensors'):
         (folder/name).write_bytes(b'fake')
-    frame=Image.new('RGB',(80,60),color='red')
-    buffer=BytesIO();frame.save(buffer,format='JPEG');blob=buffer.getvalue()
-    def frames(*args,**kwargs):
-        assert kwargs['max_frames']==6
-        for t in (9,10,11):
-            yield float(t),blob
-    monkeypatch.setattr(tracking,'sampled_jpeg_frames',frames)
+
+    def frames(*args, **kwargs):
+        assert kwargs['max_frames'] == 6
+        for at in (9, 10, 11):
+            yield float(at), b'synthetic-jpeg'
+    monkeypatch.setattr(tracking, 'sampled_jpeg_frames', frames)
+
+    class FakeImage:
+        size = (80, 60)
+        def __enter__(self): return self
+        def __exit__(self, *args): pass
+        def convert(self, mode):
+            assert mode == 'RGB'
+            return self
+    pil = ModuleType('PIL')
+    image_module = ModuleType('PIL.Image')
+    image_module.open = lambda _: FakeImage()
+    pil.Image = image_module
+    monkeypatch.setitem(sys.modules, 'PIL', pil)
+    monkeypatch.setitem(sys.modules, 'PIL.Image', image_module)
+
+    class Tensor:
+        def to(self, device):
+            assert device == 'cpu'
+            return self
+    torch = ModuleType('torch')
+    torch.cuda = SimpleNamespace(is_available=lambda: False)
+    torch.no_grad = nullcontext
+    monkeypatch.setitem(sys.modules, 'torch', torch)
+
+    class Box(list):
+        def tolist(self): return list(self)
     class Processor:
         @classmethod
-        def from_pretrained(cls,path,**kwargs):
-            assert str(folder)==path and kwargs=={'local_files_only':True}
+        def from_pretrained(cls, path, **kwargs):
+            assert path == str(folder) and kwargs == {'local_files_only': True}
             return cls()
-        def __call__(self,**kwargs):
-            return {'pixel_values':torch.zeros(1,3,20,20)}
-        def post_process_object_detection(self,out,**kwargs):
-            return [{'scores':torch.tensor([.95]),'labels':torch.tensor([1]),
-                     'boxes':torch.tensor([[10.,10.,35.,30.]])}]
+        def __call__(self, **kwargs):
+            return {'pixel_values': Tensor()}
+        def post_process_object_detection(self, output, **kwargs):
+            assert kwargs['threshold'] == 0.55
+            assert kwargs['target_sizes'] == [(60, 80)]
+            return [{'scores': [.95], 'labels': [1],
+                     'boxes': [Box([10., 10., 35., 30.])]}]
     class Detector:
-        config=SimpleNamespace(id2label={1:'car'})
+        config = SimpleNamespace(id2label={1: 'car'})
         @classmethod
-        def from_pretrained(cls,path,**kwargs):
-            assert path==str(folder) and kwargs=={'local_files_only':True}
+        def from_pretrained(cls, path, **kwargs):
+            assert path == str(folder) and kwargs == {'local_files_only': True}
             return cls()
-        def to(self,device):return self
-        def eval(self):return self
-        def __call__(self,**kwargs):return object()
-    fake=ModuleType('transformers')
-    fake.AutoImageProcessor=Processor
-    fake.AutoModelForObjectDetection=Detector
-    monkeypatch.setitem(sys.modules,'transformers',fake)
-    updates=[]
-    events=tracking.detect_and_track(
-        VideoInfo('fake.mp4',30,1920,1080,60,False),folder,
-        anchors=[EventEvidence(10,'motion',.7,'Ungewöhnliche Szene')],
-        max_frames=6,progress=updates.append)
-    assert len(events)==1
+        def to(self, device): return self
+        def eval(self): return self
+        def __call__(self, **kwargs): return object()
+    fake = ModuleType('transformers')
+    fake.AutoImageProcessor = Processor
+    fake.AutoModelForObjectDetection = Detector
+    monkeypatch.setitem(sys.modules, 'transformers', fake)
+
+    updates = []
+    events = tracking.detect_and_track(
+        VideoInfo('fake.mp4', 30, 1920, 1080, 60, False), folder,
+        anchors=[EventEvidence(10, 'motion', .7, 'Ungewöhnliche Szene')],
+        max_frames=6, progress=updates.append)
+    assert len(events) == 1
     assert 'Objektspur: Auto' in events[0].description
-    assert updates[-1]==100
+    assert updates[-1] == 100
