@@ -39,6 +39,10 @@ from .timeline_widget import TimelineWidget
 from .word_editor import edit_word, effective_words, words_in_clip
 from .captioning import subtitle_text_at_time
 from .highlight_lexicon_dialog import HighlightLexiconDialog
+from .editor_project import (EditorProject, ProjectHistory, initial_project,
+    add_track, remove_track, rename_track, move_track, toggle_track,
+    add_item, edit_item, load_project, save_project)
+
 from .edit_history import EditHistory
 from .autosave import autosave_path, clear_autosave, load_autosave, save_autosave
 
@@ -215,6 +219,8 @@ class MainWindow(QMainWindow):
         self._word_refs: list[tuple[int, int]] = []
         self._last_timeline_range: tuple[float, float] = (0.0, 25.0)
         self._edit_history = EditHistory()
+        self.editor_project: EditorProject | None = None
+        self._project_history = ProjectHistory()
         self._autosave_timer = QTimer(self)
         self._autosave_timer.setSingleShot(True)
         self._autosave_timer.setInterval(4000)
@@ -478,6 +484,78 @@ class MainWindow(QMainWindow):
         transcript_layout.addWidget(self.transcript_editor_hint)
         self.tabs.addTab(transcript_tab, "Untertitel")
         self.tabs.addTab(self.models_page, "KI & Modelle")
+        # M11b: metadata-based multitrack editor. No audio mix/export yet.
+        self.tracks_page = QWidget()
+        tracks_layout = QVBoxLayout(self.tracks_page)
+        tracks_layout.addWidget(QLabel(
+            "Spurplan für Schnitt und künftige Mehrspur-Exporte · "
+            "Wiedergabe/Export nutzen derzeit noch die Originalaufnahme."))
+        self.tracks_table = QTableWidget(0, 5)
+        self.tracks_table.setHorizontalHeaderLabels(
+            ["Spur", "Typ", "Stumm", "Gesperrt", "Clips"])
+        self.tracks_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.tracks_table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
+        self.tracks_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.tracks_table.horizontalHeader().setStretchLastSection(True)
+        self.tracks_table.itemSelectionChanged.connect(self._update_track_actions)
+        tracks_layout.addWidget(self.tracks_table, 1)
+        row1 = QHBoxLayout()
+        self.track_add_button = QPushButton("＋ Spur")
+        self.track_add_button.clicked.connect(self._add_track_dialog)
+        self.track_rename_button = QPushButton("Umbenennen")
+        self.track_rename_button.clicked.connect(self._rename_selected_track)
+        self.track_remove_button = QPushButton("Entfernen")
+        self.track_remove_button.clicked.connect(self._remove_selected_track)
+        for control in (self.track_add_button, self.track_rename_button,
+                        self.track_remove_button):
+            row1.addWidget(control)
+        tracks_layout.addLayout(row1)
+        row2 = QHBoxLayout()
+        self.track_mute_button = QPushButton("Stumm")
+        self.track_mute_button.clicked.connect(lambda: self._toggle_selected_track("muted"))
+        self.track_lock_button = QPushButton("Sperren")
+        self.track_lock_button.clicked.connect(lambda: self._toggle_selected_track("locked"))
+        self.track_up_button = QPushButton("↑")
+        self.track_up_button.clicked.connect(lambda: self._move_selected_track(-1))
+        self.track_down_button = QPushButton("↓")
+        self.track_down_button.clicked.connect(lambda: self._move_selected_track(1))
+        for control in (self.track_mute_button, self.track_lock_button,
+                        self.track_up_button, self.track_down_button):
+            row2.addWidget(control)
+        tracks_layout.addLayout(row2)
+        tracks_layout.addWidget(QLabel("Clips / Zeitpositionen"))
+        self.track_clips_table = QTableWidget(0, 5)
+        self.track_clips_table.setHorizontalHeaderLabels(
+            ["Clip", "Spur", "Quelle IN", "Quelle OUT", "Timeline IN"])
+        self.track_clips_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.track_clips_table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
+        self.track_clips_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.track_clips_table.horizontalHeader().setStretchLastSection(True)
+        self.track_clips_table.itemSelectionChanged.connect(self._update_track_actions)
+        tracks_layout.addWidget(self.track_clips_table, 1)
+        row3 = QHBoxLayout()
+        self.track_clip_add = QPushButton("Auswahl als Spurclip")
+        self.track_clip_add.clicked.connect(self._add_selected_track_clip)
+        self.track_clip_move = QPushButton("Clip verschieben")
+        self.track_clip_move.clicked.connect(self._move_selected_track_clip)
+        self.track_clip_trim = QPushButton("Clip trimmen")
+        self.track_clip_trim.clicked.connect(self._trim_selected_track_clip)
+        for control in (self.track_clip_add, self.track_clip_move,
+                        self.track_clip_trim):
+            row3.addWidget(control)
+        tracks_layout.addLayout(row3)
+        row4 = QHBoxLayout()
+        self.track_undo_button = QPushButton("↶ Spuraktion zurück")
+        self.track_undo_button.clicked.connect(self._undo_project)
+        self.track_redo_button = QPushButton("↷ Spuraktion wiederholen")
+        self.track_redo_button.clicked.connect(self._redo_project)
+        for control in (self.track_undo_button, self.track_redo_button):
+            row4.addWidget(control)
+        tracks_layout.addLayout(row4)
+        self.track_status = QLabel("Spuren werden mit der Videoquelle geladen.")
+        self.track_status.setWordWrap(True)
+        tracks_layout.addWidget(self.track_status)
+        self.tabs.addTab(self.tracks_page, "Spuren")
         QShortcut(QKeySequence("Ctrl+Return"), self, activated=self.apply_transcript_editor)
         QShortcut(QKeySequence("Ctrl+S"), self, activated=self.save_report)
         splitter.addWidget(results_container)
@@ -727,6 +805,7 @@ class MainWindow(QMainWindow):
         self.burn_subtitles.setEnabled(ready and bool(self.analysis.transcript if self.analysis else []))
         self.caption_offset.setEnabled(ready and bool(self.analysis.transcript if self.analysis else []))
         self._update_history_controls(not busy)
+        self._update_track_actions()
 
     def _update_history_controls(self, enabled: bool = True) -> None:
         self.undo_button.setEnabled(enabled and self._edit_history.can_undo)
@@ -815,6 +894,9 @@ class MainWindow(QMainWindow):
             old.cancel()
         self._autosave_timer.stop()
         self._edit_history.clear()
+        self.editor_project = None
+        self._project_history = ProjectHistory()
+        self._refresh_track_tables()
         self.source = source
         self._source_duration = 0.0
         self.caption_overlay.hide()
@@ -884,6 +966,8 @@ class MainWindow(QMainWindow):
             f"{format_timestamp(video.duration)} · {len(peaks)} Audio-Punkte")
         if not preserve and self.analysis is None:
             self._offer_autosave_recovery(video)
+        if self.editor_project is None:
+            self._open_editor_project(video)
 
     def waveform_failed(self, filename: str, reason: str):
         if filename == self.source:
