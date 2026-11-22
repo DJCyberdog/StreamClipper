@@ -11,7 +11,7 @@ configure_portable_environment()
 
 from .analyze import analyze
 from .media import export_clip, probe_video
-from .models import TranscriptSegment
+from .models import TranscriptSegment, TranscriptWord
 from .semantic import default_models_directory, transcribe_video
 from .transcript import save_transcript
 
@@ -79,8 +79,10 @@ def main(argv: list[str] | None = None) -> None:
             data = json.loads(args.transcript_json.read_text(encoding="utf-8"))
             if Path(data.get("video", {}).get("path", "")).resolve() != Path(args.video).resolve():
                 parser.error("Transkript gehört nicht zum angegebenen Video.")
-            transcript = [TranscriptSegment(float(x["start"]), float(x["end"]), str(x["text"]))
-                          for x in data.get("transcript", [])]
+            transcript = [TranscriptSegment(
+                float(x["start"]), float(x["end"]), str(x["text"]),
+                tuple(TranscriptWord(**word) for word in x.get("words", [])))
+                for x in data.get("transcript", [])]
             if not transcript:
                 parser.error("Keine Transkript-Abschnitte im JSON-Bericht gefunden.")
         path = export_clip(video, args.start, args.end, args.output, args.mode,

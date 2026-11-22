@@ -87,3 +87,16 @@ validiert und messbar verglichen wurden.
 **Prioritätsbeschluss:** Projektverwaltung, Twitch-Chat-Auswertung und semantische
 Videosuche sind D-Tier. Datenintegrität/gespeicherte Korrekturen bleiben nötig,
 aber es werden keine erweiterten Projektmanagement-Funktionen in M6 gebaut.
+
+
+## M7 – wortbasierte Untertitel und Highlight-Timeline
+
+- [x] faster-whisper `word_timestamps=True` und originierte Wortdatensätze (`whisper`, `estimated`, `manual`)
+- [x] Klick und Kantenverschiebung eines Worts direkt in der markierten Highlight-Timeline
+- [x] Worttext und In/Out als lokale Korrektur; unverändertes Originalvideo
+- [x] Verlustfreies Rückladen von JSON-Analyse mit Wortzeitmarken; alte JSON-Versionen kompatibel
+- [x] Wort-für-Wort-progressiver ASS/MP4-Export mit zeitlich synchroner Textvorschau
+- [x] Synthetische Word-Level-Tests, Altprojekt-Tests und FFmpeg-Burn-in-Test
+- [ ] Native Windows-GUI-Interaktion auf Zielrechner prüfen
+- [ ] 6-Stunden-GPU-Whisper-Langlauftest mit echtem Gameplay
+- [ ] Exaktes WYSIWYG des finalen ASS-Layouts und Kamera-Keyframe-Vorschau

@@ -12,7 +12,7 @@ import os
 from pathlib import Path
 import re
 
-from .models import AnalysisResult, Candidate, TranscriptSegment, VideoInfo
+from .models import AnalysisResult, Candidate, TranscriptSegment, TranscriptWord, VideoInfo
 
 _TIME_RE = re.compile(r"(?P<h>\d+):(?P<m>[0-5]\d):(?P<s>[0-5]\d)(?:[.,](?P<ms>\d{1,3}))?")
 
@@ -57,6 +57,13 @@ def validate_segments(segments: list[TranscriptSegment], duration: float) -> Non
             raise ValueError(f'Abschnitt {i}: Untertitel darf nicht leer sein')
         if len(cue.text) > 10000:
             raise ValueError(f'Abschnitt {i}: Text zu lang')
+        for j, word in enumerate(cue.words, start=1):
+            if not (isinstance(word, TranscriptWord) and
+                    math.isfinite(word.start) and math.isfinite(word.end) and
+                    0 <= word.start < word.end <= duration + .1 and
+                    isinstance(word.text, str) and bool(word.text.strip()) and
+                    word.origin in {'whisper', 'estimated', 'manual'}):
+                raise ValueError(f'Abschnitt {i}, Wort {j}: ungültige Zeit oder Text')
 
 
 def edit_segment(result: AnalysisResult, row: int, column: int, text: str) -> AnalysisResult:
@@ -72,7 +79,7 @@ def edit_segment(result: AnalysisResult, row: int, column: int, text: str) -> An
         clean = ' '.join(text.split())
         new = replace(old, text=clean)
     cues = list(result.transcript)
-    cues[row] = new
+    cues[row] = replace(new, words=() if new != old else old.words)
     validate_segments(cues, result.video.duration)
     return replace(result, transcript=cues)
 
@@ -98,7 +105,10 @@ def load_analysis_report(filename: str | Path, expected_video: str | Path) -> An
         candidates = [Candidate(**entry) for entry in data.get('candidates', [])]
         if any(c.origin not in {"auto", "manual"} for c in candidates):
             raise ValueError("Unbekannte Highlight-Herkunft")
-        transcript = [TranscriptSegment(**entry) for entry in data.get('transcript', [])]
+        transcript = [TranscriptSegment(
+            float(entry['start']), float(entry['end']), str(entry['text']),
+            tuple(TranscriptWord(**word) for word in entry.get('words', [])))
+            for entry in data.get('transcript', [])]
         validate_segments(transcript, video.duration)
         for candidate in candidates:
             if not (math.isfinite(candidate.start) and math.isfinite(candidate.end)

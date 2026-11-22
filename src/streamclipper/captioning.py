@@ -58,10 +58,25 @@ def clip_captions(segments: Sequence[TranscriptSegment], start: float, end: floa
                 segment.start + offset_seconds >= end or
                 segment.end <= segment.start):
             continue
+        if segment.words:
+            # Exact per-word speech timings: successive cues reveal each
+            # word within its current group (max_words), not a guessed split.
+            # Keep pauses blank, so words do not appear before they're spoken.
+            for j, word in enumerate(segment.words):
+                if word.end <= word.start or not word.text.strip():
+                    continue
+                group = j // max_words * max_words
+                a = max(start, word.start + offset_seconds) - start
+                b = min(end, word.end + offset_seconds) - start
+                if b <= a + .005:
+                    continue
+                prefix = ' '.join(w.text for w in segment.words[group:j+1])
+                cues.append((a, b, prefix))
+            continue
         words = segment.text.strip().split()
         if not words:
             continue
-        # Divide the source segment into time-proportional groups, then clip.
+        # Legacy segment-only timestamps: time-proportional ESTIMATES.
         for j in range(0, len(words), max_words):
             fraction_start = j / len(words)
             fraction_end = min(1., (j + max_words) / len(words))
@@ -108,3 +123,21 @@ def render_ass(segments: Sequence[TranscriptSegment], start: float, end: float,
                 f"Dialogue: 0,{_ass_timestamp(a)},{_ass_timestamp(b)},Main,,0,0,0,,{safe}"
             )
     return "\n".join(output) + "\n"
+
+
+def subtitle_text_at_time(segments: Sequence[TranscriptSegment], position: float,
+                          offset_seconds: float = 0.0,
+                          max_words: int = 8) -> str | None:
+    """Determine exactly which caption text is burned at a recording time."""
+    if not math.isfinite(position) or not math.isfinite(offset_seconds):
+        return None
+    for segment in segments:
+        if segment.start + offset_seconds > position or segment.end + offset_seconds <= position:
+            continue
+        # Render only the small active segment; avoid regenerating captions
+        # for a whole six-hour recording on every player position update.
+        for a, b, text in clip_captions([segment], segment.start, segment.end,
+                                        max_words=max_words, offset_seconds=0):
+            if a + segment.start + offset_seconds <= position < b + segment.start + offset_seconds:
+                return text
+    return None

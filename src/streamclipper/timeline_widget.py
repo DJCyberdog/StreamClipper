@@ -12,12 +12,15 @@ from PySide6.QtWidgets import QWidget
 from .models import Candidate, TranscriptSegment
 from .timeline import (time_at_x, visible_range, waveform_window, x_at_time)
 from .transcript_editor import format_timestamp
+from .word_editor import words_in_clip
 
 
 class TimelineWidget(QWidget):
     playheadMoved = Signal(float)
     selectionChanged = Signal(float, float)
     subtitleSelected = Signal(int)
+    wordSelected = Signal(int, int)
+    wordBoundaryCommitted = Signal(int, int, str, float)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -26,7 +29,7 @@ class TimelineWidget(QWidget):
         self.setToolTip(
             "Klick = springen · Markierungen ziehen = trimmen · "
             "Umschalt + Ziehen = neuen Bereich auswählen · "
-            "Untertitel anklicken = Text bearbeiten")
+            "Wort anklicken = bearbeiten · Wortkante ziehen = Anfang/Ende korrigieren")
         self.duration = 1.0
         self.zoom = 1.0
         self.offset = 0.0
@@ -36,9 +39,12 @@ class TimelineWidget(QWidget):
         self.peaks: list[float] = []
         self.candidates: list[Candidate] = []
         self.cues: list[TranscriptSegment] = []
+        self.selected_word: tuple[int, int] | None = None
         self.caption_offset = 0.0
         self._drag: str | None = None
         self._anchor = 0.0
+        self._word_drag: tuple[int, int, str] | None = None
+        self._word_preview: tuple[int, int, float, float] | None = None
 
     def set_duration(self, duration: float):
         self.duration = max(0.001, duration)
@@ -47,12 +53,15 @@ class TimelineWidget(QWidget):
         self.peaks.clear()
         self.candidates.clear()
         self.cues.clear()
+        self.selected_word = None
+        self._word_preview = None
+        self._word_drag = None
         self.update()
 
     def set_zoom(self, zoom: float, center: float | None = None):
         old_start, old_end = self.visible()
         center = (old_start + old_end) / 2 if center is None else center
-        self.zoom = max(1.0, min(200.0, zoom))
+        self.zoom = max(1.0, min(3000.0, zoom))
         self.set_offset(center - self.duration / self.zoom / 2)
 
     def set_offset(self, offset: float):
@@ -89,6 +98,11 @@ class TimelineWidget(QWidget):
     def set_annotations(self, candidates: list[Candidate], cues: list[TranscriptSegment]):
         self.candidates = candidates
         self.cues = cues
+        self._word_preview = None
+        self.update()
+
+    def set_selected_word(self, segment: int | None, word: int | None = None):
+        self.selected_word = (segment, word) if segment is not None and word is not None else None
         self.update()
 
     def ensure_visible(self, t: float):
@@ -138,21 +152,31 @@ class TimelineWidget(QWidget):
         for x, amp in enumerate(amplitudes):
             height = max(1, round(41 * amp))
             p.drawLine(x, middle-height, x, middle+height)
-        # Caption track, clickable blocks. Long captions collapse visually.
-        p.setPen(QColor("#edf2fa"))
-        for index, cue in enumerate(self.cues):
-            cue_start, cue_end = cue.start + self.caption_offset, cue.end + self.caption_offset
+        # WORD track: only the current in/out (highlight) range, never the
+        # entire 6-hour transcript. Purple = native timing; amber = estimated.
+        for segment_index, word_index, word in words_in_clip(
+                self.cues, self.in_point, self.out_point):
+            if self._word_preview is not None and self._word_preview[:2] == (segment_index, word_index):
+                cue_start, cue_end = self._word_preview[2:]
+            else:
+                cue_start, cue_end = word.start, word.end
+            cue_start += self.caption_offset
+            cue_end += self.caption_offset
             if cue_end <= a or cue_start >= b:
                 continue
             left, right = max(0, self._x(cue_start)), min(w, self._x(cue_end))
             if right-left < 2:
                 continue
-            p.fillRect(QRectF(left+1, 128, max(1, right-left-2), h-137),
-                       QColor("#55418b"))
-            if right-left > 55:
-                p.drawText(QRectF(left+5, 131, right-left-10, h-145),
+            selected = self.selected_word == (segment_index, word_index)
+            color = (QColor('#169b8e') if selected else
+                     QColor('#b8873f') if word.origin == 'estimated' else
+                     QColor('#55418b'))
+            p.fillRect(QRectF(left+1, 128, max(1, right-left-2), h-137), color)
+            if right-left > 20:
+                p.setPen(QColor('#edf2fa'))
+                p.drawText(QRectF(left+4, 131, max(0, right-left-8), h-145),
                            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
-                           cue.text[:60])
+                           word.text[:50])
         # Selection overlay and In/Out grab handles.
         left, right = self._x(self.in_point), self._x(self.out_point)
         p.fillRect(QRectF(max(0, left), 24, max(0, min(w,right)-max(0,left)), h-24),
@@ -173,11 +197,19 @@ class TimelineWidget(QWidget):
             return
         x, y = event.position().x(), event.position().y()
         t = self._t(x)
-        # Bottom track lets the user jump directly to subtitle editing.
+        # Bottom track chooses individual words in current highlight.
         if y >= 122 and not (event.modifiers() & Qt.KeyboardModifier.ShiftModifier):
-            for i, cue in enumerate(self.cues):
-                if cue.start + self.caption_offset <= t <= cue.end + self.caption_offset:
-                    self.subtitleSelected.emit(i)
+            for i, j, word in words_in_clip(self.cues, self.in_point, self.out_point):
+                if word.start + self.caption_offset <= t <= word.end + self.caption_offset:
+                    self.set_selected_word(i, j)
+                    self.wordSelected.emit(i, j)
+                    left = self._x(word.start + self.caption_offset)
+                    right = self._x(word.end + self.caption_offset)
+                    # Narrow blocks have no safe drag targets: selecting still works.
+                    if right - left >= 18 and abs(x-left) <= 7:
+                        self._word_drag = (i, j, 'start')
+                    elif right - left >= 18 and abs(x-right) <= 7:
+                        self._word_drag = (i, j, 'end')
                     return
         if event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
             self._drag = "new"
@@ -192,6 +224,21 @@ class TimelineWidget(QWidget):
             self.playheadMoved.emit(t)
 
     def mouseMoveEvent(self, event):
+        if self._word_drag:
+            i, j, edge = self._word_drag
+            for ref_i, ref_j, word in words_in_clip(self.cues, self.in_point, self.out_point):
+                if (ref_i, ref_j) != (i, j):
+                    continue
+                t = max(0.0, min(self.duration,
+                    self._t(event.position().x()) - self.caption_offset))
+                if edge == 'start':
+                    t = min(t, word.end - .05)
+                    self._word_preview = (i, j, round(max(0.0,t),3), word.end)
+                else:
+                    t = max(t, word.start + .05)
+                    self._word_preview = (i, j, word.start, round(min(self.duration,t),3))
+                self.update()
+                return
         if not self._drag:
             return
         t = self._t(event.position().x())
@@ -206,6 +253,16 @@ class TimelineWidget(QWidget):
             self.playheadMoved.emit(t)
 
     def mouseReleaseEvent(self, event):
+        if self._word_drag:
+            self.mouseMoveEvent(event)
+            i, j, edge = self._word_drag
+            if self._word_preview is not None:
+                t = self._word_preview[2 if edge == 'start' else 3]
+                self.wordBoundaryCommitted.emit(i, j, edge, t)
+            self._word_drag = None
+            self._word_preview = None
+            self.update()
+            return
         if self._drag:
             self.mouseMoveEvent(event)
             self._drag = None

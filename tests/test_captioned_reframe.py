@@ -182,3 +182,32 @@ def test_subtitle_offset_does_not_modify_original_media(short_video, tmp_path):
                       burn_subtitles=True, subtitle_offset=0.5)
     assert out.is_file()
     assert source.read_bytes() == before
+
+
+def test_native_whisper_word_captions_are_burned_into_real_mp4(short_video, tmp_path):
+    from streamclipper.models import TranscriptWord
+    source, info = short_video
+    transcript = [TranscriptSegment(.5, 2.2, 'Hallo jetzt!', (
+        TranscriptWord(.5, 1.2, 'Hallo'),
+        TranscriptWord(1.4, 2.2, 'jetzt!', origin='manual')))]
+    output = export_clip(info, 0, 3, tmp_path / 'genaue-wörter.mp4',
+                         mode='crop', width=320, height=180,
+                         transcript=transcript, burn_subtitles=True,
+                         subtitle_offset=0.0)
+    assert output.is_file()
+    assert probe_video(output).duration == pytest.approx(3, abs=.2)
+    # Confirm actual decoded frames differ while progressive words render.
+    clean = export_clip(info, 0, 3, tmp_path / 'ohne.mp4',
+                        mode='crop', width=320, height=180)
+
+    def gray_frame(path, at):
+        return subprocess.run([
+            'ffmpeg', '-v', 'error', '-ss', str(at), '-i', str(path),
+            '-frames:v', '1', '-vf', 'format=gray', '-f', 'rawvideo', 'pipe:1'],
+            check=True, capture_output=True, timeout=30).stdout
+
+    for t in (.8, 1.7):
+        encoded = gray_frame(output, t)
+        raw = gray_frame(clean, t)
+        assert len(encoded) == len(raw) == 320 * 180
+        assert sum(abs(a-b) for a,b in zip(encoded, raw)) > 1000

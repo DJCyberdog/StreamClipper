@@ -47,3 +47,40 @@ def test_timeline_and_subtitle_overlay_are_wired():
     finally:
         window.close()
         app.processEvents()
+
+
+def test_edit_single_whisper_word_directly_under_highlight_timeline():
+    from streamclipper.models import TranscriptWord
+    app = QApplication.instance() or QApplication([])
+    window = MainWindow()
+    try:
+        window.source = 'dummy.mp4'
+        window._source_duration = 21600
+        window.timeline.set_duration(21600)
+        result = AnalysisResult(
+            VideoInfo('dummy.mp4', 21600, 1920, 1080, 60, True),
+            [Candidate(99, 103, 0, 'Manuell', 101, origin='manual')],
+            transcript=[TranscriptSegment(100, 101.3, 'Ich fahre', (
+                TranscriptWord(100, 100.35, 'Ich'),
+                TranscriptWord(100.5, 101.3, 'fahre')))]) 
+        window.analysis_finished(result)
+        assert (0, 1) in window._word_refs
+        assert window.timeline.visible()[1] - window.timeline.visible()[0] < 120
+        window.select_timeline_word(0, 1)
+        window.word_text.setText('fliege')
+        window.word_start.setValue(100.45)
+        window.word_end.setValue(101.25)
+        assert window.apply_word_editor()
+        assert window.analysis.transcript[0].words[1].text == 'fliege'
+        assert window.analysis.transcript[0].words[1].origin == 'manual'
+        assert window.analysis.transcript[0].text == 'Ich fliege'
+        assert window.transcript_dirty
+        assert window.word_hint.text().startswith('✓')
+        # Also verify the real export caption computation, not merely the GUI.
+        from streamclipper.captioning import clip_captions
+        assert clip_captions(window.analysis.transcript,99,103)[1][2] == 'Ich fliege'
+        # Prevent the modified report from prompting in the test shutdown.
+        window.transcript_dirty = False
+    finally:
+        window.close()
+        app.processEvents()

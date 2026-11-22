@@ -29,11 +29,21 @@ class Candidate:
 
 
 @dataclass(frozen=True)
+class TranscriptWord:
+    """Timestamped single word. `estimated` means approximated from old data."""
+    start: float
+    end: float
+    text: str
+    origin: str = "whisper"  # whisper, estimated, manual
+
+
+@dataclass(frozen=True)
 class TranscriptSegment:
     """Timestamped speech recognized by a local model (not speaker-labeled)."""
     start: float
     end: float
     text: str
+    words: tuple[TranscriptWord, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -47,7 +57,13 @@ class AnalysisResult:
         destination = Path(filename)
         destination.parent.mkdir(parents=True, exist_ok=True)
         # Publish only complete reports. A failed save must not destroy a prior copy.
-        payload = json.dumps(asdict(self), indent=2, ensure_ascii=False)
+        report = asdict(self)
+        # Preserve the established three-field JSON format for older projects.
+        # Write optional word timing only for transcripts that actually have it.
+        for section in report['transcript']:
+            if not section['words']:
+                section.pop('words')
+        payload = json.dumps(report, indent=2, ensure_ascii=False)
         staging: Path | None = None
         try:
             with tempfile.NamedTemporaryFile(

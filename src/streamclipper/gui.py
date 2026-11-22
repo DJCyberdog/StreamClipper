@@ -34,6 +34,8 @@ from .semantic import default_models_directory
 from .transcript import save_transcript
 from .timeline import caption_at_time
 from .timeline_widget import TimelineWidget
+from .word_editor import edit_word, effective_words, words_in_clip
+from .captioning import subtitle_text_at_time
 
 
 def display_time(seconds: float) -> str:
@@ -182,7 +184,10 @@ class MainWindow(QMainWindow):
         self._manual_pending: list[Candidate] = []
         self._waveform_workers: list[WaveformThread] = []
         self._source_duration: float = 0.0
-        self._active_caption: tuple[int, int] | None = None
+        self._active_caption: str | None = None
+        self._word_ref: tuple[int, int] | None = None
+        self._word_refs: list[tuple[int, int]] = []
+        self._last_timeline_range: tuple[float, float] = (0.0, 25.0)
 
         self.player = QMediaPlayer(self)
         self.audio = QAudioOutput(self)
@@ -437,12 +442,56 @@ class MainWindow(QMainWindow):
         self.timeline.playheadMoved.connect(self.timeline_seek)
         self.timeline.selectionChanged.connect(self.timeline_range_changed)
         self.timeline.subtitleSelected.connect(self.timeline_select_subtitle)
+        self.timeline.wordSelected.connect(self.select_timeline_word)
+        self.timeline.wordBoundaryCommitted.connect(self.commit_timeline_word_edge)
         main.addWidget(self.timeline)
         self.timeline_scroll = QSlider(Qt.Orientation.Horizontal)
         self.timeline_scroll.setMinimum(0)
         self.timeline_scroll.setMaximum(0)
         self.timeline_scroll.valueChanged.connect(self.timeline_scroll_changed)
         main.addWidget(self.timeline_scroll)
+
+        # Integrated word editor: active highlight only, directly below the
+        # waveform and word track. No separate transcription tab required.
+        word_top = QHBoxLayout()
+        word_top.addWidget(QLabel("WORTGENAUE UNTERTITEL · aktives Highlight"))
+        self.word_hint = QLabel("Highlight wählen; Wörter erscheinen in der violetten Spur")
+        word_top.addWidget(self.word_hint, 1)
+        self.word_previous = QPushButton("◀ Wort")
+        self.word_previous.clicked.connect(lambda: self.navigate_word(-1))
+        word_top.addWidget(self.word_previous)
+        self.word_next = QPushButton("Wort ▶")
+        self.word_next.clicked.connect(lambda: self.navigate_word(1))
+        word_top.addWidget(self.word_next)
+        main.addLayout(word_top)
+        word_controls = QHBoxLayout()
+        self.word_text = QLineEdit()
+        self.word_text.setPlaceholderText("Wort in der Timeline anklicken und hier korrigieren")
+        self.word_text.setMaxLength(200)
+        self.word_text.returnPressed.connect(self.apply_word_editor)
+        word_controls.addWidget(self.word_text, 3)
+        word_controls.addWidget(QLabel("Wortbeginn"))
+        self.word_start = QDoubleSpinBox()
+        self.word_start.setRange(0, 24 * 3600)
+        self.word_start.setDecimals(3)
+        self.word_start.setSingleStep(.05)
+        self.word_start.setSuffix(" s")
+        word_controls.addWidget(self.word_start)
+        word_controls.addWidget(QLabel("Wortende"))
+        self.word_end = QDoubleSpinBox()
+        self.word_end.setRange(0, 24 * 3600)
+        self.word_end.setDecimals(3)
+        self.word_end.setSingleStep(.05)
+        self.word_end.setSuffix(" s")
+        word_controls.addWidget(self.word_end)
+        self.word_preview = QPushButton("▶ Anhören")
+        self.word_preview.clicked.connect(self.play_selected_word)
+        word_controls.addWidget(self.word_preview)
+        self.word_apply = QPushButton("✓ Wort übernehmen")
+        self.word_apply.clicked.connect(self.apply_word_editor)
+        word_controls.addWidget(self.word_apply)
+        main.addLayout(word_controls)
+
         clip_tools = QHBoxLayout()
         clip_tools.addWidget(QLabel("IN"))
         self.timeline_in = QDoubleSpinBox()
@@ -514,7 +563,7 @@ class MainWindow(QMainWindow):
         self.caption_offset.setRange(-3.0, 3.0)
         self.caption_offset.setDecimals(1)
         self.caption_offset.setSingleStep(0.1)
-        self.caption_offset.setValue(0.4)
+        self.caption_offset.setValue(0.0)
         self.caption_offset.setSuffix(" s")
         self.caption_offset.valueChanged.connect(self.caption_offset_changed)
         self.timeline.set_caption_offset(self.caption_offset.value())
@@ -576,6 +625,12 @@ class MainWindow(QMainWindow):
                         self.transcript_apply, self.transcript_save):
             control.setEnabled(editable)
         self.transcript_from_highlight.setEnabled(editable and bool(self.table.currentRow() >= 0))
+        word_editable = editable and self._word_ref is not None
+        for control in (self.word_text, self.word_start, self.word_end,
+                        self.word_apply, self.word_preview):
+            control.setEnabled(word_editable)
+        self.word_previous.setEnabled(editable and bool(self._word_refs))
+        self.word_next.setEnabled(editable and bool(self._word_refs))
         self.transcript_button.setEnabled(ready and bool(self.analysis.transcript if self.analysis else []))
         self.burn_subtitles.setEnabled(ready and bool(self.analysis.transcript if self.analysis else []))
         self.caption_offset.setEnabled(ready and bool(self.analysis.transcript if self.analysis else []))
@@ -602,6 +657,11 @@ class MainWindow(QMainWindow):
         self.table.setRowCount(0)
         self.transcript_table.setRowCount(0)
         self._editor_row = None
+        self._word_ref = None
+        self._word_refs = []
+        self._last_timeline_range = (0.0, 25.0)
+        self.word_text.clear()
+        self.timeline.set_selected_word(None)
         self._manual_from = None
         self._manual_to = None
         self._manual_pending = []
@@ -682,6 +742,12 @@ class MainWindow(QMainWindow):
         self.player.setPosition(round(second * 1000))
 
     def timeline_range_changed(self, start: float, end: float):
+        if not self.apply_word_editor():
+            # A malformed edit must not get lost when changing highlights.
+            self.timeline.set_selection(*self._last_timeline_range)
+            return
+        self._last_timeline_range = (start, end)
+        self._refresh_word_refs()
         self.timeline_in.blockSignals(True)
         self.timeline_out.blockSignals(True)
         try:
@@ -700,15 +766,140 @@ class MainWindow(QMainWindow):
         if end <= start or start >= self.timeline.duration:
             return
         self.timeline.set_selection(start, end)
+        self._refresh_word_refs()
+
+    def _refresh_word_refs(self):
+        if not hasattr(self, 'word_text'):
+            return
+        old_ref = self._word_ref
+        self._word_refs = ([(i, j) for i, j, _ in words_in_clip(
+            self.analysis.transcript, self.timeline.in_point, self.timeline.out_point)]
+            if self.analysis else [])
+        if old_ref is not None and old_ref not in self._word_refs:
+            self._word_ref = None
+            self.timeline.set_selected_word(None)
+            self.word_text.clear()
+        if not self._word_refs:
+            self.word_hint.setText("Kein Transkript im Ausschnitt – Whisper aktivieren oder Analyse laden")
+        elif self._word_ref is None:
+            self.word_hint.setText(
+                f"{len(self._word_refs)} Wörter · violette Wortspur anklicken (gelb = geschätzt)")
 
     def timeline_select_subtitle(self, index: int):
         if not self.analysis or not 0 <= index < len(self.analysis.transcript):
             return
-        self.tabs.setCurrentIndex(1)
-        self.transcript_table.selectRow(index)
-        item = self.transcript_table.item(index, 0)
-        if item:
-            self.transcript_table.scrollToItem(item)
+        matches = [(i, j) for i, j in self._word_refs if i == index]
+        if matches:
+            self.select_timeline_word(*matches[0])
+
+    def select_timeline_word(self, segment: int, word: int):
+        if not self.analysis or (segment, word) not in self._word_refs:
+            return
+        if not self.apply_word_editor() or not self.apply_transcript_editor():
+            if self._word_ref is None:
+                self.timeline.set_selected_word(None)
+            else:
+                self.timeline.set_selected_word(*self._word_ref)
+            return
+        self._word_ref = (segment, word)
+        cue = effective_words(self.analysis.transcript[segment])[word]
+        self.word_text.blockSignals(True)
+        self.word_start.blockSignals(True)
+        self.word_end.blockSignals(True)
+        try:
+            self.word_text.setText(cue.text)
+            self.word_start.setValue(cue.start)
+            self.word_end.setValue(cue.end)
+        finally:
+            self.word_text.blockSignals(False)
+            self.word_start.blockSignals(False)
+            self.word_end.blockSignals(False)
+        self.timeline.set_selected_word(segment, word)
+        source = {"estimated": "Geschätzt (Altprojekt) – Zeiten manuell prüfen",
+                  "manual": "Manuell korrigiert",
+                  "whisper": "Whisper-Wortzeit – bei Bedarf korrigieren"}[cue.origin]
+        self.word_hint.setText(
+            f"Wort {self._word_refs.index((segment,word)) + 1}/{len(self._word_refs)} · {source}")
+        self.player.pause()
+        self.preview_end = None
+        self.player.setPosition(round(max(0, cue.start - .15) * 1000))
+        self._busy(False)
+
+    def navigate_word(self, step: int):
+        if not self._word_refs or not self.apply_word_editor():
+            return
+        try:
+            index = self._word_refs.index(self._word_ref)
+        except ValueError:
+            index = -1 if step > 0 else len(self._word_refs)
+        index = max(0, min(len(self._word_refs) - 1, index + step))
+        self.select_timeline_word(*self._word_refs[index])
+
+    def _word_has_pending(self) -> bool:
+        if not self.analysis or self._word_ref is None:
+            return False
+        i, j = self._word_ref
+        if i >= len(self.analysis.transcript):
+            return False
+        words = effective_words(self.analysis.transcript[i])
+        if j >= len(words):
+            return False
+        old = words[j]
+        return (self.word_text.text().strip() != old.text or
+                abs(self.word_start.value() - old.start) > .0005 or
+                abs(self.word_end.value() - old.end) > .0005)
+
+    def apply_word_editor(self) -> bool:
+        if self._word_ref is None or not self._word_has_pending():
+            return True
+        if not self.analysis:
+            return True
+        i, j = self._word_ref
+        try:
+            self.analysis = edit_word(self.analysis, i, j,
+                                      self.word_start.value(), self.word_end.value(),
+                                      self.word_text.text())
+        except ValueError as exc:
+            QMessageBox.warning(self, "Wortkorrektur prüfen", str(exc))
+            return False
+        cue = self.analysis.transcript[i]
+        self.transcript_table.blockSignals(True)
+        try:
+            for column, value in enumerate((format_timestamp(cue.start),
+                                            format_timestamp(cue.end), cue.text)):
+                if self.transcript_table.item(i, column):
+                    self.transcript_table.item(i, column).setText(value)
+        finally:
+            self.transcript_table.blockSignals(False)
+        if self._editor_row == i:
+            self.fill_transcript_editor(i)
+        self.transcript_dirty = True
+        self.timeline.set_annotations(self.analysis.candidates, self.analysis.transcript)
+        self._refresh_word_refs()
+        if (i, j) in self._word_refs:
+            self.timeline.set_selected_word(i, j)
+        self._active_caption = None
+        self._update_caption_overlay(self.player.position()/1000)
+        self.word_hint.setText("✓ Wort korrigiert · Projekt speichern (Strg+S)")
+        self.statusBar().showMessage("Wortkorrektur im Highlight übernommen – Export nutzt neue Zeiten")
+        return True
+
+    def commit_timeline_word_edge(self, i: int, j: int, edge: str, value: float):
+        if self._word_ref != (i, j) or edge not in {'start', 'end'}:
+            return
+        target = self.word_start if edge == 'start' else self.word_end
+        target.setValue(value)
+        self.apply_word_editor()
+
+    def play_selected_word(self):
+        if not self.analysis or self._word_ref is None or not self.apply_word_editor():
+            return
+        i, j = self._word_ref
+        cue = effective_words(self.analysis.transcript[i])[j]
+        self.player.pause()
+        self.player.setPosition(round(max(0, cue.start - .2) * 1000))
+        self.preview_end = min(self.analysis.video.duration, cue.end + .3)
+        self.player.play()
 
     def add_timeline_highlight(self):
         if self._source_duration > 0:
@@ -752,25 +943,15 @@ class MainWindow(QMainWindow):
         self._update_caption_overlay(self.player.position()/1000)
 
     def _update_caption_overlay(self, seconds: float):
-        cues = self.analysis.transcript if self.analysis else []
-        index = caption_at_time(cues, seconds, self.caption_offset.value())
-        if index is None or not self.burn_subtitles.isChecked():
+        segments = self.analysis.transcript if self.analysis else []
+        phrase = subtitle_text_at_time(segments, seconds, self.caption_offset.value())
+        if not phrase or not self.burn_subtitles.isChecked():
             self._active_caption = None
             self.caption_overlay.hide()
             return
-        cue = cues[index]
-        # Match the 8-word proportional splits made by captioning.clip_captions.
-        words = cue.text.strip().split()
-        if not words:
-            self.caption_overlay.hide()
-            return
-        elapsed = seconds - cue.start - self.caption_offset.value()
-        fraction = max(0.0, min(.999999, elapsed / (cue.end - cue.start)))
-        chunk_start = min(len(words)-1, int(fraction * len(words))) // 8 * 8
-        current = (index, chunk_start)
-        if current != self._active_caption:
-            self._active_caption = current
-            self.caption_overlay.setText(" ".join(words[chunk_start:chunk_start + 8]))
+        if phrase != self._active_caption:
+            self._active_caption = phrase
+            self.caption_overlay.setText(phrase)
             self.caption_overlay.show()
             self.caption_overlay.raise_()
 
@@ -878,6 +1059,10 @@ class MainWindow(QMainWindow):
             from dataclasses import replace
             result = replace(result, candidates=result.candidates + self._manual_pending)
             self._manual_pending = []
+        self._word_ref = None
+        self._word_refs = []
+        self.timeline.set_selected_word(None)
+        self.word_text.clear()
         self.analysis = result
         self.refresh_highlight_table()
         self.transcript_table.blockSignals(True)
@@ -891,6 +1076,8 @@ class MainWindow(QMainWindow):
             self.transcript_table.blockSignals(False)
         self.transcript_dirty = preserved_manual
         self.timeline.set_annotations(result.candidates, result.transcript)
+        self._word_ref = None
+        self._refresh_word_refs()
         self._active_caption = None
         self._update_caption_overlay(self.player.position()/1000)
         self._editor_row = None
@@ -1004,6 +1191,8 @@ class MainWindow(QMainWindow):
         return None
 
     def preview_selected(self) -> None:
+        if not self.apply_word_editor():
+            return
         clip = self.selected_candidate()
         if not clip:
             self.single_export.setEnabled(False)
@@ -1011,6 +1200,11 @@ class MainWindow(QMainWindow):
             return
         self.preview_end = clip.end
         self.timeline.set_selection(clip.start, clip.end, emit=True)
+        # Six-hour VODs need second-level zoom to make individual words clickable.
+        if self.timeline.zoom <= 1.01 and self._source_duration > 0:
+            self.timeline.set_zoom(
+                max(1, self._source_duration / max(20., (clip.end - clip.start) * 1.6)),
+                center=(clip.start + clip.end)/2)
         self.timeline.ensure_visible(clip.start)
         self._sync_timeline_scroll()
         self.player.pause()
@@ -1022,6 +1216,8 @@ class MainWindow(QMainWindow):
                                       not bool(self.worker and self.worker.isRunning()))
 
     def transcript_selection_changed(self) -> None:
+        if not self.apply_word_editor():
+            return
         if not self.analysis:
             return
         row = self.transcript_table.currentRow()
@@ -1101,6 +1297,7 @@ class MainWindow(QMainWindow):
         self.fill_transcript_editor(row)
         self.transcript_dirty = True
         self.timeline.set_annotations(self.analysis.candidates, self.analysis.transcript)
+        self._refresh_word_refs()
         self._active_caption = None
         self._update_caption_overlay(self.player.position()/1000)
         self.statusBar().showMessage(
@@ -1224,7 +1421,7 @@ class MainWindow(QMainWindow):
         self.player.setPosition(pos)
 
     def start_export(self, all_clips: bool) -> None:
-        if not self.analysis or not self.apply_transcript_editor():
+        if not self.analysis or not self.apply_word_editor() or not self.apply_transcript_editor():
             return
         items = self.analysis.candidates if all_clips else [self.selected_candidate()]
         items = [item for item in items if item is not None]
@@ -1254,7 +1451,7 @@ class MainWindow(QMainWindow):
             "Exportiert:\n" + "\n".join(outputs[:10]))
 
     def save_report(self) -> bool:
-        if not self.analysis or not self.apply_transcript_editor():
+        if not self.analysis or not self.apply_word_editor() or not self.apply_transcript_editor():
             return False
         default = self.report_path or str(Path(self.analysis.video.path).with_suffix(".highlights.json"))
         filename, _ = QFileDialog.getSaveFileName(self, "Analyse speichern", default,
@@ -1272,7 +1469,7 @@ class MainWindow(QMainWindow):
         return True
 
     def confirm_discard_edits(self) -> bool:
-        if not self.apply_transcript_editor():
+        if not self.apply_word_editor() or not self.apply_transcript_editor():
             return False
         if not self.transcript_dirty:
             return True

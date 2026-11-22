@@ -471,3 +471,43 @@ Das ist ein erster Schnitt-Workflow, noch kein vollständiger Mehrspur-NLE:
 kein Mehrclip-Arrangement, keine Übergänge/Keyframes und kein Undo-Stack.
 Die Bedienung auf dem echten Windows-/NVIDIA-Zielrechner und sechs Stunden
 reales Videomaterial sind noch separat zu verifizieren.
+
+
+## M7: Wörter direkt im Highlight auf der Timeline korrigieren
+
+**Neu:** Bei einer Whisper-Analyse werden jetzt mit `word_timestamps=True`
+Wortzeitstempel erzeugt. Diese **Whisper-Schätzungen auf Wortebene** sind
+präziser als eine gleichmäßige Verteilung ganzer Sätze, können aber ebenfalls
+manuelle Korrekturen benötigen.
+
+1. Video öffnen, mit Whisper analysieren oder eine gespeicherte JSON-Analyse
+   laden. **Highlights** auswählen – die Timeline zoomt automatisch in den
+   Bereich des Clips, auch bei sechs Stunden Laufzeit.
+2. Die **untere Wortspur** enthält nur Wörter im ausgewählten Ausschnitt:
+   violett = Whisper-Zeitstempel, gelb = aus älteren Transkripten nur
+   **geschätzt**, türkis = aktuell ausgewähltes Wort.
+3. Wort **anklicken**: Direkt unter der Timeline kannst du Text, Anfang und
+   Ende in Sekunden auf drei Nachkommastellen verändern (Schritt 0,05 s).
+   Mit **▶ Anhören** wird genau das Wort mit kurzem Vor-/Nachlauf abgespielt.
+   **Wortkante ziehen** verschiebt Anfang oder Ende direkt per Maus, sofern
+   die Wortbox breit genug ist. Für genaueres Ziehen stärker hineinzoomen.
+4. **✓ Wort übernehmen** aktualisiert Untertitelvorschau, JSON-Analyse,
+   SRT/VTT/TXT und den nächsten MP4-Export. **Strg+S** speichert die
+   Korrekturen. Die ursprüngliche Video- und Audiodatei wird nicht geändert.
+
+Neue automatische Wortzeitmarken erhältst du erst nach einer erneuten
+Whisper-Analyse. **Alte Projekte bleiben vollständig ladbar:** Wenn bisher
+nur Segment-Zeiten gespeichert wurden, zeigt die Timeline gelb markierte,
+linear geschätzte Wortgrenzen an. Sie können manuell korrigiert werden,
+ohne die ganze Aufnahme erneut transkribieren zu müssen.
+
+Der MP4-Export zeigt jetzt bei echten Wortmarken **progressiv Wort für Wort**
+innerhalb von Gruppen (bis acht Wörter), die Einblendung beginnt nicht vor
+jeweiligem Wortbeginn. Ältere, unkorrigierte Segmenttranskripte verwenden
+weiterhin die bisherige Näherung. Die Vorschau zeigt denselben Text und
+dieselben Zeitmarken, aber noch nicht die exakt gerenderte ASS-Schrift und
+Kameraführung des fertigen 9:16/16:9-Videos.
+
+**Nicht Teil von M7:** unabhängige Wort-Sprechererkennung, automatisch
+perfekte Wortausrichtung, Mehrspur-Compositing oder vollwertiger Undo-Stack.
+Die Windows-/NVIDIA-Praxisabnahme und ein sechsstündiger Realfilm bleiben offen.

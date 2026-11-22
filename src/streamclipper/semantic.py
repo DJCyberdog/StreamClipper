@@ -14,7 +14,7 @@ import warnings
 import re
 from typing import Callable, Iterable
 
-from .models import Candidate, TranscriptSegment, VideoInfo
+from .models import Candidate, TranscriptSegment, TranscriptWord, VideoInfo
 
 Cancelled = Callable[[], bool]
 Progress = Callable[[int], None]
@@ -84,8 +84,8 @@ def transcribe_video(video: VideoInfo, model_directory: str, *,
         raise FileNotFoundError(f"Whisper-Modellordner fehlt: {folder}")
     if not video.has_audio:
         return []
-    # Expose NVIDIA wheel DLLs to CTranslate2 before it imports native libraries.
-    # Only the current process is affected; no global CUDA installation.
+    # CTranslate2 loads native CUDA DLLs lazily. Register venv-local NVIDIA
+    # wheel locations before importing Faster-Whisper or running inference.
     from .gpu_runtime import enable_local_cuda_runtime
     enable_local_cuda_runtime()
     try:
@@ -107,7 +107,7 @@ def transcribe_video(video: VideoInfo, model_directory: str, *,
                              local_files_only=True)
         segments, _ = model.transcribe(
             video.path, beam_size=2, vad_filter=True,
-            condition_on_previous_text=False,
+            condition_on_previous_text=False, word_timestamps=True,
         )
         spans: list[TranscriptSegment] = []
         try:
@@ -117,7 +117,16 @@ def transcribe_video(video: VideoInfo, model_directory: str, *,
                 start, end = float(seg.start), float(seg.end)
                 phrase = " ".join(str(seg.text).split())
                 if math.isfinite(start) and math.isfinite(end) and 0 <= start < end and phrase:
-                    spans.append(TranscriptSegment(start, end, phrase))
+                    word_cues: list[TranscriptWord] = []
+                    for item in (getattr(seg, "words", None) or []):
+                        a, b, text = float(item.start), float(item.end), str(item.word).strip()
+                        if (math.isfinite(a) and math.isfinite(b) and
+                                0 <= a < b <= video.duration + .1 and text):
+                            word_cues.append(TranscriptWord(round(a, 3), round(b, 3), text))
+                    if word_cues:
+                        start = min(start, *(word.start for word in word_cues))
+                        end = max(end, *(word.end for word in word_cues))
+                    spans.append(TranscriptSegment(start, end, phrase, tuple(word_cues)))
                 if progress:
                     progress(min(100, int(100 * seg.end / video.duration)))
         except TypeError as exc:
@@ -125,7 +134,7 @@ def transcribe_video(video: VideoInfo, model_directory: str, *,
                 raise
             raise RuntimeError(
                 "Whisper/PyAV inkompatibel: bitte in der StreamClipper-Umgebung "
-                r'.\\.venv\\Scripts\\python.exe -m pip install "av==17.1.0" ausführen.'
+                r'.\.venv\Scripts\python.exe -m pip install "av==17.1.0" ausführen.'
             ) from exc
         return spans
 
