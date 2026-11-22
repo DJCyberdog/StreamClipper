@@ -11,6 +11,7 @@ from .model_catalog import validate_model_dir
 from .object_tracking import detect_and_track
 from .gameplay import scan_temporal_activity, select_scene_timestamps
 from .models import AnalysisResult, Candidate
+from .highlight_lexicon import load_custom_rules, merged_rules
 from .semantic import EventEvidence, fuse_events, recognize_gameplay, transcribe_video, transcript_cues
 
 
@@ -65,6 +66,8 @@ def analyze(path: str, clip_seconds: int = 25, max_clips: int = 8,
 
     No model downloads and no external API calls. Model paths are opt-in.
     """
+    # Validate local customization before expensive multi-hour inference.
+    speech_rules = merged_rules(load_custom_rules()) if speech_model else ()
     # Fail before decoding hours of audio or running Whisper.
     if vision_model:
         validate_clip_model(vision_model)
@@ -111,7 +114,8 @@ def analyze(path: str, clip_seconds: int = 25, max_clips: int = 8,
     if speech_model:
         transcript = transcribe_video(video, speech_model, progress=stage('speech'),
                                       cancelled=cancelled)
-        evidence.extend(transcript_cues((s.start, s.end, s.text) for s in transcript))
+        evidence.extend(transcript_cues(((s.start, s.end, s.text) for s in transcript),
+                                        rules=speech_rules))
     if visual_activity:
         evidence.extend(scan_temporal_activity(video, progress=stage('scan'),
                                                cancelled=cancelled))
