@@ -450,7 +450,7 @@ Aufnahme – es werden keine Roh-Audiosamples im Arbeitsspeicher gesammelt.
 - **Klick auf die Timeline** springt zur Stelle im Video; rote Linie = Abspielkopf.
 - **Gelbe IN-/OUT-Markierungen ziehen** verändert den Schnittbereich;
   **Umschalt + Ziehen** wählt einen neuen Bereich.
-- **Zoom** (Gesamt / 5× / 15× / 30× / 60× / 120×) und der horizontale
+- **Zoom** (Gesamt bis 2880×) und der horizontale
   Scrollregler navigieren in langen Aufnahmen. IN/OUT können zusätzlich in
   Dezimalsekunden auf eine Millisekunde genau eingegeben werden; die Anzeige
   daneben nutzt HH:MM:SS.mmm.
