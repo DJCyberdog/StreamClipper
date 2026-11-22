@@ -84,3 +84,23 @@ def test_edit_single_whisper_word_directly_under_highlight_timeline():
     finally:
         window.close()
         app.processEvents()
+
+
+def test_model_selection_is_explicit_and_keeps_original_presets():
+    app = QApplication.instance() or QApplication([])
+    window = MainWindow()
+    try:
+        assert window.speech_select.count() >= 6
+        assert window.speech_select.currentData() == 'whisper-small'
+        assert window.vision_select.currentData() == 'clip-vit-base-patch32'
+        assert window.detector_select.currentData() == 'detr-resnet-50'
+        assert not window.detector_enabled.isChecked()  # no surprise compute/download
+        window.speech_select.setCurrentIndex(window.speech_select.findData('whisper-large-v3-turbo'))
+        assert window.speech_path.text().endswith('whisper-large-v3-turbo')
+        window.vision_select.setCurrentIndex(window.vision_select.findData('clip-vit-large-patch14'))
+        assert window.vision_path.text().endswith('clip-vit-large-patch14')
+        window.detector_select.setCurrentIndex(window.detector_select.findData('rtdetr-r18vd'))
+        assert window.detector_path.text().endswith('rtdetr-r18vd')
+    finally:
+        window.close()
+        app.processEvents()

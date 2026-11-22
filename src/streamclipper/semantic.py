@@ -285,7 +285,7 @@ def fuse_events(events: Iterable[EventEvidence], duration: float,
         raise ValueError("Ungültige Analysedaten oder Parameter")
     from .analyze import _bounds
     valid = [ev for ev in events if math.isfinite(ev.at) and 0 <= ev.at <= duration
-             and math.isfinite(ev.strength) and ev.kind in {"audio", "speech", "visual", "motion"}]
+             and math.isfinite(ev.strength) and ev.kind in {"audio", "speech", "visual", "motion", "object"}]
     if not valid:
         return []
     valid.sort(key=lambda ev: (ev.at, ev.kind, ev.description))

@@ -547,3 +547,76 @@ Windows-Sechs-Stunden-Langlauftest.
 Um wie zuvor nur Audio und Whisper zu analysieren, die Option
 **Gameplay-Dynamik + CLIP** deaktivieren. Modelle werden während einer
 Analyse weiterhin **nicht** online geladen.
+
+## M9 – Objektspuren und alternative lokale Modelle (experimentell)
+
+StreamClipper bietet nun **drei voneinander unabhängige Modellgruppen**:
+
+| Gruppe | Verfügbare Presets | Bereits vorhandener Standard |
+|---|---|---|
+| Sprache | Whisper Tiny, Base, Small, Medium, Large-v3 Turbo, Large-v3 | Small |
+| Bildhinweise | CLIP ViT-B/32, CLIP ViT-L/14 | ViT-B/32 |
+| Objekte | DETR ResNet-50, RT-DETR R18 | Opt-in, zunächst deaktiviert |
+
+Jedes Preset hat einen **eigenen Ordner** unter `data/models`, sodass die
+ursprünglichen Whisper-Small- und CLIP-ViT-B/32-Gewichte unangetastet bleiben.
+Ein Modell lässt sich über das Dropdown auswählen, ein eigener Modellordner
+ist weiterhin möglich. **„Herunterladen“** fragt vor dem Online-Download
+nach und führt ihn im GUI-Hintergrund aus. Ein bloßer Modellwechsel löst
+weder Download noch Analyse aus. Wer lieber PowerShell verwendet:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\setup_local_models.py --list
+.\.venv\Scripts\python.exe scripts\setup_local_models.py --model whisper-large-v3-turbo
+.\.venv\Scripts\python.exe scripts\setup_local_models.py --model clip-vit-large-patch14
+.\.venv\Scripts\python.exe scripts\setup_local_models.py --model detr-resnet-50
+```
+
+Für die Analyse müssen die Gewichte vollständig installiert sein; ein
+Preflight prüft die Dateien **vor** mehrstündiger Videoverarbeitung. Die
+Analyse selbst fordert keine Modelle online nach (`local_files_only=True`).
+Bei eigener/anderer Modellwahl bitte Kompatibilität, Lizenz und Leistungsbedarf
+prüfen. Large und Turbo können sich bei Rauschen, Dialekt und Gaming-Vokabular
+unterschiedlich schlagen; „größer“ ist kein Qualitätsversprechen.
+
+### Was die Objektanalyse tatsächlich macht
+
+Nach dem sequenziellen M8-Szenenscan untersucht das lokale DETR-Modell
+standardmäßig **höchstens 90 gezielte Frames** rund um interessante Momente.
+Es erkennt allgemeine COCO-Klassen wie *car*, *truck*, *person*, *motorcycle*,
+*bus* oder *bicycle*. Ein eigener, deterministischer Tracker verbindet
+Bounding-Boxes derselben Klasse in eng benachbarten Bildern. Nur wenn eine
+**Objektspur über mehrere Frames** *und* eine nahe Szenenveränderung vorliegen,
+erzeugt StreamClipper einen zusätzlichen Hinweis. Diese multimodalen
+Begründungen erscheinen bei den Highlight-Vorschlägen und sind über die
+Timeline bearbeitbar.
+
+Derzeit ist es **kein** trainierter Crash-, Explosion-, Schuss- oder GTA-VI-
+Handlungsdetektor. Der Tracker besitzt keine langfristig beständigen
+Fahrzeugidentitäten, keine Geschwindigkeitskalibrierung und kann bei
+Kameraschnitten oder Überdeckungen falsch zuordnen. Es handelt sich um
+**sparse Objektspuren**, nicht um Tracking sämtlicher Frames einer
+sechsstündigen Aufnahme. Die 2-FPS-Szenenprüfung dekodiert weiterhin das
+vollständige Video, deshalb bleibt die Gesamtzeit abhängig vom Videocodec.
+
+DETR ResNet-50 (`facebook/detr-resnet-50`) und RT-DETR R18
+(`PekingU/rtdetr_r18vd`) sind über Hugging Face mit Apache-2.0-Lizenz
+veröffentlicht. Das vermeidet für dieses optionale Modell eine neue
+Ultralytics-AGPL-Abhängigkeit. Die jeweiligen Modellkarten und Drittanbieter-
+Nutzungsbedingungen müssen vor der kommerziellen Veröffentlichung zusätzlich
+geprüft werden.
+
+CLI-Beispiel (alles lokal):
+
+```powershell
+.\.venv\Scripts\python.exe -m streamclipper.cli analyze "D:\Videos\GTA VI.mp4" `
+ --speech-model ".\data\models\whisper-large-v3-turbo" `
+ --vision-model ".\data\models\clip-vit-base-patch32" `
+ --detector-model ".\data\models\detr-resnet-50" --max-object-frames 90
+```
+
+**Abnahmegrenzen:** Die deterministische Verarbeitung wurde mit künstlichen
+Objekterkennungen und synthetischen FFmpeg-Videos getestet. Das tatsächliche
+Laden großer DETR-Gewichte, GPU-Betrieb auf Windows 11 und die Fehlerquote
+auf echten GTA-VI-Aufnahmen sind noch separat zu prüfen. Der Windows-
+PyInstaller-Build enthält die optionalen schweren KI-Pakete weiterhin nicht.

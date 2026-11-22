@@ -111,3 +111,15 @@ aber es werden keine erweiterten Projektmanagement-Funktionen in M6 gebaut.
 - [x] Regression für echte synthetische FFmpeg-Bewegung, 6h-Sampling und Cancellation
 - [ ] Windows-Abnahme mit echtem GTA-VI-Video; False-Positive-/Recall-Messung
 - [ ] Objektbasierte Unfallerkennung und gezieltes Nachsampling kurzer Ereignisse
+
+## M9 – Lokale Modellvarianten und sparse Objektspuren
+
+- [x] Expliziter Modellkatalog für Whisper, CLIP und DETR; manuelle Modellinstallation
+- [x] Präziser Offline-Preflight; kein stiller Modelldownload während der Analyse
+- [x] DETR/RT-DETR: kurze Bounding-Box-Tracklets aus gezielten Frames
+- [x] Aufnahme als bewegungsbasierter Hinweis in die multimodale Highlight-Rangfolge
+- [x] Korrekte Beschränkung auf max. 90 Objektbilder pro Analyse (konfigurierbar)
+- [ ] Windows 11: tatsächlichen Download und Start von DETR/RT-DETR testen
+- [ ] GTA VI: Recall/Fehlalarme für Fahrzeuge/Personen und schwierige Szenen messen
+- [ ] Mehrstündige reale Analyse mit GPU- und RAM-Profiling
+- [ ] Objektidentität bei Überdeckungen/Kameraschnitten und Explosions-/Schussklassifikation

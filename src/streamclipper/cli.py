@@ -28,6 +28,10 @@ def main(argv: list[str] | None = None) -> None:
                    help="Lokaler faster-whisper CTranslate2-Modellordner")
     a.add_argument("--vision-model", metavar="DIR",
                    help="Lokaler Transformers-CLIP-Modellordner")
+    a.add_argument("--detector-model", metavar="DIR",
+                   help="Lokales DETR/RT-DETR-Objekterkennungsmodell; optional")
+    a.add_argument("--max-object-frames", type=int, default=90,
+                   help="Max. Objekterkennungsbilder (3–300; Standard 90)")
     a.add_argument("--max-visual-frames", type=int, default=180,
                    help="Höchstens so viele Videoframes klassifizieren (Standard: 180)")
     t = commands.add_parser("transcribe", help="Whole recording -> local SRT/TXT/VTT subtitles")
@@ -52,7 +56,9 @@ def main(argv: list[str] | None = None) -> None:
         result = analyze(args.video, args.clip_seconds, args.max_clips,
                          progress=lambda p: print(f"\rAnalyse: {p:3d}%", end="", flush=True),
                          speech_model=args.speech_model, vision_model=args.vision_model,
-                         max_visual_frames=args.max_visual_frames)
+                         max_visual_frames=args.max_visual_frames,
+                         detector_model=args.detector_model,
+                         max_object_frames=args.max_object_frames)
         destination = Path(args.output or (str(Path(args.video).with_suffix("")) + ".highlights.json"))
         result.save_json(destination)
         print(f"\n{len(result.candidates)} Kandidaten gespeichert: {destination}")

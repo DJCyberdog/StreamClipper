@@ -24,6 +24,8 @@ from PySide6.QtWidgets import (
 from .analyze import analyze
 from .media import CancelledError, export_clip, probe_video, safe_destination, tool_path, waveform_peaks
 from .model_checks import validate_clip_model
+from .model_catalog import (DEFAULTS, download_preset, is_installed, preset,
+                            preset_path, presets_for, validate_model_dir)
 from .models import AnalysisResult, Candidate
 from .manual_highlights import add_manual_highlight, remove_manual_highlight, trim_manual_highlight
 from .twitch_import import download_twitch_vod, parse_twitch_vod_url
@@ -49,12 +51,14 @@ class AnalysisThread(QThread):
     failed = Signal(str)
 
     def __init__(self, source: str, length: int, parent=None,
-                 speech_model: str | None = None, vision_model: str | None = None):
+                 speech_model: str | None = None, vision_model: str | None = None,
+                 detector_model: str | None = None):
         super().__init__(parent)
         self.source = source
         self.length = length
         self.speech_model = speech_model
         self.vision_model = vision_model
+        self.detector_model = detector_model
         self._cancelled = threading.Event()
 
     def cancel(self) -> None:
@@ -66,7 +70,8 @@ class AnalysisThread(QThread):
                              progress=self.progress_changed.emit,
                              cancelled=self._cancelled.is_set,
                              speech_model=self.speech_model,
-                             vision_model=self.vision_model)
+                             vision_model=self.vision_model,
+                             detector_model=self.detector_model)
             if self._cancelled.is_set():
                 raise CancelledError("Analyse abgebrochen")
             self.done.emit(result)
@@ -142,6 +147,23 @@ class TwitchImportThread(QThread):
             self.failed.emit(str(exc))
 
 
+class ModelDownloadThread(QThread):
+    """Explicit model provisioning in a background thread; never in inference."""
+    done = Signal(str, str)
+    failed = Signal(str, str)
+
+    def __init__(self, model_id: str, parent=None):
+        super().__init__(parent)
+        self.model_id = model_id
+
+    def run(self):
+        try:
+            destination = download_preset(self.model_id)
+            self.done.emit(self.model_id, str(destination))
+        except Exception as exc:
+            self.failed.emit(self.model_id, str(exc))
+
+
 class WaveformThread(QThread):
     """Decode the audio overview in the background, without Whisper."""
     done = Signal(str, object)
@@ -170,7 +192,7 @@ class WaveformThread(QThread):
 class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
-        self.setWindowTitle("StreamClipper – Timeline M6 (experimentell)")
+        self.setWindowTitle("StreamClipper – M9 Gameplay-Tracking + Modellwahl (experimentell)")
         self.resize(1440, 920)
         self.source: str | None = None
         self.analysis: AnalysisResult | None = None
@@ -183,6 +205,7 @@ class MainWindow(QMainWindow):
         self._manual_to: float | None = None
         self._manual_pending: list[Candidate] = []
         self._waveform_workers: list[WaveformThread] = []
+        self.model_worker: ModelDownloadThread | None = None
         self._source_duration: float = 0.0
         self._active_caption: str | None = None
         self._word_ref: tuple[int, int] | None = None
@@ -226,35 +249,51 @@ class MainWindow(QMainWindow):
         toolbar.addStretch()
         main.addLayout(toolbar)
 
-        models = QHBoxLayout()
-        self.speech_enabled = QCheckBox("Sprache + Transkript (lokales Whisper)")
-        models.addWidget(self.speech_enabled)
-        self.speech_path = QLineEdit()
-        self.speech_path.setPlaceholderText("Whisper-Modellordner")
-        speech_default = default_models_directory() / "whisper-small"
-        if speech_default.is_dir():
-            self.speech_path.setText(str(speech_default))
-            self.speech_enabled.setChecked(True)
-        models.addWidget(self.speech_path, 2)
-        speech_browse = QPushButton("…")
-        speech_browse.clicked.connect(lambda: self.choose_model(self.speech_path))
-        models.addWidget(speech_browse)
-        self.vision_enabled = QCheckBox("Gameplay-Dynamik + CLIP (lokal)")
-        self.vision_enabled.setToolTip(
-            "Untersucht zeitliche Bildveränderungen und prüft auffällige Szenen mit CLIP. "
-            "Unfälle/Explosionen sind Hinweise, keine bestätigten Spielereignisse. "
-            "Sechs Stunden können je nach PC länger dauern.")
-        models.addWidget(self.vision_enabled)
-        self.vision_path = QLineEdit()
-        self.vision_path.setPlaceholderText("CLIP-Modellordner")
-        vision_default = default_models_directory() / "clip-vit-base-patch32"
-        if vision_default.is_dir():
-            self.vision_path.setText(str(vision_default))
-        models.addWidget(self.vision_path, 2)
-        vision_browse = QPushButton("…")
-        vision_browse.clicked.connect(lambda: self.choose_model(self.vision_path))
-        models.addWidget(vision_browse)
-        main.addLayout(models)
+        # Three independent tasks. Choice never starts a download or analysis.
+        # Retain the folder override for existing locally converted models.
+        self.model_selectors = {}
+        self.model_download_buttons = {}
+        model_options = QVBoxLayout()
+        model_options.setSpacing(4)
+        for kind, label, placeholder in (
+            ('speech', 'Sprache / Wort-Timing', 'Whisper-Modellordner'),
+            ('vision', 'Gameplay-Dynamik + CLIP', 'CLIP-Modellordner'),
+            ('detector', 'Objektspuren (optional)', 'DETR-Modellordner'),
+        ):
+            line = QHBoxLayout()
+            enabled = QCheckBox(label)
+            select = QComboBox()
+            select.setMinimumWidth(300)
+            for item in presets_for(kind):
+                select.addItem(item.label, item.id)
+                select.setItemData(select.count()-1, item.note, Qt.ItemDataRole.ToolTipRole)
+            path = QLineEdit()
+            path.setPlaceholderText(placeholder)
+            initial = DEFAULTS[kind]
+            select.setCurrentIndex(select.findData(initial))
+            path.setText(str(preset_path(initial)))
+            select.currentIndexChanged.connect(
+                lambda _n, k=kind: self.select_model_preset(k))
+            enabled.setChecked(kind == 'speech' and is_installed(initial))
+            browse = QPushButton('Ordner …')
+            browse.clicked.connect(lambda _checked=False, target=path: self.choose_model(target))
+            download = QPushButton('Herunterladen')
+            download.setToolTip('Nur auf Klick: lädt die gewählte Variante nach data/models/')
+            download.clicked.connect(lambda _checked=False, k=kind: self.download_selected_model(k))
+            line.addWidget(enabled)
+            line.addWidget(select)
+            line.addWidget(path, 1)
+            line.addWidget(browse)
+            line.addWidget(download)
+            model_options.addLayout(line)
+            setattr(self, f'{kind}_enabled', enabled)
+            setattr(self, f'{kind}_path', path)
+            self.model_selectors[kind] = select
+            self.model_download_buttons[kind] = download
+        self.speech_select = self.model_selectors['speech']
+        self.vision_select = self.model_selectors['vision']
+        self.detector_select = self.model_selectors['detector']
+        main.addLayout(model_options)
 
         self.source_label = QLabel("Noch kein Video geladen. Videos bleiben lokal auf deinem Rechner.")
         self.source_label.setWordWrap(True)
@@ -613,7 +652,10 @@ class MainWindow(QMainWindow):
         clip = self.selected_candidate()
         self.timeline_trim.setEnabled(bool(self.source) and not busy
                                       and clip is not None and clip.origin == "manual")
-        self.analyze_button.setEnabled(bool(self.source) and not busy)
+        self.analyze_button.setEnabled(bool(self.source) and not busy
+                                      and not bool(self.model_worker and self.model_worker.isRunning()))
+        for button in self.model_download_buttons.values():
+            button.setEnabled(not busy and not bool(self.model_worker and self.model_worker.isRunning()))
         self.cancel_button.setEnabled(busy)
         ready = self.analysis is not None and not busy
         self.single_export.setEnabled(ready and bool(self.table.selectedItems()))
@@ -995,6 +1037,49 @@ class MainWindow(QMainWindow):
         if self.load_video_source(filename):
             self.statusBar().showMessage("Twitch-VOD importiert: " + filename)
 
+    def select_model_preset(self, kind: str) -> None:
+        selected = self.model_selectors[kind].currentData()
+        getattr(self, f'{kind}_path').setText(str(preset_path(selected)))
+        self.statusBar().showMessage(
+            f'{preset(selected).label}: '+('installiert' if is_installed(selected)
+                                          else 'noch nicht installiert – Herunterladen klicken'))
+
+    def download_selected_model(self, kind: str) -> None:
+        if self.model_worker and self.model_worker.isRunning():
+            return
+        model_id = self.model_selectors[kind].currentData()
+        item = preset(model_id)
+        choice = QMessageBox.question(
+            self, 'Modell herunterladen',
+            f'„{item.label}“ von {item.repository} aus dem Internet herunterladen?\n'
+            f'Ziel: {preset_path(model_id)}\n\n'
+            'Je nach Variante werden mehrere hundert MB bis einige GB benötigt. '
+            'Das Modell wird nur nach deiner Zustimmung geladen.',
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No)
+        if choice != QMessageBox.StandardButton.Yes:
+            return
+        self.model_worker = ModelDownloadThread(model_id, self)
+        self.model_worker.done.connect(self.model_download_finished)
+        self.model_worker.failed.connect(self.model_download_failed)
+        self.model_worker.finished.connect(lambda: self._busy(False))
+        for button in self.model_download_buttons.values():
+            button.setEnabled(False)
+        self.analyze_button.setEnabled(False)
+        self.statusBar().showMessage(f'Lade {item.label} (expliziter Online-Download) …')
+        self.model_worker.start()
+
+    def model_download_finished(self, model_id: str, folder: str) -> None:
+        item = preset(model_id)
+        getattr(self, f'{item.kind}_path').setText(folder)
+        self.statusBar().showMessage(f'Bereit und überprüft: {item.label}')
+        QMessageBox.information(self, 'Modell bereit', f'{item.label}\n{folder}')
+
+    def model_download_failed(self, model_id: str, error: str) -> None:
+        self.statusBar().showMessage('Modelldownload fehlgeschlagen')
+        QMessageBox.warning(self, 'Modelldownload fehlgeschlagen',
+                            f'{preset(model_id).label}\n{error}')
+
     def choose_model(self, target: QLineEdit) -> None:
         directory = QFileDialog.getExistingDirectory(self, "Lokales Modellverzeichnis auswählen")
         if directory:
@@ -1011,7 +1096,8 @@ class MainWindow(QMainWindow):
             return
         speech = self.speech_path.text().strip() if self.speech_enabled.isChecked() else None
         vision = self.vision_path.text().strip() if self.vision_enabled.isChecked() else None
-        if (self.speech_enabled.isChecked() and not speech) or (self.vision_enabled.isChecked() and not vision):
+        detector = self.detector_path.text().strip() if self.detector_enabled.isChecked() else None
+        if (self.speech_enabled.isChecked() and not speech) or (self.vision_enabled.isChecked() and not vision) or (self.detector_enabled.isChecked() and not detector):
             QMessageBox.warning(self, "Modellordner fehlt",
                                 "Für ausgewählte KI-Detektoren bitte einen lokalen Modellordner angeben.")
             return
@@ -1023,6 +1109,18 @@ class MainWindow(QMainWindow):
                                     + "\n\nDu kannst Spielbilder vorerst deaktivieren "
                                       "und die Analyse nur mit Whisper starten.")
                 return
+        if detector:
+            try:
+                validate_model_dir('detector', detector)
+            except (FileNotFoundError, ValueError) as exc:
+                QMessageBox.warning(self, 'Objektmodell unvollständig', str(exc))
+                return
+        if speech:
+            try:
+                validate_model_dir('speech', speech)
+            except (FileNotFoundError, ValueError) as exc:
+                QMessageBox.warning(self, 'Whisper-Modell unvollständig', str(exc))
+                return
         self._manual_pending = [c for c in self.analysis.candidates if c.origin == "manual"] if self.analysis else []
         self.analysis = None
         self.transcript_dirty = False
@@ -1033,7 +1131,8 @@ class MainWindow(QMainWindow):
         self.reset_transcript_editor()
         self.progress.setValue(0)
         self.worker = AnalysisThread(self.source, self.length.value(), self,
-                                     speech_model=speech, vision_model=vision)
+                                     speech_model=speech, vision_model=vision,
+                                     detector_model=detector)
         self.worker.progress_changed.connect(self.progress.setValue)
         self.worker.done.connect(self.analysis_finished)
         self.worker.failed.connect(self.job_failed)
@@ -1527,6 +1626,11 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage("Abbruch angefordert …")
 
     def closeEvent(self, event) -> None:
+        if self.model_worker and self.model_worker.isRunning():
+            QMessageBox.information(self, 'Modelldownload läuft',
+                                    'Der Modelldownload muss vor dem Schließen abgeschlossen werden.')
+            event.ignore()
+            return
         if self.worker and self.worker.isRunning():
             QMessageBox.information(self, "Verarbeitung läuft",
                                     "Bitte laufenden Job zuerst abbrechen und abschließen lassen.")
