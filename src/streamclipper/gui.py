@@ -1007,9 +1007,10 @@ class MainWindow(QMainWindow):
         clip = self.selected_candidate()
         if not clip:
             self.single_export.setEnabled(False)
+            self.timeline_trim.setEnabled(False)
             return
         self.preview_end = clip.end
-        self.timeline.set_selection(clip.start, clip.end)
+        self.timeline.set_selection(clip.start, clip.end, emit=True)
         self.timeline.ensure_visible(clip.start)
         self._sync_timeline_scroll()
         self.player.pause()
@@ -1017,6 +1018,8 @@ class MainWindow(QMainWindow):
         self.single_export.setEnabled(not bool(self.worker and self.worker.isRunning()))
         self.transcript_from_highlight.setEnabled(bool(self.analysis.transcript))
         self.manual_delete.setEnabled(clip.origin == "manual")
+        self.timeline_trim.setEnabled(clip.origin == "manual" and
+                                      not bool(self.worker and self.worker.isRunning()))
 
     def transcript_selection_changed(self) -> None:
         if not self.analysis:
