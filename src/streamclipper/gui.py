@@ -38,6 +38,7 @@ from .timeline import caption_at_time
 from .timeline_widget import TimelineWidget
 from .word_editor import edit_word, effective_words, words_in_clip
 from .captioning import subtitle_text_at_time
+from .highlight_lexicon_dialog import HighlightLexiconDialog
 
 
 def display_time(seconds: float) -> str:
@@ -246,6 +247,10 @@ class MainWindow(QMainWindow):
         self.cancel_button.clicked.connect(self.cancel_job)
         self.cancel_button.setEnabled(False)
         toolbar.addWidget(self.cancel_button)
+        self.highlight_words_button = QPushButton("Highlight-Wörter …")
+        self.highlight_words_button.setToolTip("Eigene sprachliche Highlight-Ausdrücke und Gewichtungen verwalten")
+        self.highlight_words_button.clicked.connect(self.edit_highlight_words)
+        toolbar.addWidget(self.highlight_words_button)
         toolbar.addStretch()
         main.addLayout(toolbar)
 
@@ -1084,6 +1089,14 @@ class MainWindow(QMainWindow):
         directory = QFileDialog.getExistingDirectory(self, "Lokales Modellverzeichnis auswählen")
         if directory:
             target.setText(directory)
+
+    def edit_highlight_words(self) -> None:
+        try:
+            dialog = HighlightLexiconDialog(self)
+        except (OSError, ValueError) as exc:
+            QMessageBox.warning(self, "Wortliste nicht lesbar", str(exc))
+            return
+        dialog.exec()
 
     def start_analysis(self) -> None:
         if not self.source or not self.confirm_discard_edits():
