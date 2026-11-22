@@ -1,36 +1,38 @@
-# NEXT_TASK – M11c / Teil 4: Proxy Editing für lange Aufnahmen
+# NEXT_TASK – M11c Preview-Abnahme / M12 Render-Vertrag
 
 **Stack:** M10.5 #31 → M11a #34 → M11b #36 →
-M11c Checkpoints #37 → M11c Undo #38 →
-M11c Highlight-Import (Draft) #39.
-`main` bleibt unverändert; kein unfreigegebener Merge.
+M11c Checkpoints #37 → M11c Undo #38 → M11c Highlight Import #39 →
+M11c Proxy Preview Draft #40.
+`main` bleibt unverändert. Echte Abnahmen vor dem Merge dokumentieren.
 
-## Teil 3 – Implementierung zur Prüfung
+## M11c Teil 4 (zur Prüfung)
 
-- Expliziter Import vorhandener Analyse-Highlights in die eigene Spur
-  `highlights_import` oder vom User gewählte vorhandene Videospur.
-- Vorherige Prüfung von Quelle, Zeiten, Typ, Sperren und Projektgrenzen;
-  kein Import auf Hintergrundjob.
-- Stabile importierte Clip-IDs aus Quellpfad und Millisekundenfenster,
-  idempotent beim Reimport, kein Überschreiben manuell bearbeiteter Clips.
-- Eine atomische Spurplan-Persistenz und gemeinsamer Undo-Schritt.
-- GUI-Status zeigt hinzugefügte und ausgelassene Highlights.
-- Kein Einfluss auf Videoexport oder tatsächliche Audio-Komposition.
+- CPU-basiertes, optionales 854×480-H.264/AAC-Proxy-Transcoding mit
+  FFmpeg im QThread, Abbrechen/Fortschritt und originaltreuem Schnittmodell.
+- VFR-frame PTS-Abstände erhalten (`-fps_mode passthrough`), Video-PTS
+  auf Proxy-Beginn normalisieren; getrennte Original↔Proxy-Zeitzuordnung.
+- Start-/Audioversatz über 150 ms sowie Gesamtdrift über 300 ms
+  ausdrücklich ablehnen statt scheinbarer Synchronität.
+- Quelle/Video-Metadaten, Größe/mtime_ns und Encoder-Preset binden Cache
+  unter `data/proxies/`; temporäre Dateien und Manifest atomisch
+  publizieren, alte/kaputte Caches nicht für Vorschau anbieten.
+- GUI-Umschaltung Original/Proxy mit identischen Originalzeiten,
+  automatischer Fallback bei InvalidMedia.
+- Pytest-, VFR-FFmpeg-, Qt-Offscreen- und Windows-Portabel-Build-Gates.
 
-## Nächste abgegrenzte Aufgabe: M11c Teil 4
+## Nächste begrenzte Schritte
 
-1. Proxy-Konzept und reproduzierbare, quellzeitgetreue Metadatenabbildung
-   entwickeln: VFR, Drift und Cut-In/Out unter Test.
-2. Lange 6h-Aufnahmen mit Streaming-/bounded-memory-Prozess statt
-   Komplettdecodierung; Hardwarepfade nur optional.
-3. Proxy-Dateien separat unter `data/proxies/` mit Source-Fingerprint,
-   Cache-Invalidierung und atomischer Erstellung; niemals Original ändern.
-4. GUI-Auswahl Proxy / Original sowie Status im Vorschau-Bereich,
-   ohne zusätzliche Hauptregisterkarte. Keine Jobs auf UI-Thread.
-5. Pytest / compileall / Windows-Qt-Smokes; reale Windows 1366×768,
-   FullHD, 6h-VOD/RAM/VRAM gesondert abnehmen.
+1. Auf echtem Windows 11 ergonomische Vorschau bei 1366×768 und
+   1920×1080 prüfen; Audioausgabe, Wechsel im Playback, Worttiming.
+2. Reale sechsstündige OBS-/Twitch-VODs mit VFR und Audio-Offsets
+   messen: Peak-RAM/VRAM, Encode-Dauer, Scrubbing/Drift und Cancel/Crash.
+3. Cachepublikation nach Strom-/Festplattenfehler sowie concurrent
+   Worker konkurrierender Quellen härten; Fallback-Tests erweitern.
+4. Separat M12-Datenvertrag für WYSIWYG-Vorschau/MP4-Rendergraph
+   der Video-, Audio-, Untertitel- und Overlay-Spuren definieren.
+5. `main` weiterhin nicht ohne Ownerfreigabe verändern.
 
 ## Nicht behaupten
 
-Kein M12 exportgetreuer Mehrspur-Renderer und keine fertige gemischte
-Mehrspurvorschau. `main` bleibt bis expliziter Owner-Freigabe unberührt.
+Keine exportgetreue Mehrspur-Vorschau, keine frameidentische Proxyansicht
+und keine echte Windows-/6h-Abnahme ohne reproduzierbare Messungen.
