@@ -52,7 +52,7 @@ def test_project_menu_and_save_restore(tmp_path, monkeypatch):
         assert len(window.editor_project.tracks) == 6
         window._restore_project_checkpoint()
         assert len(window.editor_project.tracks) == 5
-        assert not window._project_history.can_undo
+        assert not window._history.can_undo
         assert source_path.read_bytes() == b"untouched"
     finally:
         window._autosave_timer.stop()
