@@ -25,9 +25,16 @@ Codebezeichner, Modulnamen und Tests: Englisch. Python 3.12 primär.
 7. Features in kleinen PRs. Keine umfangreichen Framework-Wechsel ohne
    ADR in `docs/`.
 
+## Roadmap-Governance
+
+`/ROADMAP.md` ist der verbindliche Owner-Beschluss für 60 Features, Tiers, A-11,
+M10.5–M21, Release-Gates und die D-/F-Tier-Entscheidungen. `docs/ROADMAP.md`
+bleibt technische Historie, hat bei Konflikten keinen Vorrang. Feature-Status
+nur mit Prüfbelegen ändern; D-Tier nicht implizit reaktivieren.
+
 ## Codex-Arbeitsfolge
 
-1. `README.md`, `docs/ARCHITECTURE.md`, `docs/ROADMAP.md` lesen.
+1. `README.md`, **`ROADMAP.md` (verbindlich)**, `docs/ARCHITECTURE.md` und bei Bedarf `docs/ROADMAP.md` (historisch) lesen.
 2. Bearbeite **genau eine** Aufgabe pro Branch. Starte bei
    `codex/NEXT_TASK.md`, solange nichts anderes beauftragt ist.
 3. Erstelle reproduzierbaren Test, der vor dem Fix/Feature scheitert.

@@ -1,5 +1,7 @@
 # StreamClipper 0.1
 
+> **Verbindliche Produkt-Roadmap:** [ROADMAP.md](ROADMAP.md) – 60 Features, M10.5–M21, A-11 und Release-Gates. Der `main`-Branch enthält noch einen älteren MVP-Stand; neuere Funktionen liegen auf Draft-Branches.
+
 **Lokale Windows-App für Gaming-/Twitch-Highlights mit vertikalem TikTok-Export.**
 
 Das ist ein *funktionsfähiger MVP*, noch kein vollständig KI-gestützter Viral-Clip-Generator.

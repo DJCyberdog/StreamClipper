@@ -1,3 +1,5 @@
+> **Historische technische Prüfliste.** Die verbindliche Produkt-Roadmap steht seit dem Owner-Beschluss vom 22.11.2026 in **[`/ROADMAP.md`](../ROADMAP.md)**. Die nachfolgenden Details dokumentieren frühere Entwicklungsstände; offene Draft-PRs können davon abweichen.
+
 # Roadmap / Definition of Done
 
 ## M0 — Audio-MVP (implementiert, Einschränkungen dokumentiert)
