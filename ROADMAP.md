@@ -148,7 +148,7 @@ Vorhandene *experimentelle* Implementierungen umfassen Audio-Highlighting, nicht
 
 | Milestone | Zusammengehöriger Bereich | Zugeordnete Feature-IDs nach Tier | Definition of Done |
 |---|---|---|---|
-| **M10.5** | Integration & Baseline; **P1-UX-Fix #32: Fortschritt bei Modelldownloads** | Bestehende Arbeit konsolidieren (keine zusätzlichen Feature-IDs) | Start-/updatefähige Baseline; Modellgewichte laden mit sichtbarem, korrektem Downloadstatus im App-Fortschrittsbalken. |
+| **M10.5** | Integration & Baseline; **P1-UX-Fix #32: Modelldownload-Fortschritt + optionaler HF-Token** | Bestehende Arbeit konsolidieren (keine zusätzlichen Feature-IDs) | Start-/updatefähige Baseline; Modellgewichte laden mit sichtbarem, korrektem Downloadstatus im App-Fortschrittsbalken. |
 | **M11** | Editor, Timeline & Datenhaltung | S: S-B1, #02, #03, #04, #05 · C: #36 · D: D-B1 | Sechsstündiges VOD flüssig navigieren, Schnitte/Spuren editieren und nach Neustart inkl. Checkpoints wiederherstellen. |
 | **M12** | Preview, Render & Export-Engine | S: #01, #06, #07, #08 | Crop, Effekte und Untertitel laufen durch dieselbe Exportlogik; reproduzierbare Preview/Render-Vergleiche und geprüfte Job-Abbrüche. |
 | **M13** | Szenen, Smart Director & Overlays | A: A-B1, #09, #10, #11, #12 | Je Szene manuelle/automatische Kamera, 9:16-/16:9-Crop, Sperrzonen, Profile und Rendervergleich; manuelle Vorgaben haben Vorrang. |
@@ -184,6 +184,15 @@ Vorhandene *experimentelle* Implementierungen umfassen Audio-Highlighting, nicht
 - [ ] **100 %/Bereit erst nach vollständig validiertem Modell**; bei Fehler oder Abbruch verständlicher Zustand, Wiederholbarkeit und Erhalt bereits vorhandener Modelldateien.
 - [ ] Progress-Zustand für Modell, Twitch-Import, Analyse und Export überschreibt sich nicht gegenseitig; GUI bleibt bedienbar.
 - [ ] Reproduzierbare automatisierte Unit-/Qt-Offscreen-Tests mit simulierten Download-Events **und** realer Windows-Test mit mindestens einer großen Modellvariante (z. B. CLIP ViT-L/14).
+
+**Zusätzlicher Umfang: optionaler Hugging-Face-Token in derselben M10.5-Aufgabe**
+
+- [ ] Im Modellmanagement ein **maskiertes Eingabefeld für HF-Tokens** sowie **„Verbindung prüfen“, „Entfernen“** und einen lesbaren Status für anonyme versus authentifizierte Downloads anbieten. Bei vorhandener `HF_TOKEN`-/HF-Login-Konfiguration deren Nutzung anzeigen, ohne geheime Werte einzublenden.
+- [ ] **Keine Pflichtanmeldung:** Öffentliche Modelle bleiben auch ohne Token ladbar. Authentifizierung kann HF-Ratenlimits verbessern; **keine garantierte Downloadgeschwindigkeit** versprechen.
+- [ ] Sitzungstoken standardmäßig **nur im Speicher** halten; optionale dauerhafte Speicherung ausschließlich nach ausdrücklicher Auswahl in einem **geschützten OS-Credential-Store** (Windows Credential Manager). Ohne sicheren Store nur Sitzungsmodus. **Kein Klartext** in `data/settings`, JSON, `.env`, Git, Logs, Tracebacks oder Fehlermeldungen.
+- [ ] Authentifizierung über HF-Hub-API testen; ungültige/abgelaufene Tokens und fehlende Modellberechtigungen nachvollziehbar unterscheiden. Kein Token an Drittanbieter oder in URLs, Kommandos und Diagnoseprotokolle schreiben.
+- [ ] `snapshot_download(..., token=...)` für Haupt- und Gewichts-Fallback-Downloads verwenden; Verbindung, Fehler, Retry und **Downloadfortschritt** im gleichen GUI-Workflow miteinander koordinieren.
+- [ ] Automatisierte Sicherheitstests mit **Fake-Tokens** einschließlich Qt-Offscreen-Test; echter HF-Windows-Test nur mit lokal bereitgestelltem Token, **niemals** Test-Tokens ins Repo committen.
 
 **Priorisierung:** **M10.5, P1 / vor dem Integrationsabschluss**, danach keine separate Aufschiebung in M12. Die Tierlist bleibt **60 Hauptfeatures** mit **58 vorgesehenen Implementierungen und zwei F-Ausschlüssen**.
 
