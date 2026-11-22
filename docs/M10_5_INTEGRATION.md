@@ -17,6 +17,20 @@
 - Stichproben-Git-Blob-SHA von `gui.py`, `analyze.py`, `semantic.py` und `highlight_lexicon.py` stimmen mit PR #30 überein.
 - Für den finalen PR-#30-Commit standen GitHub **CI** und **Windows portable build** beide auf **success**. Das beweist noch nicht, dass der neue Integrationscommit besteht oder die GUI auf dem Zielrechner lauffähig ist.
 
+## M10.5-P1-02 – Fehlendes `timm` beim DETR-Backbone
+
+- Windows-Fehler: `TimmBackbone requires the timm library but it was not found`.
+- Ursache: `[project.optional-dependencies].vision` enthielt bisher kein `timm`,
+  obwohl `transformers.AutoModelForObjectDetection` es je nach DETR-Backbone
+  benötigt.
+- Korrektur im M10.5-Integrationsbranch: `timm>=1.0,<2` als `vision`-
+  Abhängigkeit; verständlicher deutscher Installationshinweis; Regressionstests.
+- Soforthilfe für vorhandene Installation:
+  `.\.venv\Scripts\python.exe -m pip install timm` und StreamClipper neu starten.
+- **Noch offen:** Windows-Echtinferenz mit DETR und der neu erzeugte
+  Windows-Portable-Build des korrigierten Integrationscommits.
+- Tracking: [Issue #33](https://github.com/DJCyberdog/StreamClipper/issues/33).
+
 ## Neuer Nutzerbefund / M10.5-P1-01
 
 - **Beobachtet:** Beim Download eines großen CLIP-Modells läuft Hugging Face
