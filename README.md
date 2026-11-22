@@ -1,5 +1,42 @@
 # StreamClipper 0.4 (experimenteller Export)
 
+## M11c / Teil 4 – Optionale Proxy-Vorschau (Draft)
+
+**Vorschau → Proxy erstellen** erzeugt auf ausdrücklichen Klick eine
+niedriger aufgelöste, CPU-basierte H.264/AAC-Vorschau (maximal 854×480).
+Während der Verarbeitung zeigt die Vorschau einen Fortschrittsbalken
+und bietet **Abbrechen** an. Der Prozess läuft im Hintergrund, nutzt
+FFmpeg als Streaming-Encoder (keine vollständige VOD-Dekodierung im
+Python-Speicher) und schreibt erst nach Prüfung eine MP4-Datei.
+
+Unter **Original / Proxy (480p)** wird die Anzeige umgeschaltet. Alle
+Zeitleistenpositionen, Highlight-Grenzen, Untertitel und Exporte beziehen
+sich weiterhin auf das **Originalvideo**. Der Proxy verwendet die
+Frame-Zeitabstände der Quelle, statt VFR-Material auf eine angenommene
+konstante Bildrate zu zwingen. Anfängliche Video-/Audio-Abweichungen über
+150 ms oder eine Gesamtdauer-Abweichung über 300 ms werden abgewiesen.
+*Grenze:* Eine FFmpeg-kodierte Vorschau kann keine pixel- bzw. framegenaue
+Identität zum Original garantieren; insbesondere beim Scrubbing können
+unterschiedliche Keyframes eine abweichende Anzeigeframe-Wahl bewirken.
+Schnitt und Export arbeiten daher **niemals mit Proxy-Zeitstempeln als
+neuer Projektquelle**.
+
+Der lokale Cache liegt ausschließlich unter `data/proxies/` und wird
+durch Pfad, Dateigröße, Änderungszeit, Video-Metadaten und Encoderpreset
+adressiert; ein vollständiger Hash des sechsstündigen Originals wäre
+unnötige I/O-Last. Beschädigte oder veraltete Cacheeinträge werden
+ignoriert. Ein fehlgeschlagener bzw. abgebrochener FFmpeg-Lauf bietet
+keine unfertige Vorschau an. Ist ein Proxy beim Abspielen defekt,
+fällt das Programm auf das Original zurück. Der Cache wird **nicht**
+ungefragt gelöscht und keine Quelldatei wird überschrieben.
+
+**Abnahme offen:** echter Windows-11-Vorschautest bei 1366×768 und
+FullHD, echte 6h-VOD-Messungen (Speicher, CPU/GPU, Abbruch, VFR/Sync),
+breitere Codec- und Dateisystemtests. Das ist **kein** gemeinsamer
+M12-Mehrspur-Rendergraph: Änderungen an Audio-/Grafikspuren beeinflussen
+die Proxyvorschau noch nicht.
+
+
 ## M11c / Teil 3 – Analyse-Highlights in den Spurplan übernehmen (Draft)
 
 Im **Spuren**-Arbeitsbereich gibt es nun **★ Highlights übernehmen …**.
