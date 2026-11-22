@@ -765,8 +765,9 @@ class MainWindow(QMainWindow):
         start, end = self.timeline_in.value(), self.timeline_out.value()
         if end <= start or start >= self.timeline.duration:
             return
-        self.timeline.set_selection(start, end)
-        self._refresh_word_refs()
+        # Reuse the same commit/validation path as dragging a marker.
+        # Pending word edits must never disappear when changing the IN/OUT boxes.
+        self.timeline.set_selection(start, end, emit=True)
 
     def _refresh_word_refs(self):
         if not hasattr(self, 'word_text'):
