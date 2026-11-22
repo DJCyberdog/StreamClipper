@@ -970,7 +970,7 @@ class MainWindow(QMainWindow):
         labels = [
             f"{number:02d} · {entry.created_at[:19].replace('T', ' ')} · {entry.name}"
             + (" (mit Analyse)" if entry.has_analysis else " (nur Spuren)")
-            for number, entry in enumerate(entries, start=1)
+            for number, entry in enumerate(entries, start=1)]
         selected, accepted = QInputDialog.getItem(
             self, "Projektstand wiederherstellen", "Gesicherter Stand:", labels, 0, False)
         if not accepted:
