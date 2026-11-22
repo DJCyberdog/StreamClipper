@@ -1537,6 +1537,20 @@ class MainWindow(QMainWindow):
             return False
         for old in self._waveform_workers:
             old.cancel()
+        if self.proxy_worker and self.proxy_worker.isRunning():
+            self.proxy_worker.cancel()
+        self._video_info = None
+        self._proxy_state = None
+        self._proxy_active = False
+        self._preview_switching = False
+        self._proxy_resume_playing = False
+        self.proxy_mode.blockSignals(True)
+        self.proxy_mode.setCurrentIndex(0)
+        self.proxy_mode.blockSignals(False)
+        self.proxy_progress.setValue(0)
+        self.proxy_status.setText(
+            "Proxy optional · Schnittmarken und Export nutzen das Original.")
+        self._update_proxy_controls()
         self._autosave_timer.stop()
         self._history.clear()
         self.editor_project = None
@@ -1594,6 +1608,13 @@ class MainWindow(QMainWindow):
         if filename != self.source:
             return
         video, peaks = result
+        self._video_info = video
+        self._proxy_state = cached_proxy(video)
+        if self._proxy_state:
+            self.proxy_progress.setValue(100)
+            self.proxy_status.setText(
+                "✓ Gespeicherter Proxy gefunden · Vorschau kann umgeschaltet werden")
+        self._update_proxy_controls()
         preserve = self._source_duration > 0
         current_selection = (self.timeline.in_point, self.timeline.out_point)
         self._source_duration = video.duration
@@ -2378,27 +2399,35 @@ class MainWindow(QMainWindow):
             self.player.play()
 
     def _position_changed(self, pos: int) -> None:
+        if self._preview_switching:
+            return
+        original_ms = (proxy_to_original_ms(pos, self._proxy_state.timing)
+                       if self._proxy_active and self._proxy_state else pos)
         if not self.seek.isSliderDown():
-            self.seek.setValue(pos)
-        self.time_label.setText(display_time(pos / 1000))
-        self.timeline.set_position(pos / 1000)
-        if self.timeline.zoom > 1.0 and self.player.playbackState() == QMediaPlayer.PlaybackState.PlayingState:
+            self.seek.setValue(original_ms)
+        self.time_label.setText(display_time(original_ms / 1000))
+        self.timeline.set_position(original_ms / 1000)
+        if (self.timeline.zoom > 1.0 and
+                self.player.playbackState() == QMediaPlayer.PlaybackState.PlayingState):
             a, b = self.timeline.visible()
-            if pos / 1000 > b or pos / 1000 < a:
-                self.timeline.set_offset(pos / 1000 - (b-a) * .20)
+            if original_ms / 1000 > b or original_ms / 1000 < a:
+                self.timeline.set_offset(original_ms / 1000 - (b-a) * .20)
                 self._sync_timeline_scroll()
-        self._update_caption_overlay(pos / 1000)
-        if self.preview_end is not None and pos >= int(self.preview_end * 1000):
+        self._update_caption_overlay(original_ms / 1000)
+        if self.preview_end is not None and original_ms >= int(self.preview_end * 1000):
             if self.player.playbackState() == QMediaPlayer.PlaybackState.PlayingState:
                 self.player.pause()
 
     def _duration_changed(self, duration: int) -> None:
-        self.seek.setRange(0, max(1, duration))
-        # Waveform worker normally provides ffprobe duration first; the player
-        # can supply a fallback while FFmpeg is still preparing the overview.
-        if duration > 0 and self._source_duration <= 0:
+        if self._preview_switching:
+            return
+        # The source timeline must never adopt the proxy's shorter/longer
+        # mux duration. Only the original source owns clip timing.
+        if duration > 0 and self._source_duration <= 0 and not self._proxy_active:
             self._source_duration = duration / 1000
             self.timeline.set_duration(self._source_duration)
+        self.seek.setRange(0, max(1, round(self._source_duration * 1000)
+                                  if self._source_duration > 0 else duration))
 
     def seek_to(self, pos: int) -> None:
         self.preview_end = None  # manual scrubbing may leave suggested time span
@@ -2528,6 +2557,14 @@ class MainWindow(QMainWindow):
         if not self.confirm_discard_edits():
             event.ignore()
             return
+        if self.proxy_worker and self.proxy_worker.isRunning():
+            self.proxy_worker.cancel()
+            if not self.proxy_worker.wait(3000):
+                QMessageBox.information(
+                    self, "Proxy wird beendet",
+                    "FFmpeg verarbeitet den Abbruch noch. Bitte erneut schließen.")
+                event.ignore()
+                return
         for worker in self._waveform_workers:
             worker.cancel()
         for worker in list(self._waveform_workers):
