@@ -107,6 +107,8 @@ def test_shortcut_preserves_text_widget_native_undo(tmp_path, monkeypatch):
         window._shortcut_redo()
         assert editor.toPlainText() != original
         assert len(window.editor_project.tracks) == 6
+        # Discard the uncommitted text edit before invoking workspace undo.
+        window.reset_transcript_editor()
         # Switching to a neutral focused widget activates workspace history.
         window.open_button.setFocus()
         app.processEvents()
