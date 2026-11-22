@@ -1001,6 +1001,13 @@ class MainWindow(QMainWindow):
             self.proxy_status.setText("⚠ Proxy nicht abspielbar · Original aktiviert")
             self._update_proxy_controls()
             return
+        if (status == QMediaPlayer.MediaStatus.InvalidMedia and
+                self._preview_switching and not self._proxy_active):
+            # An invalid original must not permanently suppress timeline updates.
+            self._preview_switching = False
+            self._proxy_resume_playing = False
+            self.proxy_status.setText("⚠ Originalvideo kann nicht abgespielt werden")
+            return
         if (self._preview_switching and status in (
                 QMediaPlayer.MediaStatus.LoadedMedia,
                 QMediaPlayer.MediaStatus.BufferedMedia)):
