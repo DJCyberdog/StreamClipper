@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "streamclipper"
-version = "0.1.0"
-description = "Offline gaming stream highlight finder and vertical clip exporter for Windows"
+version = "0.4.0"
+description = "Offline gaming stream highlight finder and gaming clip exporter for Windows"
 requires-python = ">=3.11,<3.15"
 dependencies = []
 
@@ -13,6 +13,10 @@ dependencies = []
 gui = ["PySide6>=6.8,<7"]
 dev = ["pytest>=8,<10"]
 build = ["PyInstaller>=6.11,<7"]
+speech = ["faster-whisper>=1.1,<3", "av>=11,<18"]
+vision = ["torch>=2.3", "transformers>=4.46,<6", "Pillow>=10,<13"]
+models = ["huggingface-hub>=0.24,<2"]
+twitch = ["yt-dlp>=2025.1"]
 
 [project.scripts]
 streamclipper-cli = "streamclipper.cli:main"

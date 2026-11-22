@@ -2,8 +2,11 @@
 from __future__ import annotations
 
 from array import array
+import queue
 import json
 import math
+import tempfile
+import threading
 import os
 from pathlib import Path
 import shutil
@@ -11,7 +14,7 @@ import subprocess
 import sys
 from typing import Callable
 
-from .models import VideoInfo
+from .models import VideoInfo, TranscriptSegment
 
 Progress = Callable[[int], None]
 Cancelled = Callable[[], bool]
@@ -136,19 +139,40 @@ def safe_destination(folder: str | Path, basename: str) -> Path:
     return candidate
 
 
+def video_dimensions(mode: str, width: int = 1080, height: int = 1920) -> tuple[int, int]:
+    """Keep old 9:16 default but make smart16 landscape by default."""
+    if mode == "smart16" and (width, height) == (1080, 1920):
+        return 1920, 1080
+    return width, height
+
+
 def build_export_command(video: VideoInfo, start: float, end: float, destination: str | Path,
                          mode: str = "blur", width: int = 1080, height: int = 1920,
-                         ffmpeg_executable: str = "ffmpeg") -> list[str]:
-    if mode not in {"blur", "crop"}:
-        raise ValueError("Ungültiger Bildmodus: blur oder crop")
+                         ffmpeg_executable: str = "ffmpeg", *,
+                         motion_points=None, burned_captions: bool = False) -> list[str]:
+    """Construct command without a shell. Optional captions use a local ASS file.
+
+    If burned_captions, the caller must write `captions.ass` in the FFmpeg cwd.
+    Paths never enter the filtergraph, avoiding Windows `C:`/Unicode escaping.
+    """
+    if mode not in {"blur", "crop", "smart16", "smart9"}:
+        raise ValueError("Ungültiger Bildmodus: blur, crop, smart16 oder smart9")
+    width, height = video_dimensions(mode, width, height)
     if width <= 0 or height <= 0 or width % 2 or height % 2:
         raise ValueError("Breite und Höhe müssen positive gerade Zahlen sein")
     if not (0 <= start < end <= video.duration + 0.1):
         raise ValueError("Ungültiges Clip-Zeitfenster")
-    if mode == "crop":
+    final_label = "base" if burned_captions else "v"
+    if mode in {"smart16", "smart9"}:
+        from .reframe import FocusPoint, smart_crop_filter
+        if not motion_points:
+            motion_points = [FocusPoint(0., .5, .5)]
+        zoom = 1.18 if mode == "smart16" else 1.0
+        chain = f"[0:v:0]{smart_crop_filter(width, height, motion_points, zoom=zoom)}[{final_label}]"
+    elif mode == "crop":
         chain = (
             f"[0:v:0]scale={width}:{height}:force_original_aspect_ratio=increase,"
-            f"crop={width}:{height},setsar=1,format=yuv420p[v]"
+            f"crop={width}:{height},setsar=1,format=yuv420p[{final_label}]"
         )
     else:
         chain = (
@@ -158,8 +182,10 @@ def build_export_command(video: VideoInfo, start: float, end: float, destination
             f"[fg]scale={width}:{height}:force_original_aspect_ratio=decrease,"
             "pad=ceil(iw/2)*2:ceil(ih/2)*2:0:0[front];"
             "[back][front]overlay=(W-w)/2:(H-h)/2:shortest=1,"
-            "setsar=1,format=yuv420p[v]"
+            f"setsar=1,format=yuv420p[{final_label}]"
         )
+    if burned_captions:
+        chain += ";[base]ass=filename=captions.ass,format=yuv420p[v]"
     return [ffmpeg_executable, "-hide_banner", "-nostdin", "-loglevel", "error", "-n",
             "-ss", f"{start:.3f}", "-i", video.path, "-t", f"{end-start:.3f}",
             "-filter_complex", chain, "-map", "[v]", "-map", "0:a:0?",
@@ -168,26 +194,265 @@ def build_export_command(video: VideoInfo, start: float, end: float, destination
             str(destination)]
 
 
+def _stop_process(proc: subprocess.Popen) -> None:
+    """Reap a directly spawned FFmpeg process, even if it ignores terminate."""
+    if proc.poll() is None:
+        try:
+            proc.terminate()
+            proc.wait(timeout=3)
+        except (subprocess.TimeoutExpired, OSError):
+            if proc.poll() is None:
+                proc.kill()
+    proc.wait()  # Important on POSIX: never leave a zombie process.
+
+
+def _progress_seconds(key: str, value: str) -> float | None:
+    """FFmpeg emits microseconds in both out_time_us and legacy out_time_ms."""
+    try:
+        if key in {"out_time_us", "out_time_ms"}:
+            return max(0.0, int(value) / 1_000_000)
+        if key == "out_time":
+            hours, minutes, seconds = value.split(":")
+            return max(0.0, int(hours) * 3600 + int(minutes) * 60 + float(seconds))
+    except (ValueError, OverflowError):
+        pass
+    return None
+
+
+def _publish_without_overwrite(partial: Path, requested: Path) -> Path:
+    """Publish a *finished* MP4 atomically, without a check-then-move race.
+
+    Hard-link creation is an exclusive, atomic operation on the same filesystem.
+    Windows os.rename also fails when the destination already exists, so it is
+    a fallback for volumes without hard-link support (such as some shares).
+    """
+    for index in range(1, 100001):
+        if index == 1:
+            target = requested
+        else:
+            target = requested.with_name(
+                f"{requested.stem}_{index}{requested.suffix}"
+            )
+        try:
+            os.link(partial, target)
+        except FileExistsError:
+            continue
+        except OSError:
+            if os.name != "nt":
+                raise
+            try:
+                os.rename(partial, target)
+            except FileExistsError:
+                continue
+        return target
+    raise FileExistsError("Kein freier Export-Dateiname gefunden.")
+
+
 def export_clip(video: VideoInfo, start: float, end: float, destination: str | Path,
                 mode: str = "blur", width: int = 1080, height: int = 1920,
-                cancelled: Cancelled | None = None) -> Path:
+                cancelled: Cancelled | None = None,
+                progress: Progress | None = None, *,
+                transcript: list[TranscriptSegment] | None = None,
+                burn_subtitles: bool = False,
+                subtitle_offset: float = 0.0) -> Path:
+    """Encode with cancellable progress and publish only validated, complete MP4s.
+
+    The temporary file is on the destination filesystem for atomic publication.
+    Existing outputs and the source video are never opened for writing.
+    A cancelled or failed export leaves no final MP4 and cleans its temporary dir.
+    The *returned* path can differ from destination if another export reserved it.
+    """
     output = Path(destination).resolve()
     output.parent.mkdir(parents=True, exist_ok=True)
-    cmd = build_export_command(video, start, end, output, mode, width, height, tool_path("ffmpeg"))
-    proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
-                            text=True, encoding="utf-8", errors="replace")
-    try:
-        # communicate drains stderr and avoids pipe deadlocks. For v0.1 cancellation
-        # is supported before each clip, not while an individual clip renders.
-        _stdout, stderr = proc.communicate()
-        if proc.returncode != 0:
-            if output.exists():
-                output.unlink()
-            raise RuntimeError(f"FFmpeg-Export fehlgeschlagen: {stderr[-2000:]}")
+    if cancelled and cancelled():
+        raise CancelledError("Export abgebrochen")
+    duration = end - start
+    # Validate parameters before allocating temp files or starting FFmpeg.
+    width, height = video_dimensions(mode, width, height)
+    build_export_command(video, start, end, output, mode, width, height)
+    if not math.isfinite(subtitle_offset) or abs(subtitle_offset) > 5:
+        raise ValueError("Untertitelversatz muss zwischen -5 und +5 Sekunden liegen")
+    if burn_subtitles and not transcript:
+        raise ValueError("Untertitel benötigen zuerst ein Whisper-Transkript.")
+
+    with tempfile.TemporaryDirectory(prefix=f".{output.stem}-", dir=output.parent) as workdir:
+        partial = Path(workdir) / f"{output.stem}.partial.mp4"
+        motion_points = None
+        if mode in {"smart16", "smart9"}:
+            from .reframe import clip_motion_path
+            motion_points = clip_motion_path(video, start, end, cancelled=cancelled)
+        if burn_subtitles:
+            from .captioning import render_ass
+            (Path(workdir) / "captions.ass").write_text(
+                render_ass(transcript or [], start, end, width=width, height=height,
+                           offset_seconds=subtitle_offset),
+                encoding="utf-8-sig", newline="\n")
+        cmd = build_export_command(video, start, end, partial, mode, width, height,
+                                   tool_path("ffmpeg"), motion_points=motion_points,
+                                   burned_captions=burn_subtitles)
+        cmd[1:1] = ["-progress", "pipe:1", "-stats_period", "0.25"]
+        with tempfile.TemporaryFile(mode="w+b") as stderr_log:
+            proc = subprocess.Popen(
+                cmd, stdout=subprocess.PIPE, stderr=stderr_log,
+                text=True, encoding="utf-8", errors="replace", cwd=workdir,
+            )
+            updates: queue.Queue[float] = queue.Queue()
+
+            def read_progress() -> None:
+                assert proc.stdout is not None
+                for line in proc.stdout:
+                    key, separator, value = line.strip().partition("=")
+                    if separator:
+                        seconds = _progress_seconds(key, value)
+                        if seconds is not None:
+                            updates.put(seconds)
+
+            reader = threading.Thread(target=read_progress, daemon=True,
+                                      name="streamclipper-ffmpeg-progress")
+            reader.start()
+            last_progress = -1
+            try:
+                while proc.poll() is None or reader.is_alive() or not updates.empty():
+                    if cancelled and cancelled():
+                        raise CancelledError("Export abgebrochen")
+                    try:
+                        seconds = updates.get(timeout=0.10)
+                    except queue.Empty:
+                        continue
+                    value = max(0, min(99, int(seconds / duration * 100)))
+                    if progress and value > last_progress:
+                        progress(value)
+                        last_progress = value
+
+                proc.wait()
+                if cancelled and cancelled():
+                    raise CancelledError("Export abgebrochen")
+                if proc.returncode != 0:
+                    stderr_log.flush()
+                    stderr_log.seek(0, os.SEEK_END)
+                    stderr_log.seek(max(0, stderr_log.tell() - 2000))
+                    error_details = stderr_log.read().decode("utf-8", errors="replace")
+                    raise RuntimeError(f"FFmpeg-Export fehlgeschlagen: {error_details}")
+                if not partial.is_file() or partial.stat().st_size == 0:
+                    raise RuntimeError("FFmpeg hat keine fertige MP4-Datei erzeugt.")
+                # Verify the container before making it visible as a final clip.
+                probe_video(partial)
+                if cancelled and cancelled():
+                    raise CancelledError("Export abgebrochen")
+                published = _publish_without_overwrite(partial, output)
+                if progress:
+                    progress(100)
+                return published
+            finally:
+                _stop_process(proc)
+                reader.join(timeout=2)
+                if proc.stdout:
+                    proc.stdout.close()
+
+
+def sampled_jpeg_frames(video: VideoInfo, *, max_frames: int = 180,
+                        cancelled: Cancelled | None = None,
+                        timestamps: list[float] | None = None):
+    """Seek across the entire VOD; do not decode hours of intervening frames.
+
+    Each requested timestamp is decoded into one JPEG via FFmpeg. Peak resident
+    memory stays bounded, processing is interruptible even during a slow seek,
+    and timestamps represent requested sampling positions, not verified events.
+    """
+    if max_frames < 1 or max_frames > 2000:
+        raise ValueError("max_frames muss zwischen 1 und 2000 liegen")
+    if video.duration <= 0:
+        raise ValueError("Ungültige Videodauer")
+    if timestamps is not None:
+        if len(timestamps) > max_frames or any(
+                not math.isfinite(at) or at < 0 or at >= video.duration
+                for at in timestamps):
+            raise ValueError("Ungültige CLIP-Zeitstempel")
+        positions = sorted(set(timestamps))
+    else:
+        count = max(1, min(max_frames, int(math.ceil(video.duration / 3.0))))
+        interval = video.duration / count
+        positions = [(index + 0.5) * interval for index in range(count)]
+    ffmpeg = tool_path("ffmpeg")
+    for at in positions:
         if cancelled and cancelled():
-            raise CancelledError("Export abgebrochen")
-        return output
+            raise CancelledError("Analyse abgebrochen")
+        cmd = [ffmpeg, "-hide_banner", "-nostdin", "-loglevel", "error",
+               "-ss", f"{at:.3f}", "-i", video.path,
+               "-map", "0:v:0", "-an", "-sn", "-frames:v", "1",
+               "-vf", "scale=320:-2:flags=fast_bilinear", "-q:v", "6",
+               "-f", "image2pipe", "-vcodec", "mjpeg", "pipe:1"]
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        try:
+            while True:
+                if cancelled and cancelled():
+                    raise CancelledError("Analyse abgebrochen")
+                try:
+                    frame, _ = proc.communicate(timeout=0.2)
+                    break
+                except subprocess.TimeoutExpired:
+                    continue
+            if proc.returncode != 0:
+                raise RuntimeError(f"FFmpeg konnte Frame bei {at:.2f}s nicht dekodieren.")
+            if not frame.startswith(b"\xff\xd8") or not frame.endswith(b"\xff\xd9"):
+                raise RuntimeError(f"Ungültiger JPEG-Frame bei {at:.2f}s.")
+            if len(frame) > 8_000_000:
+                raise RuntimeError("Ein einzelnes Video-Frame überschreitet 8 MB.")
+            yield round(at, 3), frame
+        finally:
+            if proc.poll() is None:
+                proc.kill()
+            proc.wait()
+            if proc.stdout:
+                proc.stdout.close()
+
+
+def waveform_peaks(video: VideoInfo, *, max_bins: int = 8192,
+                   cancelled: Cancelled | None = None,
+                   sample_rate: int = 600) -> list[float]:
+    """Compute a bounded audio waveform suitable for a 6+ hour Qt timeline.
+
+    Stream decoded mono PCM at a low sample rate; never buffer the entire
+    recording. The result holds <= max_bins normalized RMS amplitudes.
+    This is optional and independent of Whisper/CLIP and highlight scoring.
+    """
+    if not video.has_audio:
+        return []
+    if not 100 <= max_bins <= 65536 or not 100 <= sample_rate <= 8000:
+        raise ValueError("Ungültige Wellenform-Auflösung")
+    if cancelled and cancelled():
+        raise CancelledError("Wellenform abgebrochen")
+    # ceil ensures the whole recording needs at most max_bins output buckets.
+    samples_per_bin = max(1, math.ceil(video.duration * sample_rate / max_bins))
+    command = [tool_path("ffmpeg"), "-hide_banner", "-nostdin", "-loglevel", "error",
+               "-i", video.path, "-map", "0:a:0", "-vn", "-ac", "1",
+               "-ar", str(sample_rate), "-f", "s16le", "pipe:1"]
+    proc = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    levels: list[float] = []
+    try:
+        assert proc.stdout is not None
+        while True:
+            if cancelled and cancelled():
+                raise CancelledError("Wellenform abgebrochen")
+            blob = proc.stdout.read(samples_per_bin * 2)
+            if not blob:
+                break
+            data = array("h")
+            data.frombytes(blob[:len(blob) // 2 * 2])
+            if sys.byteorder != "little":
+                data.byteswap()
+            if not data:
+                break
+            rms = math.sqrt(sum(int(v) * int(v) for v in data) / len(data)) / 32768
+            if len(levels) < max_bins:
+                levels.append(rms)
+        if proc.wait() != 0:
+            raise RuntimeError("FFmpeg konnte die Wellenform nicht erzeugen.")
+        high = max(levels, default=0.0)
+        return [round(math.sqrt(v / high), 5) for v in levels] if high > 0 else levels
     finally:
         if proc.poll() is None:
             proc.kill()
-            proc.wait()
+        proc.wait()
+        if proc.stdout:
+            proc.stdout.close()
