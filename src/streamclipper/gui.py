@@ -876,6 +876,220 @@ class MainWindow(QMainWindow):
         self._autosave_timer.start()
         self.statusBar().showMessage("Korrektur wiederholt – Auto-Sicherung folgt")
 
+    def _open_editor_project(self, video) -> None:
+        """Load metadata for this source; do not modify legacy analysis JSON."""
+        try:
+            self.editor_project = load_project(video)
+            self.track_status.setText("✓ Gespeicherter Spurplan geladen")
+        except FileNotFoundError:
+            self.editor_project = initial_project(video)
+            self.track_status.setText("Neuer Spurplan – Änderungen werden lokal gespeichert")
+        except (OSError, ValueError) as exc:
+            QMessageBox.warning(self, "Spurplan konnte nicht geladen werden", str(exc))
+            self.editor_project = initial_project(video)
+            self.track_status.setText("Ungültiger Spurplan – Neuer Plan geöffnet")
+        self._project_history = ProjectHistory()
+        self._refresh_track_tables()
+
+    def _selected_track_id(self) -> str | None:
+        if not self.editor_project:
+            return None
+        index = self.tracks_table.currentRow()
+        if 0 <= index < len(self.editor_project.tracks):
+            return self.editor_project.tracks[index].id
+        return None
+
+    def _selected_clip_id(self) -> str | None:
+        if not self.editor_project:
+            return None
+        index = self.track_clips_table.currentRow()
+        if 0 <= index < len(self.editor_project.items):
+            return self.editor_project.items[index].id
+        return None
+
+    def _refresh_track_tables(self) -> None:
+        project = self.editor_project
+        old_track = self._selected_track_id()
+        old_clip = self._selected_clip_id()
+        self.tracks_table.blockSignals(True)
+        self.track_clips_table.blockSignals(True)
+        try:
+            self.tracks_table.setRowCount(len(project.tracks) if project else 0)
+            self.track_clips_table.setRowCount(len(project.items) if project else 0)
+            if project:
+                for row, track in enumerate(project.tracks):
+                    kind = {"video":"Video", "audio":"Audio",
+                            "captions":"Untertitel", "overlay":"Grafik"}[track.kind]
+                    values = (track.name, kind, "Ja" if track.muted else "Nein",
+                              "Ja" if track.locked else "Nein",
+                              str(sum(item.track_id == track.id for item in project.items)))
+                    for col, value in enumerate(values):
+                        self.tracks_table.setItem(row, col, QTableWidgetItem(value))
+                for row, item in enumerate(project.items):
+                    names = {track.id: track.name for track in project.tracks}
+                    values = (item.label or item.id, names[item.track_id],
+                              format_timestamp(item.source_start),
+                              format_timestamp(item.source_end),
+                              format_timestamp(item.timeline_start))
+                    for col, value in enumerate(values):
+                        self.track_clips_table.setItem(row, col, QTableWidgetItem(value))
+                for row, track in enumerate(project.tracks):
+                    if track.id == old_track:
+                        self.tracks_table.selectRow(row)
+                for row, item in enumerate(project.items):
+                    if item.id == old_clip:
+                        self.track_clips_table.selectRow(row)
+        finally:
+            self.tracks_table.blockSignals(False)
+            self.track_clips_table.blockSignals(False)
+        self._update_track_actions()
+
+    def _update_track_actions(self) -> None:
+        if not hasattr(self, "track_add_button"):
+            return
+        ready = self.editor_project is not None
+        selected = self._selected_track_id()
+        clip = self._selected_clip_id()
+        for control in (self.track_add_button,):
+            control.setEnabled(ready)
+        for control in (self.track_rename_button, self.track_remove_button,
+                        self.track_mute_button, self.track_lock_button,
+                        self.track_up_button, self.track_down_button):
+            control.setEnabled(bool(selected))
+        self.track_clip_add.setEnabled(bool(selected) and self._source_duration > 0)
+        self.track_clip_move.setEnabled(bool(clip))
+        self.track_clip_trim.setEnabled(bool(clip))
+        self.track_undo_button.setEnabled(ready and self._project_history.can_undo)
+        self.track_redo_button.setEnabled(ready and self._project_history.can_redo)
+
+    def _apply_project_edit(self, action, *args, **kwargs) -> bool:
+        if not self.editor_project:
+            return False
+        before = self.editor_project
+        try:
+            after = action(before, *args, **kwargs)
+            if after == before:
+                return True
+            save_project(after)
+        except (OSError, ValueError) as exc:
+            QMessageBox.warning(self, "Spuränderung nicht gespeichert", str(exc))
+            return False
+        self._project_history.record(before, after)
+        self.editor_project = after
+        self._refresh_track_tables()
+        self.track_status.setText("✓ Spurplan lokal gespeichert · Original unverändert")
+        return True
+
+    def _add_track_dialog(self) -> None:
+        types = {"Videospur": "video", "Audiospur": "audio",
+                 "Untertitelspur": "captions", "Grafikspur": "overlay"}
+        label, accepted = QInputDialog.getItem(
+            self, "Spur hinzufügen", "Spurtyp", list(types), 1, False)
+        if not accepted:
+            return
+        name, accepted = QInputDialog.getText(self, "Spur hinzufügen", "Spurname")
+        if accepted:
+            self._apply_project_edit(add_track, types[label], name)
+
+    def _rename_selected_track(self) -> None:
+        track_id = self._selected_track_id()
+        if not track_id or not self.editor_project:
+            return
+        current = next(t for t in self.editor_project.tracks if t.id == track_id)
+        name, accepted = QInputDialog.getText(
+            self, "Spur umbenennen", "Name", text=current.name)
+        if accepted:
+            self._apply_project_edit(rename_track, track_id, name)
+
+    def _remove_selected_track(self) -> None:
+        track_id = self._selected_track_id()
+        if track_id:
+            self._apply_project_edit(remove_track, track_id)
+
+    def _toggle_selected_track(self, field: str) -> None:
+        track_id = self._selected_track_id()
+        if track_id:
+            self._apply_project_edit(toggle_track, track_id, field)
+
+    def _move_selected_track(self, direction: int) -> None:
+        track_id = self._selected_track_id()
+        if track_id:
+            self._apply_project_edit(move_track, track_id, direction)
+
+    def _add_selected_track_clip(self) -> None:
+        track_id = self._selected_track_id()
+        if not track_id:
+            return
+        a, b = self.timeline.in_point, self.timeline.out_point
+        self._apply_project_edit(add_item, track_id, a, b, a,
+                                 f"Ausschnitt {format_timestamp(a)}")
+
+    def _move_selected_track_clip(self) -> None:
+        item_id = self._selected_clip_id()
+        if not item_id or not self.editor_project:
+            return
+        item = next(i for i in self.editor_project.items if i.id == item_id)
+        names = [f"{track.name} ({track.id})" for track in self.editor_project.tracks]
+        selected, accepted = QInputDialog.getItem(
+            self, "Clip verschieben", "Zielspur", names,
+            next((n for n,t in enumerate(self.editor_project.tracks)
+                  if t.id == item.track_id), 0), False)
+        if not accepted:
+            return
+        track_id = self.editor_project.tracks[names.index(selected)].id
+        position, accepted = QInputDialog.getDouble(
+            self, "Clip verschieben", "Position in Timeline (Sekunden)",
+            item.timeline_start, 0, 86400, 3)
+        if accepted:
+            self._apply_project_edit(edit_item, item_id, track_id=track_id,
+                                     timeline_start=position)
+
+    def _trim_selected_track_clip(self) -> None:
+        item_id = self._selected_clip_id()
+        if not item_id or not self.editor_project:
+            return
+        item = next(i for i in self.editor_project.items if i.id == item_id)
+        limit = self.editor_project.source.duration
+        start, accepted = QInputDialog.getDouble(
+            self, "Clip trimmen", "Quellbeginn (Sekunden)",
+            item.source_start, 0, limit, 3)
+        if not accepted:
+            return
+        end, accepted = QInputDialog.getDouble(
+            self, "Clip trimmen", "Quellende (Sekunden)",
+            item.source_end, 0, limit, 3)
+        if accepted:
+            self._apply_project_edit(edit_item, item_id,
+                                     source_start=start, source_end=end)
+
+    def _undo_project(self) -> None:
+        if not self.editor_project or not self._project_history.can_undo:
+            return
+        before = self._project_history.undo(self.editor_project)
+        try:
+            save_project(before)
+        except (OSError, ValueError) as exc:
+            self._project_history.redo(before)
+            QMessageBox.warning(self, "Spuraktion nicht gespeichert", str(exc))
+            return
+        self.editor_project = before
+        self._refresh_track_tables()
+        self.track_status.setText("↶ Spuraktion rückgängig und gesichert")
+
+    def _redo_project(self) -> None:
+        if not self.editor_project or not self._project_history.can_redo:
+            return
+        after = self._project_history.redo(self.editor_project)
+        try:
+            save_project(after)
+        except (OSError, ValueError) as exc:
+            self._project_history.undo(after)
+            QMessageBox.warning(self, "Spuraktion nicht gespeichert", str(exc))
+            return
+        self.editor_project = after
+        self._refresh_track_tables()
+        self.track_status.setText("↷ Spuraktion wiederholt und gesichert")
+
     def toggle_word_editor(self, expanded: bool) -> None:
         self.word_editor_panel.setVisible(expanded)
         self.word_editor_toggle.setText(
