@@ -43,6 +43,7 @@ from .editor_project import (EditorProject, ProjectHistory, initial_project,
     add_track, remove_track, rename_track, move_track, toggle_track,
     add_item, edit_item, load_project, save_project)
 from .track_canvas import TrackCanvas
+from .project_checkpoints import create_checkpoint, list_checkpoints, load_checkpoint
 
 from .edit_history import EditHistory
 from .autosave import autosave_path, clear_autosave, load_autosave, save_autosave
@@ -278,6 +279,19 @@ class MainWindow(QMainWindow):
         models_page_layout.addWidget(self.highlight_words_button)
         toolbar.addStretch()
         main.addLayout(toolbar)
+        # Keep project management out of the increasingly crowded editor tabs.
+        project_menu = self.menuBar().addMenu("Datei & Projekt")
+        project_menu.addAction("Aufnahme öffnen…", self.open_video)
+        project_menu.addAction("Twitch-VOD importieren…", self.import_twitch_video)
+        project_menu.addSeparator()
+        self.checkpoint_save_action = project_menu.addAction(
+            "Benannten Projektstand sichern…", self._save_project_checkpoint)
+        self.checkpoint_save_action.setShortcut(QKeySequence("Ctrl+Alt+S"))
+        self.checkpoint_restore_action = project_menu.addAction(
+            "Projektstand wiederherstellen…", self._restore_project_checkpoint)
+        self.checkpoint_restore_action.setShortcut(QKeySequence("Ctrl+Alt+O"))
+        self.checkpoint_save_action.setEnabled(False)
+        self.checkpoint_restore_action.setEnabled(False)
 
         # Three independent tasks. Choice never starts a download or analysis.
         # Retain the folder override for existing locally converted models.
@@ -911,6 +925,104 @@ class MainWindow(QMainWindow):
             self.track_status.setText("Ungültiger Spurplan – Neuer Plan geöffnet")
         self._project_history = ProjectHistory()
         self._refresh_track_tables()
+        self._update_checkpoint_actions()
+
+    def _update_checkpoint_actions(self) -> None:
+        ready = self.editor_project is not None
+        self.checkpoint_save_action.setEnabled(ready)
+        self.checkpoint_restore_action.setEnabled(ready)
+
+    def _save_project_checkpoint(self) -> None:
+        if not self.editor_project:
+            return
+        if self.worker and self.worker.isRunning():
+            QMessageBox.information(self, "Projektstand", "Bitte laufende Verarbeitung zuerst abschließen.")
+            return
+        if not self.apply_word_editor() or not self.apply_transcript_editor():
+            return
+        name, accepted = QInputDialog.getText(
+            self, "Projektstand sichern", "Name (z. B. Vor dem Untertitelschnitt):")
+        if not accepted:
+            return
+        try:
+            info = create_checkpoint(self.editor_project, name, self.analysis)
+        except (OSError, ValueError, TypeError) as exc:
+            QMessageBox.warning(self, "Projektstand nicht gesichert", str(exc))
+            return
+        self.statusBar().showMessage(
+            f"✓ Projektstand „{info.name}“ gesichert"
+            + (" · Spurplan und Analyse" if info.has_analysis else " · nur Spurplan"))
+
+    def _restore_project_checkpoint(self) -> None:
+        if not self.editor_project:
+            return
+        if self.worker and self.worker.isRunning():
+            QMessageBox.information(self, "Projektstand", "Bitte laufende Verarbeitung zuerst abschließen.")
+            return
+        try:
+            entries = list_checkpoints(self.editor_project.source)
+        except OSError as exc:
+            QMessageBox.warning(self, "Projektstände nicht lesbar", str(exc))
+            return
+        if not entries:
+            QMessageBox.information(self, "Projektstände", "Für diese Aufnahme gibt es noch keine Projektstände.")
+            return
+        labels = [
+            f"{entry.created_at[:19].replace('T', ' ')} · {entry.name}"
+            + (" (mit Analyse)" if entry.has_analysis else " (nur Spuren)")
+            for entry in entries]
+        selected, accepted = QInputDialog.getItem(
+            self, "Projektstand wiederherstellen", "Gesicherter Stand:", labels, 0, False)
+        if not accepted:
+            return
+        idx = labels.index(selected)
+        answer = QMessageBox.question(
+            self, "Projektstand wiederherstellen",
+            "Der ausgewählte Projektstand ersetzt den aktuellen Spurplan und "
+            "die aktuelle Analyse. Fortfahren?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No)
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        # Validate the complete snapshot and persist its track plan BEFORE
+        # touching visible editor state. Analysis is recovered by autosave.
+        try:
+            project, analysis = load_checkpoint(self.editor_project.source, entries[idx].id)
+            save_project(project)
+        except (OSError, ValueError, TypeError) as exc:
+            QMessageBox.warning(self, "Projektstand nicht wiederhergestellt", str(exc))
+            return
+        self._autosave_timer.stop()
+        self.editor_project = project
+        self._project_history = ProjectHistory()
+        self._edit_history.clear()
+        self._refresh_track_tables()
+        self.report_path = None
+        if analysis is not None:
+            self.analysis_finished(analysis)
+            self.transcript_dirty = True
+            self._autosave_timer.start()
+            self.autosave_hint.setText("● Wiederhergestellt · Auto-Sicherung folgt")
+        else:
+            self.analysis = None
+            self.table.setRowCount(0)
+            self.transcript_table.setRowCount(0)
+            self.timeline.set_annotations([], [])
+            self.transcript_dirty = False
+            self._word_ref = None
+            self._word_refs = []
+            self.word_text.clear()
+            self.word_editor_toggle.setChecked(False)
+            self.reset_transcript_editor()
+            self._update_history_controls()
+            if self.source:
+                try:
+                    clear_autosave(self.source)
+                except OSError:
+                    pass
+            self.autosave_hint.setText("✓ Spurplan aus Projektstand geladen")
+        self.track_status.setText("✓ Projektstand geladen · Original unverändert")
+        self.statusBar().showMessage(f"Projektstand „{entries[idx].name}“ wiederhergestellt")
 
     def _selected_track_id(self) -> str | None:
         if not self.editor_project:
@@ -1159,6 +1271,7 @@ class MainWindow(QMainWindow):
         self.editor_project = None
         self._project_history = ProjectHistory()
         self._refresh_track_tables()
+        self._update_checkpoint_actions()
         self.source = source
         self._source_duration = 0.0
         self.caption_overlay.hide()
