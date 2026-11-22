@@ -39,7 +39,7 @@ def test_project_menu_and_save_restore(tmp_path, monkeypatch):
     try:
         assert not window.checkpoint_save_action.isEnabled()
         assert not window.checkpoint_restore_action.isEnabled()
-        assert any(action.text() == "Datei & Projekt" for action in window.menuBar().actions())
+        assert any(action.text() == "Datei && Projekt" for action in window.menuBar().actions())
         assert window.tabs.count() == 5
         window.source = str(source_path)
         window._source_duration = video.duration
