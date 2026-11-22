@@ -1,28 +1,32 @@
-# NEXT_TASK – M11c / Teil 2: Einheitlicher Undo-Verlauf und Shortcut-Gates
+# NEXT_TASK – M11c / Teil 3: Analyseclips in Spurplan migrieren
 
-**Stand:** M10.5-Draft #31 → M11a-Draft #34 → M11b-Draft #36 →
-M11c-Checkpoint-Entwicklungsbranch `feat/sc-m11c-project-checkpoints`.
-Der Checkpoint-Branch ergänzt atomische benannte Projektstände
-(Spurplan + optionale Analyse) und bündelt deren Bedienung im Menü
-**Datei & Projekt**. CI, Windows-Offscreen und echte Windows-11-Tests
-müssen pro genauem Commit geprüft werden; `main` bleibt unverändert.
+**Stack:** M10.5 #31 → M11a #34 → M11b #36 → M11c Checkpoints #37
+→ Draft-Branch `feat/sc-m11c-unified-undo`.
+`main` bleibt unverändert; jeder gestapelte PR benötigt eigene Tests/CI.
 
-## Nächster abgegrenzter Arbeitsschritt
+## Fertig zur Prüfung in Teil 2
 
-1. Getrennte Analyse- und Spur-Undo/Redo-Verläufe zu **einem**
-   quellengebundenen, transaktionalen Editierverlauf zusammenführen.
-2. Ein einziges Strg+Z / Strg+Umschalt+Z im aktiven Studio;
-   bisherige Spur-Undo/Redo-Buttons entweder anbinden oder entfernen.
-3. Bestehende History-Tests, neue gemischte Interleavings und Qt-Offscreen-
-   Tests für Fokus-/Shortcut-Konflikte ergänzen.
-4. Mindestens ein fehlschlagender Test vor der Änderung, anschließend
-   `python -m pytest -q`, `python -m compileall -q src`.
-5. Real-Windows-Abnahme (1366×768/FullHD) und 6h-VOD nicht behaupten.
+- Ein globaler, quellengebundener und zeitlich sortierter Undo-/Redo-Verlauf
+  für Clip-/Wort-/Transkript- und Spuränderungen.
+- Kompakte Transkript-Deltas statt 6h-Vollkopien.
+- Strg+Z und Strg+Umschalt+Z: zuerst natives Undo fokussierter
+  editierbarer Textfelder, sonst Studio-Verlauf.
+- Doppelte Undo-/Redo-Buttons aus Spurregister entfernt.
+- Bei gescheiterter Spurpersistenz bleibt History und UI unverändert.
+- Core-Tests, Qt-Offscreen und Windows-Build als Gate.
 
-## Danach noch offen in M11c
+## Nächster abgeschlossener Arbeitsschritt: M11c Teil 3
 
-- Analyseclips ohne Dubletten in den Spurplan migrieren.
-- Proxy-Videos mit exakt dokumentierter Quellzeitabbildung und Rückfall.
-- Checkpoint-/Autosave-Interaktion unter simulierten Crashes und
-  großen Transkripten weiter härten.
-- Vor M12 weiter **keine** exportgetreue Mehrspur-Komposition behaupten.
+1. Legacy-AnalysisResult-Clips auf explizite Nutzeraktion in den
+   Spurplan übernehmen; Quelle und Zeitbereiche validieren.
+2. Idempotenz/Deduplizierung über stabilen Metadatenbezug,
+   ohne manuelle Spurelemente zu überschreiben.
+3. Gesperrte Spuren und bestehende Projektstände unverändert respektieren.
+4. Bei unerwarteten Daten und Schreibfehlern Fail-Closed / atomische
+   Speicherung, Core- und Qt-Tests vor der Umsetzung.
+5. Danach M11c Teil 4: Proxies für 6h-VOD, Rückabbildung exakter Quellzeiten.
+
+## Nicht behaupten
+
+Keine Mehrspur-Abmischung, kein exportgetreuer Renderer vor M12.
+Keine reale Windows-11-Abnahme oder 6h-Messung ohne Messbeleg.
