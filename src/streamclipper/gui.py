@@ -18,7 +18,7 @@ from PySide6.QtWidgets import (
     QMessageBox, QPlainTextEdit, QProgressBar, QPushButton, QSlider, QSpinBox,
     QInputDialog,
     QDoubleSpinBox, QSplitter, QTableWidget, QTableWidgetItem, QTabWidget,
-    QVBoxLayout, QWidget,
+    QVBoxLayout, QWidget, QScrollArea,
 )
 
 from .analyze import analyze
@@ -238,10 +238,16 @@ class MainWindow(QMainWindow):
         main = QVBoxLayout(root)
         main.setSpacing(7)
         # Permanent preview and timeline, tool panels in the sidebar.
-        self.models_page = QWidget()
-        models_page_layout = QVBoxLayout(self.models_page)
-        self.export_page = QWidget()
-        export_page_layout = QVBoxLayout(self.export_page)
+        self.models_page = QScrollArea()
+        self.models_page.setWidgetResizable(True)
+        models_content = QWidget()
+        models_page_layout = QVBoxLayout(models_content)
+        self.models_page.setWidget(models_content)
+        self.export_page = QScrollArea()
+        self.export_page.setWidgetResizable(True)
+        export_content = QWidget()
+        export_page_layout = QVBoxLayout(export_content)
+        self.export_page.setWidget(export_content)
 
         toolbar = QHBoxLayout()
         self.open_button = QPushButton("📂 Aufnahme öffnen")
@@ -286,7 +292,7 @@ class MainWindow(QMainWindow):
             line = QHBoxLayout()
             enabled = QCheckBox(label)
             select = QComboBox()
-            select.setMinimumWidth(300)
+            select.setMinimumWidth(170)
             for item in presets_for(kind):
                 select.addItem(item.label, item.id)
                 select.setItemData(select.count()-1, item.note, Qt.ItemDataRole.ToolTipRole)
@@ -304,11 +310,13 @@ class MainWindow(QMainWindow):
             download.setToolTip('Nur auf Klick: lädt die gewählte Variante nach data/models/')
             download.clicked.connect(lambda _checked=False, k=kind: self.download_selected_model(k))
             line.addWidget(enabled)
-            line.addWidget(select)
-            line.addWidget(path, 1)
-            line.addWidget(browse)
+            line.addWidget(select, 1)
             line.addWidget(download)
             model_options.addLayout(line)
+            path_row = QHBoxLayout()
+            path_row.addWidget(path, 1)
+            path_row.addWidget(browse)
+            model_options.addLayout(path_row)
             setattr(self, f'{kind}_enabled', enabled)
             setattr(self, f'{kind}_path', path)
             self.model_selectors[kind] = select
@@ -485,12 +493,18 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(transcript_tab, "Untertitel")
         self.tabs.addTab(self.models_page, "KI & Modelle")
         # M11b: metadata-based multitrack editor. No audio mix/export yet.
-        self.tracks_page = QWidget()
-        tracks_layout = QVBoxLayout(self.tracks_page)
-        tracks_layout.addWidget(QLabel(
-            "Spurplan für Schnitt und künftige Mehrspur-Exporte · "
-            "Wiedergabe/Export nutzen derzeit noch die Originalaufnahme."))
+        self.tracks_page = QScrollArea()
+        self.tracks_page.setWidgetResizable(True)
+        tracks_content = QWidget()
+        tracks_layout = QVBoxLayout(tracks_content)
+        self.tracks_page.setWidget(tracks_content)
+        tracks_intro = QLabel(
+            "Spurplan für Schnitt und künftige Mehrspur-Exporte. "
+            "Wiedergabe und Export nutzen derzeit noch die Originalaufnahme.")
+        tracks_intro.setWordWrap(True)
+        tracks_layout.addWidget(tracks_intro)
         self.tracks_table = QTableWidget(0, 5)
+        self.tracks_table.setMinimumHeight(145)
         self.tracks_table.setHorizontalHeaderLabels(
             ["Spur", "Typ", "Stumm", "Gesperrt", "Clips"])
         self.tracks_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
@@ -525,6 +539,7 @@ class MainWindow(QMainWindow):
         tracks_layout.addLayout(row2)
         tracks_layout.addWidget(QLabel("Clips / Zeitpositionen"))
         self.track_clips_table = QTableWidget(0, 5)
+        self.track_clips_table.setMinimumHeight(125)
         self.track_clips_table.setHorizontalHeaderLabels(
             ["Clip", "Spur", "Quelle IN", "Quelle OUT", "Timeline IN"])
         self.track_clips_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
