@@ -9,7 +9,7 @@ from .portable import configure_portable_environment
 
 configure_portable_environment()
 
-from PySide6.QtCore import QEvent, Qt, QThread, QUrl, Signal
+from PySide6.QtCore import QEvent, Qt, QThread, QTimer, QUrl, Signal
 from PySide6.QtGui import QColor, QKeySequence, QShortcut
 from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
 from PySide6.QtMultimediaWidgets import QVideoWidget
@@ -39,6 +39,8 @@ from .timeline_widget import TimelineWidget
 from .word_editor import edit_word, effective_words, words_in_clip
 from .captioning import subtitle_text_at_time
 from .highlight_lexicon_dialog import HighlightLexiconDialog
+from .edit_history import EditHistory
+from .autosave import autosave_path, clear_autosave, load_autosave, save_autosave
 
 
 def display_time(seconds: float) -> str:
@@ -212,6 +214,11 @@ class MainWindow(QMainWindow):
         self._word_ref: tuple[int, int] | None = None
         self._word_refs: list[tuple[int, int]] = []
         self._last_timeline_range: tuple[float, float] = (0.0, 25.0)
+        self._edit_history = EditHistory()
+        self._autosave_timer = QTimer(self)
+        self._autosave_timer.setSingleShot(True)
+        self._autosave_timer.setInterval(4000)
+        self._autosave_timer.timeout.connect(self._write_autosave)
 
         self.player = QMediaPlayer(self)
         self.audio = QAudioOutput(self)
@@ -488,6 +495,18 @@ class MainWindow(QMainWindow):
         timeline_header.addWidget(self.timeline_zoom_hint)
         self.timeline_status = QLabel("Keine Aufnahme geladen")
         timeline_header.addWidget(self.timeline_status)
+        self.undo_button = QPushButton("↶ Rückgängig")
+        self.undo_button.setToolTip("Letzte Bearbeitung zurücknehmen (Strg+Z)")
+        self.undo_button.clicked.connect(self.undo_edit)
+        timeline_header.addWidget(self.undo_button)
+        self.redo_button = QPushButton("↷ Wiederholen")
+        self.redo_button.setToolTip("Rückgenommene Bearbeitung wiederholen (Strg+Umschalt+Z)")
+        self.redo_button.clicked.connect(self.redo_edit)
+        timeline_header.addWidget(self.redo_button)
+        self.autosave_hint = QLabel("Auto-Sicherung bereit")
+        timeline_header.addWidget(self.autosave_hint)
+        QShortcut(QKeySequence("Ctrl+Z"), self, activated=self.undo_edit)
+        QShortcut(QKeySequence("Ctrl+Shift+Z"), self, activated=self.redo_edit)
         main.addLayout(timeline_header)
 
         self.timeline = TimelineWidget()
@@ -689,6 +708,76 @@ class MainWindow(QMainWindow):
         self.transcript_button.setEnabled(ready and bool(self.analysis.transcript if self.analysis else []))
         self.burn_subtitles.setEnabled(ready and bool(self.analysis.transcript if self.analysis else []))
         self.caption_offset.setEnabled(ready and bool(self.analysis.transcript if self.analysis else []))
+        self._update_history_controls(not busy)
+
+    def _update_history_controls(self, enabled: bool = True) -> None:
+        self.undo_button.setEnabled(enabled and self._edit_history.can_undo)
+        self.redo_button.setEnabled(enabled and self._edit_history.can_redo)
+
+    def _register_edit(self, before: AnalysisResult) -> None:
+        if self.analysis and self._edit_history.record(before, self.analysis):
+            self.transcript_dirty = True
+            self.autosave_hint.setText("● Änderungen · Auto-Sicherung folgt")
+            self._autosave_timer.start()
+            self._update_history_controls()
+
+    def _write_autosave(self) -> None:
+        if not self.analysis or not self.source or not self.transcript_dirty:
+            return
+        if not Path(self.source).is_file():
+            self.autosave_hint.setText("Auto-Sicherung: Video fehlt")
+            return
+        try:
+            save_autosave(self.analysis)
+        except (OSError, ValueError) as exc:
+            self.autosave_hint.setText("⚠ Auto-Sicherung fehlgeschlagen")
+            self.statusBar().showMessage(f"Auto-Sicherung: {exc}")
+        else:
+            self.autosave_hint.setText("✓ Automatisch gesichert")
+
+    def _offer_autosave_recovery(self, video) -> None:
+        if not self.source or self.analysis:
+            return
+        path = autosave_path(self.source)
+        if not path.is_file():
+            return
+        answer = QMessageBox.question(
+            self, "Ungespeicherte Sitzung wiederherstellen?",
+            "Für dieses Video sind automatisch gesicherte Highlight-/Wortkorrekturen vorhanden. "
+            "Wiederherstellen? Die Originalaufnahme wird nicht verändert.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.Yes)
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            recovered = load_autosave(
+                self.source, duration=video.duration, size=(video.width, video.height))
+        except (OSError, ValueError) as exc:
+            QMessageBox.warning(self, "Auto-Sicherung nicht lesbar", str(exc))
+            return
+        self.analysis_finished(recovered)
+        self.transcript_dirty = True
+        self.autosave_hint.setText("✓ Sitzung wiederhergestellt · Projekt speichern")
+
+    def undo_edit(self) -> None:
+        if not self.analysis or not self._edit_history.can_undo:
+            return
+        if not self.apply_word_editor() or not self.apply_transcript_editor():
+            return
+        restored = self._edit_history.undo(self.analysis)
+        self.analysis_finished(restored, preserve_history=True)
+        self._autosave_timer.start()
+        self.statusBar().showMessage("Korrektur rückgängig – Auto-Sicherung folgt")
+
+    def redo_edit(self) -> None:
+        if not self.analysis or not self._edit_history.can_redo:
+            return
+        if not self.apply_word_editor() or not self.apply_transcript_editor():
+            return
+        restored = self._edit_history.redo(self.analysis)
+        self.analysis_finished(restored, preserve_history=True)
+        self._autosave_timer.start()
+        self.statusBar().showMessage("Korrektur wiederholt – Auto-Sicherung folgt")
 
     def open_video(self) -> None:
         source, _ = QFileDialog.getOpenFileName(self, "Aufnahme öffnen", "",
