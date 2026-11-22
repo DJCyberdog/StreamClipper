@@ -71,3 +71,33 @@ def test_stale_proxy_worker_result_ignored(tmp_path):
         window._autosave_timer.stop()
         window.close()
         app.processEvents()
+
+
+def test_proxy_worker_is_locked_until_cleanup_and_stale_progress_dropped(tmp_path):
+    app = QApplication.instance() or QApplication([])
+    window = gui.MainWindow()
+    try:
+        src = tmp_path / "recording.mkv"
+        src.write_bytes(b"input")
+        info = VideoInfo(str(src), 10, 1920, 1080, 30, False)
+        window.source = str(src)
+        window._video_info = info
+        class ScheduledWorker:
+            video = info
+        worker = ScheduledWorker()
+        window.proxy_worker = worker
+        window._update_proxy_controls()
+        assert not window.proxy_create.isEnabled()
+        window._proxy_worker_progress(worker, 32)
+        assert window.proxy_progress.value() == 32
+        window.source = "different-file.mkv"
+        window._proxy_worker_progress(worker, 91)
+        assert window.proxy_progress.value() == 32
+        window.proxy_worker = None
+        window._update_proxy_controls()
+        assert window.proxy_create.isEnabled()
+    finally:
+        window.proxy_worker = None
+        window._autosave_timer.stop()
+        window.close()
+        app.processEvents()
