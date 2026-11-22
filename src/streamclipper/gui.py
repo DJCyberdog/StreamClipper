@@ -39,13 +39,13 @@ from .timeline_widget import TimelineWidget
 from .word_editor import edit_word, effective_words, words_in_clip
 from .captioning import subtitle_text_at_time
 from .highlight_lexicon_dialog import HighlightLexiconDialog
-from .editor_project import (EditorProject, ProjectHistory, initial_project,
+from .editor_project import (EditorProject, initial_project,
     add_track, remove_track, rename_track, move_track, toggle_track,
     add_item, edit_item, load_project, save_project)
 from .track_canvas import TrackCanvas
 from .project_checkpoints import create_checkpoint, list_checkpoints, load_checkpoint
 
-from .edit_history import EditHistory
+from .edit_history import WorkspaceHistory
 from .autosave import autosave_path, clear_autosave, load_autosave, save_autosave
 
 
@@ -220,9 +220,9 @@ class MainWindow(QMainWindow):
         self._word_ref: tuple[int, int] | None = None
         self._word_refs: list[tuple[int, int]] = []
         self._last_timeline_range: tuple[float, float] = (0.0, 25.0)
-        self._edit_history = EditHistory()
+        self._history = WorkspaceHistory()
+        self._history_blocked = False
         self.editor_project: EditorProject | None = None
-        self._project_history = ProjectHistory()
         self._autosave_timer = QTimer(self)
         self._autosave_timer.setSingleShot(True)
         self._autosave_timer.setInterval(4000)
@@ -579,14 +579,10 @@ class MainWindow(QMainWindow):
                         self.track_clip_trim):
             row3.addWidget(control)
         tracks_layout.addLayout(row3)
-        row4 = QHBoxLayout()
-        self.track_undo_button = QPushButton("↶ Spuraktion zurück")
-        self.track_undo_button.clicked.connect(self._undo_project)
-        self.track_redo_button = QPushButton("↷ Spuraktion wiederholen")
-        self.track_redo_button.clicked.connect(self._redo_project)
-        for control in (self.track_undo_button, self.track_redo_button):
-            row4.addWidget(control)
-        tracks_layout.addLayout(row4)
+        history_hint = QLabel(
+            "Rückgängig / Wiederholen: Strg+Z / Strg+Umschalt+Z für alle Bearbeitungen.")
+        history_hint.setWordWrap(True)
+        tracks_layout.addWidget(history_hint)
         self.track_status = QLabel("Spuren werden mit der Videoquelle geladen.")
         self.track_status.setWordWrap(True)
         tracks_layout.addWidget(self.track_status)
@@ -625,8 +621,10 @@ class MainWindow(QMainWindow):
         timeline_header.addWidget(self.redo_button)
         self.autosave_hint = QLabel("Auto-Sicherung bereit")
         timeline_header.addWidget(self.autosave_hint)
-        QShortcut(QKeySequence("Ctrl+Z"), self, activated=self.undo_edit)
-        QShortcut(QKeySequence("Ctrl+Shift+Z"), self, activated=self.redo_edit)
+        self.undo_shortcut = QShortcut(QKeySequence("Ctrl+Z"), self)
+        self.undo_shortcut.activated.connect(self._shortcut_undo)
+        self.redo_shortcut = QShortcut(QKeySequence("Ctrl+Shift+Z"), self)
+        self.redo_shortcut.activated.connect(self._shortcut_redo)
         main.addLayout(timeline_header)
 
         self.timeline = TimelineWidget()
@@ -800,6 +798,7 @@ class MainWindow(QMainWindow):
         """)
 
     def _busy(self, busy: bool) -> None:
+        self._history_blocked = busy
         self.open_button.setEnabled(not busy)
         self.twitch_button.setEnabled(not busy)
         for control in self._timeline_buttons:
@@ -841,17 +840,38 @@ class MainWindow(QMainWindow):
         self.caption_offset.setEnabled(ready and bool(self.analysis.transcript if self.analysis else []))
         self._update_history_controls(not busy)
         self._update_track_actions()
+        self._update_checkpoint_actions()
 
     def _update_history_controls(self, enabled: bool = True) -> None:
-        self.undo_button.setEnabled(enabled and self._edit_history.can_undo)
-        self.redo_button.setEnabled(enabled and self._edit_history.can_redo)
+        active = enabled and not self._history_blocked
+        self.undo_button.setEnabled(active and self._history.can_undo)
+        self.redo_button.setEnabled(active and self._history.can_redo)
 
     def _register_edit(self, before: AnalysisResult) -> None:
-        if self.analysis and self._edit_history.record(before, self.analysis):
+        if self.analysis and self._history.record_analysis(before, self.analysis):
             self.transcript_dirty = True
             self.autosave_hint.setText("● Änderungen · Auto-Sicherung folgt")
             self._autosave_timer.start()
             self._update_history_controls()
+
+    def _shortcut_history(self, *, redo: bool) -> None:
+        # Native undo for active text fields takes precedence over the timeline.
+        focused = QApplication.focusWidget()
+        if isinstance(focused, (QLineEdit, QPlainTextEdit)) and not focused.isReadOnly():
+            focused.redo() if redo else focused.undo()
+            return
+        if isinstance(focused, (QSpinBox, QDoubleSpinBox)) and not focused.isReadOnly():
+            line = focused.lineEdit()
+            if line is not None:
+                line.redo() if redo else line.undo()
+                return
+        self.redo_edit() if redo else self.undo_edit()
+
+    def _shortcut_undo(self) -> None:
+        self._shortcut_history(redo=False)
+
+    def _shortcut_redo(self) -> None:
+        self._shortcut_history(redo=True)
 
     def _write_autosave(self) -> None:
         if not self.analysis or not self.source or not self.transcript_dirty:
@@ -891,25 +911,57 @@ class MainWindow(QMainWindow):
         self.transcript_dirty = True
         self.autosave_hint.setText("✓ Sitzung wiederhergestellt · Projekt speichern")
 
-    def undo_edit(self) -> None:
-        if not self.analysis or not self._edit_history.can_undo:
+    def _step_history(self, *, redo: bool) -> None:
+        if self._history_blocked:
+            return
+        if not (self._history.can_redo if redo else self._history.can_undo):
             return
         if not self.apply_word_editor() or not self.apply_transcript_editor():
             return
-        restored = self._edit_history.undo(self.analysis)
-        self.analysis_finished(restored, preserve_history=True)
-        self._autosave_timer.start()
-        self.statusBar().showMessage("Korrektur rückgängig – Auto-Sicherung folgt")
+        # Pending editor updates may invalidate the redo branch.
+        if not (self._history.can_redo if redo else self._history.can_undo):
+            self._update_history_controls()
+            return
+        previous_analysis, previous_project = self.analysis, self.editor_project
+        try:
+            next_analysis, next_project = (
+                self._history.redo(previous_analysis, previous_project)
+                if redo else self._history.undo(previous_analysis, previous_project))
+        except ValueError as exc:
+            QMessageBox.warning(self, "Bearbeitungsverlauf inkonsistent", str(exc))
+            return
+        if next_project is not previous_project and next_project is not None:
+            try:
+                save_project(next_project)
+            except (OSError, ValueError) as exc:
+                # The disk failed; the history cursor and UI stay unchanged.
+                if redo:
+                    self._history.undo(next_analysis, next_project)
+                else:
+                    self._history.redo(next_analysis, next_project)
+                QMessageBox.warning(self, "Spuraktion nicht gespeichert", str(exc))
+                self._update_history_controls()
+                return
+        if next_project is not previous_project:
+            self.editor_project = next_project
+            self._refresh_track_tables()
+            self.track_status.setText(
+                "✓ Spuränderung " + ("wiederholt" if redo else "zurückgenommen")
+                + " und gespeichert")
+        if next_analysis is not previous_analysis and next_analysis is not None:
+            self.analysis_finished(next_analysis, preserve_history=True)
+            self._autosave_timer.start()
+        self._update_history_controls()
+        self._update_track_actions()
+        self.statusBar().showMessage(
+            ("↷ Wiederholt" if redo else "↶ Rückgängig")
+            + " · gemeinsamer Bearbeitungsverlauf")
+
+    def undo_edit(self) -> None:
+        self._step_history(redo=False)
 
     def redo_edit(self) -> None:
-        if not self.analysis or not self._edit_history.can_redo:
-            return
-        if not self.apply_word_editor() or not self.apply_transcript_editor():
-            return
-        restored = self._edit_history.redo(self.analysis)
-        self.analysis_finished(restored, preserve_history=True)
-        self._autosave_timer.start()
-        self.statusBar().showMessage("Korrektur wiederholt – Auto-Sicherung folgt")
+        self._step_history(redo=True)
 
     def _open_editor_project(self, video) -> None:
         """Load metadata for this source; do not modify legacy analysis JSON."""
