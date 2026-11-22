@@ -925,7 +925,7 @@ class MainWindow(QMainWindow):
             self.proxy_progress.setValue(value)
 
     def _cancel_proxy(self) -> None:
-        if self.proxy_worker and self.proxy_worker.isRunning():
+        if self.proxy_worker is not None:
             self.proxy_worker.cancel()
             self.proxy_status.setText("Proxy-Abbruch angefordert …")
 
@@ -1551,7 +1551,7 @@ class MainWindow(QMainWindow):
             return False
         for old in self._waveform_workers:
             old.cancel()
-        if self.proxy_worker and self.proxy_worker.isRunning():
+        if self.proxy_worker is not None:
             self.proxy_worker.cancel()
         self._video_info = None
         self._proxy_state = None
@@ -2571,7 +2571,7 @@ class MainWindow(QMainWindow):
         if not self.confirm_discard_edits():
             event.ignore()
             return
-        if self.proxy_worker and self.proxy_worker.isRunning():
+        if self.proxy_worker is not None:
             self.proxy_worker.cancel()
             if not self.proxy_worker.wait(3000):
                 QMessageBox.information(
