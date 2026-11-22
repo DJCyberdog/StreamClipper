@@ -195,7 +195,7 @@ class WaveformThread(QThread):
 class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
-        self.setWindowTitle("StreamClipper – M9 Gameplay-Tracking + Modellwahl (experimentell)")
+        self.setWindowTitle("StreamClipper Studio – Editor (experimentell)")
         self.resize(1440, 920)
         self.source: str | None = None
         self.analysis: AnalysisResult | None = None
@@ -230,7 +230,12 @@ class MainWindow(QMainWindow):
         root = QWidget()
         self.setCentralWidget(root)
         main = QVBoxLayout(root)
-        main.setSpacing(12)
+        main.setSpacing(7)
+        # Permanent preview and timeline, tool panels in the sidebar.
+        self.models_page = QWidget()
+        models_page_layout = QVBoxLayout(self.models_page)
+        self.export_page = QWidget()
+        export_page_layout = QVBoxLayout(self.export_page)
 
         toolbar = QHBoxLayout()
         self.open_button = QPushButton("📂 Aufnahme öffnen")
@@ -257,7 +262,7 @@ class MainWindow(QMainWindow):
         self.highlight_words_button = QPushButton("Highlight-Wörter …")
         self.highlight_words_button.setToolTip("Eigene sprachliche Highlight-Ausdrücke und Gewichtungen verwalten")
         self.highlight_words_button.clicked.connect(self.edit_highlight_words)
-        toolbar.addWidget(self.highlight_words_button)
+        models_page_layout.addWidget(self.highlight_words_button)
         toolbar.addStretch()
         main.addLayout(toolbar)
 
@@ -305,7 +310,8 @@ class MainWindow(QMainWindow):
         self.speech_select = self.model_selectors['speech']
         self.vision_select = self.model_selectors['vision']
         self.detector_select = self.model_selectors['detector']
-        main.addLayout(model_options)
+        models_page_layout.addLayout(model_options)
+        models_page_layout.addStretch()
 
         self.source_label = QLabel("Noch kein Video geladen. Videos bleiben lokal auf deinem Rechner.")
         self.source_label.setWordWrap(True)
@@ -470,7 +476,8 @@ class MainWindow(QMainWindow):
         self.transcript_editor_hint = QLabel("Nach der Analyse hier eine Zeile auswählen.")
         self.transcript_editor_hint.setWordWrap(True)
         transcript_layout.addWidget(self.transcript_editor_hint)
-        self.tabs.addTab(transcript_tab, "Transkript bearbeiten")
+        self.tabs.addTab(transcript_tab, "Untertitel")
+        self.tabs.addTab(self.models_page, "KI & Modelle")
         QShortcut(QKeySequence("Ctrl+Return"), self, activated=self.apply_transcript_editor)
         QShortcut(QKeySequence("Ctrl+S"), self, activated=self.save_report)
         splitter.addWidget(results_container)
@@ -524,6 +531,13 @@ class MainWindow(QMainWindow):
 
         # Integrated word editor: active highlight only, directly below the
         # waveform and word track. No separate transcription tab required.
+        self.word_editor_toggle = QPushButton("▸ Worteditor einblenden")
+        self.word_editor_toggle.setCheckable(True)
+        self.word_editor_toggle.toggled.connect(self.toggle_word_editor)
+        main.addWidget(self.word_editor_toggle)
+        self.word_editor_panel = QWidget()
+        word_panel_layout = QVBoxLayout(self.word_editor_panel)
+        word_panel_layout.setContentsMargins(0, 0, 0, 0)
         word_top = QHBoxLayout()
         word_top.addWidget(QLabel("WORTGENAUE UNTERTITEL · aktives Highlight"))
         self.word_hint = QLabel("Highlight wählen; Wörter erscheinen in der violetten Spur")
@@ -534,7 +548,7 @@ class MainWindow(QMainWindow):
         self.word_next = QPushButton("Wort ▶")
         self.word_next.clicked.connect(lambda: self.navigate_word(1))
         word_top.addWidget(self.word_next)
-        main.addLayout(word_top)
+        word_panel_layout.addLayout(word_top)
         word_controls = QHBoxLayout()
         self.word_text = QLineEdit()
         self.word_text.setPlaceholderText("Wort in der Timeline anklicken und hier korrigieren")
@@ -561,7 +575,9 @@ class MainWindow(QMainWindow):
         self.word_apply = QPushButton("✓ Wort übernehmen")
         self.word_apply.clicked.connect(self.apply_word_editor)
         word_controls.addWidget(self.word_apply)
-        main.addLayout(word_controls)
+        word_panel_layout.addLayout(word_controls)
+        main.addWidget(self.word_editor_panel)
+        self.word_editor_panel.hide()
 
         clip_tools = QHBoxLayout()
         clip_tools.addWidget(QLabel("IN"))
@@ -594,7 +610,7 @@ class MainWindow(QMainWindow):
         clip_tools.addStretch()
         main.addLayout(clip_tools)
 
-        actions = QHBoxLayout()
+        actions = QVBoxLayout()
         actions.addWidget(QLabel("Exportformat"))
         self.mode = QComboBox()
         self.mode.addItem("16:9 – dynamische Kamera (sanfter Zoom)", "smart16")
@@ -626,9 +642,9 @@ class MainWindow(QMainWindow):
         self.transcript_button.clicked.connect(self.save_transcript_dialog)
         self.transcript_button.setEnabled(False)
         actions.addWidget(self.transcript_button)
-        main.addLayout(actions)
+        export_page_layout.addLayout(actions)
 
-        caption_options = QHBoxLayout()
+        caption_options = QVBoxLayout()
         caption_options.addWidget(QLabel("Untertitelversatz"))
         self.caption_offset = QDoubleSpinBox()
         self.caption_offset.setRange(-3.0, 3.0)
@@ -642,7 +658,9 @@ class MainWindow(QMainWindow):
         caption_options.addWidget(self.caption_offset)
         caption_options.addWidget(QLabel("+ = später, − = früher · ohne erneute Transkription"))
         caption_options.addStretch()
-        main.addLayout(caption_options)
+        export_page_layout.addLayout(caption_options)
+        export_page_layout.addStretch()
+        self.tabs.addTab(self.export_page, "Export")
 
         self.progress = QProgressBar()
         self.progress.setValue(0)
@@ -779,6 +797,11 @@ class MainWindow(QMainWindow):
         self._autosave_timer.start()
         self.statusBar().showMessage("Korrektur wiederholt – Auto-Sicherung folgt")
 
+    def toggle_word_editor(self, expanded: bool) -> None:
+        self.word_editor_panel.setVisible(expanded)
+        self.word_editor_toggle.setText(
+            "▾ Worteditor ausblenden" if expanded else "▸ Worteditor einblenden")
+
     def open_video(self) -> None:
         source, _ = QFileDialog.getOpenFileName(self, "Aufnahme öffnen", "",
             "Videos (*.mp4 *.mkv *.mov *.webm *.avi);;Alle Dateien (*)")
@@ -802,6 +825,7 @@ class MainWindow(QMainWindow):
         self.preview_end = None
         self.table.setRowCount(0)
         self.transcript_table.setRowCount(0)
+        self.word_editor_toggle.setChecked(False)
         self._editor_row = None
         self._word_ref = None
         self._word_refs = []
@@ -945,6 +969,7 @@ class MainWindow(QMainWindow):
             self.select_timeline_word(*matches[0])
 
     def select_timeline_word(self, segment: int, word: int):
+        self.word_editor_toggle.setChecked(True)
         if not self.analysis or (segment, word) not in self._word_refs:
             return
         if not self.apply_word_editor() or not self.apply_transcript_editor():
