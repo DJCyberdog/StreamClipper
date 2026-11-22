@@ -27,10 +27,13 @@ Codebezeichner, Modulnamen und Tests: Englisch. Python 3.12 primär.
 
 ## Roadmap-Governance
 
-`/ROADMAP.md` ist der verbindliche Owner-Beschluss für 60 Features, Tiers, A-11,
-M10.5–M21, Release-Gates und die D-/F-Tier-Entscheidungen. `docs/ROADMAP.md`
-bleibt technische Historie, hat bei Konflikten keinen Vorrang. Feature-Status
-nur mit Prüfbelegen ändern; D-Tier nicht implizit reaktivieren.
+`/ROADMAP.md` ist der verbindliche Owner-Beschluss für 60 Features, Tiers,
+A-11 und den fachlich gebündelten Release-1.0-Pfad M10.5–M20. `docs/ROADMAP.md`
+bleibt technische Historie, hat bei Konflikten keinen Vorrang. Der Owner hat
+alle 58 umsetzbaren S–D-Features ausdrücklich **vor 1.0** eingeplant; D bleibt
+niedrige Priorität, ist aber nicht auf später verschoben. F #49/#50 sind strikt
+ausgeschlossen und müssen bei M20 als Negativanforderungen geprüft werden.
+Feature-Status nur mit realen Abnahmebelegen ändern.
 
 ## Codex-Arbeitsfolge
 
