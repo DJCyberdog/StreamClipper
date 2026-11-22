@@ -101,3 +101,21 @@ def test_proxy_worker_is_locked_until_cleanup_and_stale_progress_dropped(tmp_pat
         window._autosave_timer.stop()
         window.close()
         app.processEvents()
+
+
+def test_failed_original_media_reload_does_not_freeze_timeline():
+    from PySide6.QtMultimedia import QMediaPlayer
+    app = QApplication.instance() or QApplication([])
+    window = gui.MainWindow()
+    try:
+        window._preview_switching = True
+        window._proxy_pending_original_ms = 4500
+        window._proxy_active = False
+        window._proxy_media_status_changed(QMediaPlayer.MediaStatus.InvalidMedia)
+        assert not window._preview_switching
+        assert not window._proxy_resume_playing
+        assert "nicht abgespielt" in window.proxy_status.text()
+    finally:
+        window._autosave_timer.stop()
+        window.close()
+        app.processEvents()
