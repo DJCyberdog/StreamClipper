@@ -43,6 +43,7 @@ from .editor_project import (EditorProject, initial_project,
     add_track, remove_track, rename_track, move_track, toggle_track,
     add_item, edit_item, load_project, save_project)
 from .track_canvas import TrackCanvas
+from .highlight_import import import_analysis_candidates
 from .project_checkpoints import create_checkpoint, list_checkpoints, load_checkpoint
 
 from .edit_history import WorkspaceHistory
@@ -518,6 +519,15 @@ class MainWindow(QMainWindow):
             "Wiedergabe und Export nutzen derzeit noch die Originalaufnahme.")
         tracks_intro.setWordWrap(True)
         tracks_layout.addWidget(tracks_intro)
+        import_row = QHBoxLayout()
+        self.track_import_button = QPushButton("★ Highlights übernehmen …")
+        self.track_import_button.setToolTip(
+            "Vorhandene Analyse-Highlights auf Wunsch als Spurclips importieren; "
+            "Original und Export bleiben unverändert.")
+        self.track_import_button.clicked.connect(self._import_analysis_highlights)
+        import_row.addWidget(self.track_import_button)
+        import_row.addWidget(QLabel("Nur Spurplan · kein Mehrspur-Export"), 1)
+        tracks_layout.addLayout(import_row)
         self.track_canvas = TrackCanvas()
         self.track_canvas.trackSelected.connect(self._select_project_track)
         self.track_canvas.clipSelected.connect(self._select_project_clip)
@@ -1171,6 +1181,8 @@ class MainWindow(QMainWindow):
         self.track_clip_add.setEnabled(bool(selected) and self._source_duration > 0)
         self.track_clip_move.setEnabled(bool(clip))
         self.track_clip_trim.setEnabled(bool(clip))
+        self.track_import_button.setEnabled(
+            ready and self.analysis is not None and bool(self.analysis.candidates))
         self._update_history_controls()
 
     def _apply_project_edit(self, action, *args, **kwargs) -> bool:
@@ -1191,6 +1203,36 @@ class MainWindow(QMainWindow):
         self._update_history_controls()
         self.track_status.setText("✓ Spurplan lokal gespeichert · Original unverändert")
         return True
+
+    def _import_analysis_highlights(self) -> None:
+        """Explicit, source-checked snapshot import; no automatic re-analysis."""
+        if not self.editor_project or not self.analysis or self._history_blocked:
+            return
+        if not self.analysis.candidates:
+            return
+        if not self.apply_word_editor() or not self.apply_transcript_editor():
+            return
+        tracks = [t for t in self.editor_project.tracks if t.kind == "video"]
+        labels = ["Highlights (Import) · eigene Videospur"] + [
+            f"{t.name} ({t.id})" for t in tracks]
+        choice, accepted = QInputDialog.getItem(
+            self, "Highlights übernehmen", "Ziel für die Spurclips:",
+            labels, 0, False)
+        if not accepted:
+            return
+        selected = labels.index(choice)
+        target = None if selected == 0 else tracks[selected - 1].id
+        before = len(self.editor_project.items)
+        if not self._apply_project_edit(
+                import_analysis_candidates, self.analysis, track_id=target):
+            return
+        imported = len(self.editor_project.items) - before
+        skipped = len(self.analysis.candidates) - imported
+        self.track_status.setText(
+            f"✓ {imported} neue Highlights übernommen · "
+            f"{skipped} bereits vorhanden · Original unverändert")
+        self.statusBar().showMessage(
+            f"Highlight-Import: {imported} neue, {skipped} unverändert")
 
     def _add_track_dialog(self) -> None:
         types = {"Videospur": "video", "Audiospur": "audio",
