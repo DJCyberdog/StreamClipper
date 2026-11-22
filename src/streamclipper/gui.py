@@ -280,7 +280,7 @@ class MainWindow(QMainWindow):
         toolbar.addStretch()
         main.addLayout(toolbar)
         # Keep project management out of the increasingly crowded editor tabs.
-        project_menu = self.menuBar().addMenu("Datei & Projekt")
+        project_menu = self.menuBar().addMenu("Datei && Projekt")
         project_menu.addAction("Aufnahme öffnen…", self.open_video)
         project_menu.addAction("Twitch-VOD importieren…", self.import_twitch_video)
         project_menu.addSeparator()
@@ -968,9 +968,9 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, "Projektstände", "Für diese Aufnahme gibt es noch keine Projektstände.")
             return
         labels = [
-            f"{entry.created_at[:19].replace('T', ' ')} · {entry.name}"
+            f"{number:02d} · {entry.created_at[:19].replace('T', ' ')} · {entry.name}"
             + (" (mit Analyse)" if entry.has_analysis else " (nur Spuren)")
-            for entry in entries]
+            for number, entry in enumerate(entries, start=1)
         selected, accepted = QInputDialog.getItem(
             self, "Projektstand wiederherstellen", "Gesicherter Stand:", labels, 0, False)
         if not accepted:
