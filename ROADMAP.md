@@ -154,8 +154,8 @@ Vorhandene *experimentelle* Implementierungen umfassen Audio-Highlighting, nicht
 | **M13** | Szenen, Smart Director & Overlays | A: A-B1, #09, #10, #11, #12 | Je Szene manuelle/automatische Kamera, 9:16-/16:9-Crop, Sperrzonen, Profile und Rendervergleich; manuelle Vorgaben haben Vorrang. |
 | **M14** | Untertitel, Branding & visuelle Gestaltung | S: S-B2 · A: A-B2, #19 · B: #23, #28, #30 | Untertitel/Text/Grafiken inklusive Übersetzung werden ohne neue Whisper-Analyse korrigiert und exportgetreu dargestellt. |
 | **M15** | Audio & Sprache | A: #13, #14, #15, #16 · B: #26, #33 · C: #38 | Reproduzierbare Audiomischung ohne Quellenüberschreibung, verständliche Artefakt-/Lautstärkewarnungen. |
-| **M16** | Gaming Intelligence, Review & Suche | S: S-B3 · A: #17, #18, #20 · C: #39, #40 · D: D-B2, D-B3 | Annotierte Spielszenen evaluieren, Chat/Suche optional halten, Treffer und Fehlalarme statt unvalidierter KI-Behauptungen messen. |
-| **M17** | Montage, Effekte & Clip-Varianten | B: B-B1, #21, #22, #24, #25, #27, #29, #31, #32 | Mehrere Highlights mit bewusst gewählter Reihenfolge und Effekten zu stabilen Exportvarianten zusammenstellen. |
+| **M16** | Gaming Intelligence, Review & Suche | S: S-B3 · A: #17, #18, #20 · C: #39, #40 · D: D-B2, D-B3 | Erst Benchmark/Baseline, dann zweistufige und temporale Erkennung, kalibrierbare Fusion, Sprach-/Spielprofile und Feedback; P@8, Recall, Fehlalarme und Laufzeit auf unabhängigen VODs nachweisen. |
+| **M17** | Montage, Effekte & Clip-Varianten | B: B-B1, #21, #22, #24, #25, #27, #29, #31, #32 | Story-aware Clipgrenzen (Aufbau → Ereignis → Reaktion), mehrere Highlights und Exportvarianten mit kontrollierbaren manuellen Korrekturen zusammenstellen. |
 | **M18** | Stream-Workflow & Integrationen | C: #34, #35, #37, #41, #42, #43 · D: #48 | Import/Marker/Exporte funktionieren nachvollziehbar; externe Zugriffe sind explizit aktivierbar und widerrufbar. |
 | **M19** | Publishing, Zusammenarbeit & Reichweite | B: B-B2 · D: #44, #45, #46, #47 | Bewusste Veröffentlichung, nachvollziehbare Freigaben, Rechte- und Datenschutzkontrollen; offline vollständig nutzbare Basis. |
 | **M20** | Feature Freeze, Gesamt-Abnahme & 1.0 | F: #49, #50 | Alle 58 umsetzbaren Features aus S–D abgenommen oder ausdrücklich durch Owner neu beschlossen; beide F-Prinzipien nachweislich nicht implementiert; erst dann 1.0 Stable. |
@@ -166,7 +166,7 @@ Vorhandene *experimentelle* Implementierungen umfassen Audio-Highlighting, nicht
 
 1. **M10.5 zuerst:** Bestehende gestapelte Code-PRs integrieren und mit realen Windows-Daten testen. **P1-Bugfix #32 (Modelldownload-Fortschritt) vor M10.5-Abnahme erledigen.** Erst dann neue komplexe Workflows aufbauen.
 2. **M11 (Editor) → M12 (Render-Vertrag) → M13 (Kamera):** Persistente Timeline-/Szenenstruktur und verlässliche Renderpipeline sind Voraussetzung für den Smart Director. M12 stellt die exportgetreue Grundlage bereit; M13 und M14 erweitern und verifizieren sie für ihre jeweiligen Effekte.
-3. **M14 (Captions) und M15 (Audio) → M16 (Intelligence):** Korrigierte Sprachdaten und Audiosignale können für hochwertige, nachvollziehbare Analyse genutzt werden.
+3. **M14 (Captions) und M15 (Audio) → M16 (Intelligence) → M17 (Montage):** Wortkorrekturen und Audiosignale in die zweistufige Erkennung übernehmen, dann die Ereignisfenster in Story-aware Clipgrenzen überführen. Vor dem Ausbau der KI steht immer ein unabhängiger Qualitäts-Benchmark; Qualitätsgewinn wird nicht allein aus Modellgröße abgeleitet.
 4. **M17 (Montage) → M19 (Publishing):** Clips müssen vollständig bearbeitbar und exportierbar sein, bevor sie über Dienste veröffentlicht werden.
 5. **M18 (Integrationen) und M19 (Online):** Netzwerkabhängige D-Tier-Funktionen sind **opt-in**. Keine verpflichtende Kontoverknüpfung, keine Cloud-Abhängigkeit der Basisapp.
 6. **M20 ist kein zusätzlicher Feature-Bucket:** Erst ein Gesamt-Regressionstest, Windows-End-to-End-Abnahme und nachweislich bestandene F-Tier-Schutzregeln erlauben den Release.
@@ -224,10 +224,75 @@ Vorhandene *experimentelle* Implementierungen umfassen Audio-Highlighting, nicht
 
 - **M14 Untertitel & Branding:** Worttiming, Word Captions, Übersetzung, Callouts und Thumbnails in **einem** Bearbeitungsworkflow.
 - **M15 Audio & Sprache:** Mischspuren, Cleanup, Sprechererkennung, Ducking und Voice-over teilen sich die Audiotimeline.
-- **M16 Gameplay Intelligence:** Ereignissignale, Spielprofile, Bewertungsfeedback, Dubletten und Kontaktbögen **mit** Twitch-Chat und semantischer Suche, aber optional und nach messbaren Tests.
-- **M17 Montage:** Hooks/Kapitel, Geschwindigkeit, Standbilder, Sounds, Farbe, mehrere Längen und A/B-Varianten in einem Montage-Workflow.
+- **M16 Gameplay Intelligence:** Benchmark, zweistufiges temporales Screening, bessere multimodale Fusion, Sprachreaktionen, Spielprofile, Feedback-Learning, Dubletten/Kontaktbögen sowie optional Twitch-Chat und semantische Suche – **mit unabhängigen Vergleichstests**; siehe M16a–M16f.
+- **M17 Montage:** Story-aware Clipgrenzen (Aufbau, Aktion, Pointe/Reaktion), Hooks/Kapitel, Geschwindigkeit, Standbilder, Sounds, Farbe, mehrere Längen und A/B-Varianten; siehe M17a.
 - **M18 Streaming-Integrationen:** OBS, Stream Deck, NLE, Tastatur-/Sprachoberfläche, Watch Folders und Kanalimport. **#36 Shortcuts sind bereits M11 zugeordnet**, damit sie von Beginn an editorweit wirken.
 - **M19 Publishing & Collaboration:** Veröffentlichung nur mit Freigabe; Cloud Review, Sync, Analytics und Companion App ergänzen den Publishing-Workflow, erzwingen aber **keinen** Cloud-Zugang für lokales Editing.
+
+### 5.6 M16 – Gaming Intelligence: verbindlicher Qualitätsausbau
+
+**Owner-Erweiterung vom 22.11.2026:** Keine neuen Hauptfeatures; diese Arbeitspakete vertiefen **S-B3**, **#17**, **#18**, **#20**, **#39**, **#40**, **D-B2** und **D-B3**. Die Frage ist nicht, wie viele Modelle geladen werden, sondern ob die besten Vorschläge auf unbekannten Streams **messbar häufiger echte Highlights** sind. Der bestehende M10.5-Code gilt als Vergleichsbasis, **nicht als bereits validierte Ereigniserkennung**.
+
+**M16a – Ground Truth und Qualitäts-Baseline (zuerst, Pflicht-Gate)**
+
+- Ein versioniertes, manuell annotiertes **Evaluationsset von zunächst mindestens 100 Momenten** aus mehreren unabhängigen Gaming-/Twitch-VODs zusammenstellen: echte Highlights, absichtlich langweilige/gewöhnliche Szenen und schwierig zu unterscheidende Negativbeispiele (Kameraschwenk, Menüs, UI/Alerts, reines lautes Audio, normales Autofahren, Gespräche). Spiel, Sprache und Quelle dokumentieren, soweit Nutzungsrechte bestehen.
+- Pro Szene Zeitintervalle und Highlight-Typ erfassen: z. B. Unfall, Verfolgung, Kampf, Erfolg, Überraschung, Lachen, erzählerischer Moment sowie **„kein Highlight“**. Grenzfälle/Unsicherheit kennzeichnen; keine künstlichen Gewissheitslabels.
+- Trennung nach **VOD/Streamer:in**, nicht nur nach einzelnen Frames: Entwicklungs-/Tuning-Videos und ein **ungesehener Holdout** werden vorab festgelegt, um Datenleckage zu vermeiden. Bei strittigen Szenen zweite manuelle Prüfung vorsehen.
+- M10.5-Baseline und neue Varianten auf identischen Daten/Modellständen vergleichen: **Precision@8** (Anteil relevanter Treffer unter den Top 8), Recall auf annotierte relevante Ereignisse mit dokumentierter Zeit-Toleranz, Fehlalarme pro Stunde, Dubletten/Überlappungen, Qualität von Clipbeginn/-ende sowie Analysezeit, CPU/RAM/GPU/VRAM pro Stunde VOD.
+- Erkenntnis in ein reproduzierbares Offline-Reportformat schreiben (Konfiguration, Seed, Version/Commit, Modellgewichte, VOD-IDs ohne Veröffentlichung privater Dateien). **Vor einem Benchmark keine behauptete Prozentverbesserung.**
+
+**M16b – Zweistufige, adaptive Analyse und temporale Ereigniserkennung**
+
+- **Pass 1:** Das gesamte VOD ressourcenschonend mit Audio, Whisper-Cues und niedrig aufgelöstem Bewegungs-/Szenenscan abdecken. Es dürfen nicht nur die lautesten oder frühesten Minuten berücksichtigt werden; auch ruhige/unerwartete Events können potenzielle Kandidaten bilden.
+- **Pass 2:** Nur priorisierte Zeitfenster **plus eine kontrollierte Stichprobe unauffälliger Fenster** mit dichterem Frame-Sampling, mehreren aufeinanderfolgenden Sekunden, CLIP-/Objekt-Tracklets und optional einem temporalen Videomodell untersuchen.
+- Relative Objektbewegung, Richtungs-/Geschwindigkeitswechsel und Szenenkontext bewerten; abrupte Kamera-/HUD-Wechsel durch lokale Vergleichswerte und Bewegungskompensation soweit sinnvoll von tatsächlichen Ereignissignalen unterscheiden.
+- Modelle optional, lokal und manuell installiert; CPU-/GPU-Fallback, begrenzte Analyse-Budgets, Abbruch und Wiederaufnahme. Ergebnisse je Phase in versionierten Artefakten wiederverwenden: **keine erneute sechsstündige Whisper-Transkription nur wegen Ranking-Tuning.**
+- „Umgekippter LKW“/„Unfall“ nicht als bewiesenes Spielereignis aus Einzelbild-Ähnlichkeit oder einem Tracklet ausgeben; konkrete Aktionslabels erst nach separater Klassenvalidierung.
+
+**M16c – Kalibrierbare multimodale Fusion**
+
+- Evidenzen von Sprache, Stimmreaktion, Audio, Bilddynamik, CLIP und Objekten **zeitlich ausrichten** (Vorzeichen, Abstand, Dauer, Reihenfolge). Gleiche Quelle nicht mehrfach als unabhängige Bestätigung zählen.
+- Abhängige Signale, niedrige Zuverlässigkeit, fehlende Modalitäten und typische Fehlalarme transparent behandeln. Ein Wort wie „Polizei“ darf **nicht allein** einen Highlight-Clip auslösen; ein hoher Audiopegel ebenso wenig automatisch ein Ereignis.
+- Gewichte, Zeitfenster und per-Spiel-Profile auf Entwicklungsdaten optimieren, mit Holdout vergleichen. **Kalibrierung nur behaupten, wenn sie tatsächlich gemessen** ist; sonst weiterhin „heuristischer Score, keine Wahrscheinlichkeit“.
+- Für jeden Vorschlag die wichtigsten beitragenden Signale, gegebenenfalls widersprechende Evidenz und die ungefähre Ereigniszeit anzeigen; manuelle Korrektur hat Vorrang.
+
+**M16d – Sprachreaktionen und spielspezifische Profile**
+
+- Zusätzlich zum kuratierten DE/EN-Sprachlexikon **akustische Hinweise auf Lachen, Schreien, plötzliche Stimmlage/Lautheitsänderungen und überraschtes Sprechen** optional testen; ASR-Satzzeichen oder Schimpfwörter allein sind kein verlässlicher Emotionsbeweis.
+- Spielprofile (zuerst z. B. GTA-/Open-World-Fahren, dann weitere Kategorien) mit eigenen visuellen Prompts, Negativbeispielen, Ereignisfenstern und Schwellenwerten; **Generisches Profil** bleibt für unbekannte Spiele nutzbar.
+- Getrennte Evaluation pro Sprache, Spiel und Aufnahmeart; Overlays, Mitspielende und gemischte Audiospuren dürfen die Aussagekraft nicht heimlich überschätzen.
+
+**M16e – Nutzerfeedback und persönliche Relevanz**
+
+- Annehmen/Ablehnen, Korrektur des Zeitfensters und explizite Bewertung als **lokale, optionale Feedbackdaten** erfassen; keine stillen Uploads.
+- Persönliche Präferenzen und eventuelle Spielprofile verändern künftige **Vorschlagsreihenfolgen**, nicht ungefragt manuell gesetzte Highlights oder Untertitel.
+- Regressionstests gegen Vorher-/Nachher-Rankings; nur auf Entwicklungs-/Tuningdaten lernen, **Holdout nicht zum Trainieren benutzen**. Profil-Reset und reproduzierbares Standard-Ranking vorsehen.
+
+**M16f – Review, Dubletten, Chat und Suche**
+
+- Dubletten/überlappende Vorschläge zusammenfassen, visuelle Kontaktbögen bereitstellen und Zeitstempel zur schnellen Sichtung verlinken.
+- Die bereits für 1.0 freigegebenen **D-B2 Twitch-Chat-Analyse** und **D-B3 semantische Videosuche** als **optionale** zusätzliche Evidenz-/Review-Schicht implementieren, mit klarer Datenherkunft und Datenschutzgrenzen; ohne Chat muss die Kern-KI vollständig funktionieren.
+- Keine Chat-Anzahl, Textsuche oder Stimmreaktion als alleinigen „viral“-Beweis verkaufen.
+
+**Abnahme-Gates für M16:**
+
+- [ ] Reproduzierbares, versioniertes Evaluationsset mit mindestens 100 annotierten Momenten, Negativfällen und festem unabhängigen Holdout vorhanden; Lizenz und Privatsphäre der VODs gewahrt.
+- [ ] Für **M10.5-Baseline vs. M16** Precision@8, Recall (mit dokumentierter Toleranz), Fehlalarme/h, Clipgrenzen und Laufzeit/RAM/VRAM auf **denselben** VODs berichtet; Konfidenzintervalle/kleine Stichprobe bei der Interpretation berücksichtigen.
+- [ ] Neues Ranking zeigt auf dem Holdout **einen nachvollziehbaren Qualitätsgewinn bei Precision@8 oder Recall ohne wesentliche Verschlechterung des anderen Werts**. Falls nicht: Ursachen und Trade-offs dokumentieren, Ansatz überarbeiten und **keinen unbelegten Qualitätsvorsprung behaupten**.
+- [ ] Ein echtes, mindestens sechsstündiges VOD vollständig analysierbar; Sampling-Budgets und Caching verhindern unkontrollierte Mehrkosten. Abbruch, Wiederaufnahme, CPU/GPU-Fallback und Offlinebetrieb nachgewiesen.
+- [ ] Testfälle für Kamera-/HUD-Bewegung, normales Gameplay, ruhige relevante Szenen, doppelte Modalitäten, Kontextwörter und fehlende Modelle bestanden.
+- [ ] Erklärbare Kandidaten einschließlich Score-Art, Quellen und zeitlicher Evidenz; keine unvalidierten Aktionsbehauptungen.
+- [ ] Feedback sowie Chat/Suche sind optional, lokal/transparent und verändern niemals ungefragt gespeicherte manuelle Entscheidungen.
+
+### 5.7 M17a – Story-aware Clipping und dynamische Highlightgrenzen
+
+Dieses Paket gehört zu **M17 (Montage/Clip-Varianten)**, nutzt **M16-Ereigniszeiten** und vertieft **B-B1, #21, #22 und #31** – **kein neues Hauptfeature**.
+
+- Aus dem Verlauf **Aufbau → Ereignis → Reaktion/Pointe** einen sinnvollen In-/Out-Vorschlag ableiten, statt pauschal 25 Sekunden mit acht Sekunden Vorlauf abzuschneiden.
+- Wechselnde Clipdauer mit gewünschter Zielplattform, Mindest-/Maximaldauer, Sprach-/Satzgrenzen, Kameraschnitt und Bewegungsabschluss vereinbaren. Bei einer späteren Pointe darf das Ende entsprechend verlängert werden, wenn das Längenbudget es erlaubt.
+- Mehrteilige Ereignisse zusammenfassen und offensichtliche Dubletten vermeiden; bei mehreren Storybeats optional Montagevarianten anbieten.
+- **Vorschlag statt Zwang:** Nutzer:innen können alle Grenzen in der Timeline verändern; ein manuell gesetztes Intervall wird nicht durch erneute Analyse überschrieben.
+- Gegen M10.5-Fixfenster auf annotierten Momenten vergleichen: Anteil vollständig enthaltener Ereignisse, abgeschnittene Anfänge/Pointen, unnötige Leerlaufsekunden, Exportkonformität. Ein Quality-Gate darf nicht nur auf höheren Ranking-Scores basieren.
 
 ## 6. Ein einziger Release-Pfad: Alles vor 1.0
 
@@ -250,6 +315,7 @@ Für relevante Meilensteine sind reproduzierbare Nachweise im Issue/PR vorzulege
 - [ ] **Korrekturpersistenz:** Transkript-Wörter/Zeiten, eigene Highlight-Wörter, Kamera-Keyframes und Overlay-Zonen über Neustart und Export erhalten.
 - [ ] **Editor-WYSIWYG:** Untertitel, Crop, Safe-Zones und Kamerafahrt anhand tatsächlicher gerenderter Frames verifiziert.
 - [ ] **KI-Qualität:** Annotierte GTA-/Gameplay-Szenen, Trefferquote, Fehlalarme, Laufzeit und Klassenbegrenzungen dokumentiert. Kein sicherer „Unfall erkannt“-Claim bei bloßer Heuristik.
+- [ ] **M16/M17-Qualitätsvergleich:** Versionsfestes Evaluationsset mit unabhängigen VODs, Precision@8, Recall, Fehlalarme/h, Clipgrenzen und Ressourcenverbrauch vor/nach Ausbau belegt. Verbesserungen nur nach gemessenem Holdout-Vergleich behaupten.
 - [ ] **Sichere Dateiverarbeitung:** Rohvideo bleibt unverändert; atomare Ausgabe, Abbruch, beschädigte Eingaben und überschreibgeschützte Namen korrekt behandelt.
 - [ ] **GPU/Export:** NVENC-/Fallback-Profile, Ton, Untertitel, Ausgabequalität und Clipgrenzen geprüft.
 - [ ] **Produktvertrauen:** Kein Cloud-/Download-/Publishing-Zugriff ohne ausdrückliche Aktion; Lizenz-, Datenschutz- und Modellabhängigkeiten geprüft.
