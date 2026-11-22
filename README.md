@@ -1,5 +1,30 @@
 # StreamClipper 0.4 (experimenteller Export)
 
+## M11b – Übersichtlichere Oberfläche und Spurplan (experimentell)
+
+Die Bearbeitungsoberfläche zeigt die **Videovorschau und Timeline dauerhaft**.
+Die rechte Seitenleiste ist jetzt in **Highlights, Untertitel, KI & Modelle,
+Spuren und Export** gegliedert. Modell-Downloads und Exportoptionen belegen
+nicht mehr ständig den Hauptbereich. Der Worteditor unter der Timeline lässt
+sich ein-/ausklappen und öffnet sich beim Anklicken eines Wortes automatisch.
+Längere Seitenleisten sind scrollbar.
+
+Ein eigenständiges **versioniertes Mehrspur-Projektmodell** verwaltet
+Gameplay-, Mikrofon-, Musik-, Untertitel- und Grafikspuren. Im Register
+**Spuren** können Spuren hinzugefügt, umbenannt, sortiert, gesperrt und
+stummgeschaltet werden. Timeline-Auswahlen lassen sich als Clip-Metadaten
+hinzufügen, in Quelle/Timeline verschieben und trimmen. Spuraktionen lassen
+sich über eigene Zurück-/Wiederholen-Buttons umkehren.
+
+Das Spurprojekt wird atomar unter `data/projects/editor/` gespeichert.
+Es verändert **weder** Originalvideo **noch** bisherige
+`.highlights.json`-Berichte; der vorhandene Analyse-/Exportworkflow bleibt
+kompatibel. **Grenze:** Dies ist ein **Spurplan/Metadaten-Editor**, noch
+**keine echte Mehrspur-Audio-/Video-Komposition oder exportgetreue
+Spuren-Wiedergabe**. Diese Integration benötigt den Folgeausbau von M11/M12.
+Die vollständige M11-Abnahme umfasst noch Projektsnapshots/Checkpoints,
+Proxy-Editing, gemeinsame Undo/Redo-Historie/Shortcuts und echte Windows-6h-Tests.
+
 ## M11a – Editor-Historie und Auto-Sicherung (Entwicklungsstand)
 
 Der erste, **noch nicht vollständig abgenommene** M11-Schritt unterstützt
