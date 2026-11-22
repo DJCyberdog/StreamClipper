@@ -9,6 +9,12 @@ nicht mehr ständig den Hauptbereich. Der Worteditor unter der Timeline lässt
 sich ein-/ausklappen und öffnet sich beim Anklicken eines Wortes automatisch.
 Längere Seitenleisten sind scrollbar.
 
+Zusätzlich zeigt eine **grafische Spurübersicht** die Clips als Zeitblöcke.
+Der sichtbare Zeitbereich wird mit dem Zoom/Scroll der Haupt-Timeline
+synchronisiert; Clips können angeklickt oder per Maus in der Timeline
+verschoben werden. Gesperrte Spuren verhindern Drag-Bearbeitungen.
+Die zugehörige Clip-/Spurtabelle bleibt für präzise Werte erhalten.
+
 Ein eigenständiges **versioniertes Mehrspur-Projektmodell** verwaltet
 Gameplay-, Mikrofon-, Musik-, Untertitel- und Grafikspuren. Im Register
 **Spuren** können Spuren hinzugefügt, umbenannt, sortiert, gesperrt und
