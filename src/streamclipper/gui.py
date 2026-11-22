@@ -975,12 +975,13 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Spurplan konnte nicht geladen werden", str(exc))
             self.editor_project = initial_project(video)
             self.track_status.setText("Ungültiger Spurplan – Neuer Plan geöffnet")
-        self._project_history = ProjectHistory()
+        self._history.clear()
         self._refresh_track_tables()
         self._update_checkpoint_actions()
+        self._update_history_controls()
 
     def _update_checkpoint_actions(self) -> None:
-        ready = self.editor_project is not None
+        ready = self.editor_project is not None and not self._history_blocked
         self.checkpoint_save_action.setEnabled(ready)
         self.checkpoint_restore_action.setEnabled(ready)
 
@@ -1046,8 +1047,7 @@ class MainWindow(QMainWindow):
             return
         self._autosave_timer.stop()
         self.editor_project = project
-        self._project_history = ProjectHistory()
-        self._edit_history.clear()
+        self._history.clear()
         self._refresh_track_tables()
         self.report_path = None
         if analysis is not None:
@@ -1171,8 +1171,7 @@ class MainWindow(QMainWindow):
         self.track_clip_add.setEnabled(bool(selected) and self._source_duration > 0)
         self.track_clip_move.setEnabled(bool(clip))
         self.track_clip_trim.setEnabled(bool(clip))
-        self.track_undo_button.setEnabled(ready and self._project_history.can_undo)
-        self.track_redo_button.setEnabled(ready and self._project_history.can_redo)
+        self._update_history_controls()
 
     def _apply_project_edit(self, action, *args, **kwargs) -> bool:
         if not self.editor_project:
@@ -1186,9 +1185,10 @@ class MainWindow(QMainWindow):
         except (OSError, ValueError) as exc:
             QMessageBox.warning(self, "Spuränderung nicht gespeichert", str(exc))
             return False
-        self._project_history.record(before, after)
+        self._history.record_project(before, after)
         self.editor_project = after
         self._refresh_track_tables()
+        self._update_history_controls()
         self.track_status.setText("✓ Spurplan lokal gespeichert · Original unverändert")
         return True
 
@@ -1274,33 +1274,12 @@ class MainWindow(QMainWindow):
             self._apply_project_edit(edit_item, item_id,
                                      source_start=start, source_end=end)
 
+    # Compatibility hooks: now use the same last action regardless of active tab.
     def _undo_project(self) -> None:
-        if not self.editor_project or not self._project_history.can_undo:
-            return
-        before = self._project_history.undo(self.editor_project)
-        try:
-            save_project(before)
-        except (OSError, ValueError) as exc:
-            self._project_history.redo(before)
-            QMessageBox.warning(self, "Spuraktion nicht gespeichert", str(exc))
-            return
-        self.editor_project = before
-        self._refresh_track_tables()
-        self.track_status.setText("↶ Spuraktion rückgängig und gesichert")
+        self.undo_edit()
 
     def _redo_project(self) -> None:
-        if not self.editor_project or not self._project_history.can_redo:
-            return
-        after = self._project_history.redo(self.editor_project)
-        try:
-            save_project(after)
-        except (OSError, ValueError) as exc:
-            self._project_history.undo(after)
-            QMessageBox.warning(self, "Spuraktion nicht gespeichert", str(exc))
-            return
-        self.editor_project = after
-        self._refresh_track_tables()
-        self.track_status.setText("↷ Spuraktion wiederholt und gesichert")
+        self.redo_edit()
 
     def toggle_word_editor(self, expanded: bool) -> None:
         self.word_editor_panel.setVisible(expanded)
@@ -1319,9 +1298,8 @@ class MainWindow(QMainWindow):
         for old in self._waveform_workers:
             old.cancel()
         self._autosave_timer.stop()
-        self._edit_history.clear()
+        self._history.clear()
         self.editor_project = None
-        self._project_history = ProjectHistory()
         self._refresh_track_tables()
         self._update_checkpoint_actions()
         self.source = source
@@ -1812,7 +1790,7 @@ class MainWindow(QMainWindow):
 
     def analysis_finished(self, result: AnalysisResult, *, preserve_history: bool = False) -> None:
         if not preserve_history:
-            self._edit_history.clear()
+            self._history.clear()
         preserved_manual = bool(self._manual_pending) and not preserve_history
         if self._manual_pending and self.source and Path(result.video.path).resolve() == Path(self.source).resolve():
             from dataclasses import replace
