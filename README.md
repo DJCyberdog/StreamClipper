@@ -1,5 +1,27 @@
 # StreamClipper 0.4 (experimenteller Export)
 
+## M11c / Teil 2 – Gemeinsamer Undo-/Redo-Verlauf (Draft)
+
+Highlights, Untertitelkorrekturen und Spurplan-Aktionen benutzen nun einen
+**gemeinsamen chronologischen Bearbeitungsverlauf**. **Strg+Z** und
+**Strg+Umschalt+Z** gelten für die letzte Studio-Aktion, unabhängig davon,
+welches Werkzeugregister offen ist. Während eine Texteingabe fokussiert ist,
+haben deren native Text-Undo-/Redo-Aktionen Vorrang. Die bisher doppelten
+Rückgängig-/Wiederholen-Buttons im Spurenregister entfallen. Es bleiben nur
+die einheitlichen Buttons oberhalb der Timeline.
+
+Der Verlauf verwendet für große Transkripte weiterhin platzsparende
+Änderungs-Deltas. Spuraktionen werden vor der sichtbaren Undo-/Redo-Änderung
+atomisch auf Datenträger gespeichert; scheitert das Speichern, bleibt
+der sichtbare Stand einschließlich History-Cursor unverändert.
+Der Sitzungsverlauf wird nach Quellenwechsel, Neu-Analyse, externem
+Berichtimport und Checkpoint-Restore bewusst zurückgesetzt. Benannte
+Projektstände (Teil 1) bleiben separat nutzbar.
+
+**Noch offen:** Analyseclip-Import in Spurplan, Proxy-Schnitt, M12-Rendervertrag,
+echter Windows-11-Ergonomietest (1366×768 / FullHD) und reale 6h-VOD-Prüfung.
+
+
 ## M11c / Teil 1 – Benannte Projektstände (Draft)
 
 Über das neue Menü **Datei & Projekt** lassen sich Projektstände benennen,
