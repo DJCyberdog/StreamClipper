@@ -430,10 +430,14 @@ class MainWindow(QMainWindow):
         timeline_header.addWidget(QLabel("Zoom"))
         self.timeline_zoom = QComboBox()
         for label, amount in (("Gesamt", 1), ("5×", 5), ("15×", 15),
-                              ("30×", 30), ("60×", 60), ("120×", 120)):
+                              ("30×", 30), ("60×", 60), ("120×", 120),
+                              ("360×", 360), ("720×", 720),
+                              ("1440×", 1440), ("2880×", 2880)):
             self.timeline_zoom.addItem(label, amount)
         self.timeline_zoom.currentIndexChanged.connect(self.change_timeline_zoom)
         timeline_header.addWidget(self.timeline_zoom)
+        self.timeline_zoom_hint = QLabel("1×")
+        timeline_header.addWidget(self.timeline_zoom_hint)
         self.timeline_status = QLabel("Keine Aufnahme geladen")
         timeline_header.addWidget(self.timeline_status)
         main.addLayout(timeline_header)
@@ -721,6 +725,7 @@ class MainWindow(QMainWindow):
             return
         zoom = float(self.timeline_zoom.currentData() or 1.0)
         self.timeline.set_zoom(zoom, center=self.player.position() / 1000)
+        self.timeline_zoom_hint.setText(f"{self.timeline.zoom:.0f}×")
         self._sync_timeline_scroll()
 
     def _sync_timeline_scroll(self):
@@ -1204,8 +1209,9 @@ class MainWindow(QMainWindow):
         # Six-hour VODs need second-level zoom to make individual words clickable.
         if self.timeline.zoom <= 1.01 and self._source_duration > 0:
             self.timeline.set_zoom(
-                max(1, self._source_duration / max(20., (clip.end - clip.start) * 1.6)),
+                max(1, self._source_duration / max(10., (clip.end - clip.start) * 1.1)),
                 center=(clip.start + clip.end)/2)
+            self.timeline_zoom_hint.setText(f"{self.timeline.zoom:.0f}×")
         self.timeline.ensure_visible(clip.start)
         self._sync_timeline_scroll()
         self.player.pause()
