@@ -204,6 +204,40 @@ Vorhandene *experimentelle* Implementierungen umfassen Audio-Highlighting, nicht
 - Autosave/Crash Recovery (**#04**) und vollwertige Projektverwaltung mit Analyse-Checkpoints (**D-B1**) als **getrennte** Leistungsmerkmale im gleichen Editor-Datenmodell.
 - Lange Aufnahmen navigieren und Clipgrenzen editieren, ohne Videos erneut zu transkribieren; Datei- und Projektzustand nichtdestruktiv speichern.
 
+#### 5.2.1 M11-UX – Navigation und Editor-Informationsarchitektur
+
+**Ausdrückliche Owner-Anforderung (22.11.2026):** Die GUI muss mit jedem
+Meilenstein übersichtlicher statt überladener werden. Der **M11b-Prototyp**
+strukturiert die bisher auf einer Seite verteilten Werkzeuge als Seitenregister
+**Highlights / Untertitel / KI & Modelle / Spuren / Export**. Videovorschau und
+Haupt-Timeline bleiben unabhängig vom aktiven Register sichtbar. Die
+umfangreichen Modell-/Exportoptionen sind scrollbar, der detaillierte
+Worteditor einklappbar und bei Wortauswahl automatisch erreichbar.
+
+Die Spurenübersicht erhält **grafische Clip-Zeitblöcke je Spur** mit
+Klick-Auswahl und Dragging der Timeline-Position; daneben bleiben
+präzise Tabellen-/Dialogeingaben nutzbar. Ein editierbarer Spurplan darf
+**nicht** als bereits exportgetreue Mehrspur-Vorschau bezeichnet werden.
+
+**M11-UX-Abnahmekriterien vor 1.0:**
+
+- [ ] Hauptfunktionen bei **1366×768 und 1920×1080** ohne abgeschnittene
+      essenzielle Buttons bedienbar; kurze Wege für Öffnen → Prüfen →
+      Schneiden → Untertitel → Export. Seitenregisternavigation und
+      Tastaturbedienung getestet.
+- [ ] Vorschau und Timeline bleiben beim Wechsel von Modell-/Spuren-/
+      Untertitel-/Exportregistern sichtbar. Lange Einstellungsbereiche
+      bekommen Scrollflächen statt unbegrenzter Fensterbreite/-höhe.
+- [ ] Einsteiger:innen sehen nicht gleichzeitig alle KI-Parameter,
+      Wortzeitfelder, Exportoptionen und Spurwerkzeuge; Bedienelemente
+      bleiben schnell wiederauffindbar und Zustände nachvollziehbar.
+- [ ] Track-Canvas synchronisiert den angezeigten Timeline-Zeitbereich,
+      ausgewählte Clip-IDs und Drag-Bearbeitungen; Sperrregeln, Undo/Redo
+      und atomische Speichervorgänge greifen auch bei Mausinteraktion.
+- [ ] Keine falsche UI-Zusicherung: bis zur späteren M11/M12-Komposition
+      sind unabhängige Audiospuren und grafische Effekte **Metadaten**,
+      noch keine abgemischten Video-/Audio-Exporte.
+
 ### 5.3 M12 – Vorschau & gemeinsame Renderpipeline
 
 - Rendergraph/-Parameter für Vorschau und MP4-Export gemeinschaftlich definieren (**#01**).
