@@ -1110,6 +1110,49 @@ class MainWindow(QMainWindow):
         export_page_layout.addStretch()
         self.tabs.addTab(self.export_page, "Export")
 
+        # Contextual inspector: read-only snapshot of the current selection.
+        # Real trim, gain and transcript edits continue to use their original
+        # controls; inspector never silently changes project data.
+        self.inspector_dock = QDockWidget("EIGENSCHAFTEN / AUSWAHL", self)
+        self.inspector_dock.setObjectName("streamclipper.inspectorDock")
+        self.inspector_dock.setAllowedAreas(
+            Qt.DockWidgetArea.LeftDockWidgetArea |
+            Qt.DockWidgetArea.RightDockWidgetArea)
+        self.inspector_dock.setFeatures(
+            QDockWidget.DockWidgetFeature.DockWidgetMovable |
+            QDockWidget.DockWidgetFeature.DockWidgetFloatable |
+            QDockWidget.DockWidgetFeature.DockWidgetClosable)
+        inspector_scroll = QScrollArea()
+        inspector_scroll.setWidgetResizable(True)
+        inspector_contents = QWidget()
+        inspector_layout = QVBoxLayout(inspector_contents)
+        inspector_layout.setContentsMargins(12, 12, 12, 12)
+        inspector_layout.setSpacing(10)
+        self.inspector_heading = QLabel("Keine Auswahl")
+        self.inspector_heading.setStyleSheet(
+            "font-size: 15px; font-weight: 700; color: #D9EBFC;")
+        self.inspector_heading.setWordWrap(True)
+        inspector_layout.addWidget(self.inspector_heading)
+        self.inspector_details = QLabel(
+            "Wähle einen Highlight- oder Timeline-Clip. "
+            "Hier siehst du den aktuellen Zustand des Projekts.")
+        self.inspector_details.setWordWrap(True)
+        inspector_layout.addWidget(self.inspector_details)
+        self.inspector_edit_button = QPushButton("Auswahl bearbeiten")
+        self.inspector_edit_button.setEnabled(False)
+        self.inspector_edit_button.clicked.connect(self._inspect_edit_selection)
+        inspector_layout.addWidget(self.inspector_edit_button)
+        inspector_layout.addStretch()
+        inspector_scroll.setWidget(inspector_contents)
+        self.inspector_dock.setWidget(inspector_scroll)
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.inspector_dock)
+        self.table.itemSelectionChanged.connect(self._update_inspector)
+        self.tracks_table.itemSelectionChanged.connect(self._update_inspector)
+        self.track_clips_table.itemSelectionChanged.connect(self._update_inspector)
+        self._install_workspace_controls()
+        self._default_dock_state = QByteArray(self.saveState(1))
+        self._update_inspector()
+
         self.progress = QProgressBar()
         self.progress.setValue(0)
         main.addWidget(self.progress)
@@ -1119,20 +1162,8 @@ class MainWindow(QMainWindow):
                                   self.timeline_trim, self.timeline_zoom,
                                   self.timeline_scroll)
         self._busy(False)
-        self.setStyleSheet("""
-            QMainWindow, QWidget { background: #151922; color: #edf2fa; font-size: 13px; }
-            QPushButton { background: #26344a; border: 1px solid #41516a;
-                          border-radius: 7px; padding: 9px 12px; }
-            QPushButton:hover { background: #345070; }
-            QPushButton:disabled { color: #8290a4; background: #202632; }
-            QTableWidget, QSpinBox, QComboBox, QLineEdit, QPlainTextEdit { background: #202938;
-                 color: #edf2fa; border: 1px solid #3b4b61; border-radius: 5px; }
-            QTableWidget::item:selected { background: #285e91; }
-            QHeaderView::section { background: #293449; color: white;
-                                    padding: 8px; border: 0; }
-            QProgressBar { background: #202938; border-radius: 5px; height: 15px; }
-            QProgressBar::chunk { background: #338dce; border-radius: 5px; }
-        """)
+        self.setStyleSheet(EDITOR_STYLESHEET)
+        self._load_workspace_on_start()
 
     def _source_position_ms(self) -> int:
         if self._preview_switching:
