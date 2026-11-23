@@ -73,11 +73,12 @@ def test_magnetic_snap_to_existing_clips_with_8px_threshold(editor):
     window._refresh_track_tables()
     window.track_canvas.resize(1000, 300)
     window.track_canvas.set_visible_range(0, 100)
-    moving = project.items[-1]
-    # At 1000 px, eight pixels are ~0.93 seconds; 27.6 -> 28.0.
-    assert window.track_canvas._snap_time(27.6, moving.id, 6) == 28
+    moving = project.items[-2]
+    # At 1000 px, eight pixels are ~0.93 seconds; 27.6 -> 28.0
+    # (another clip's start). The moved clip cannot snap to itself.
+    assert window.track_canvas._snap_time(27.6, moving.id, 5) == 28
     window.timeline_snap.setChecked(False)
-    assert window.track_canvas._snap_time(27.6, moving.id, 6) == 27.6
+    assert window.track_canvas._snap_time(27.6, moving.id, 5) == 27.6
     window.timeline_snap.setChecked(True)
     assert window.track_canvas._snap_enabled
     assert source.read_bytes() == b"unchanged-media"
