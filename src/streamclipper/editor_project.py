@@ -1,8 +1,8 @@
-"""Versioned, offline multitrack *edit metadata* for the M11 editor.
+"""Versioned, offline editor track metadata (M11 and M12b).
 
-This is not an audio mixer or WYSIWYG renderer. Playback/export continues to
-use the existing video/AnalysisResult until M12 render integration.
-No Qt, decoder, model, or network dependency.
+The v2 schema optionally references local audio files for the explicit M12b
+render path. Older v1 plans/checkpoints migrate in memory; never rewrite video
+or audio sources. Qt and ML dependencies are intentionally absent.
 """
 from __future__ import annotations
 
@@ -18,7 +18,8 @@ import tempfile
 from .models import VideoInfo
 from .portable import installation_directory
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
+LEGACY_SCHEMA_VERSION = 1
 _KINDS = frozenset({"video", "audio", "captions", "overlay"})
 _ID = re.compile(r"[a-zA-Z0-9_-]{1,64}\Z")
 _MAX_ITEMS = 5000
@@ -43,6 +44,8 @@ class TimelineItem:
     source_end: float
     timeline_start: float
     label: str = ""
+    media_path: str | None = None  # external local audio, never network URL
+    gain_db: float = 0.0  # per-clip relative level (no side effects on source)
 
 
 @dataclass(frozen=True)
@@ -78,13 +81,25 @@ class EditorProject:
         for item in self.items:
             if (not _ID.fullmatch(item.id) or item.id in clip_ids
                     or item.track_id not in ids or not isinstance(item.label, str)
-                    or len(item.label) > 120):
+                    or len(item.label) > 120
+                    or not isinstance(item.gain_db, (int, float))
+                    or not math.isfinite(item.gain_db)
+                    or not -60 <= item.gain_db <= 12):
                 raise ValueError("Ungültiger oder doppelter Clip")
             clip_ids.add(item.id)
             a, b, t = item.source_start, item.source_end, item.timeline_start
+            track = next(x for x in self.tracks if x.id == item.track_id)
+            if item.media_path is not None:
+                if (track.kind != "audio" or not isinstance(item.media_path, str)
+                        or not item.media_path or len(item.media_path) > 4096
+                        or not Path(item.media_path).is_absolute()
+                        or any(ord(ch) < 32 for ch in item.media_path)
+                        or "://" in item.media_path):
+                    raise ValueError("Externe Audiodatei muss ein absoluter lokaler Pfad sein")
+            limit = 24 * 3600 if item.media_path else self.source.duration + .10
             if (not all(isinstance(n, (int, float)) and math.isfinite(n)
                         for n in (a, b, t))
-                    or not (0 <= a < b <= self.source.duration + 0.10)
+                    or not (0 <= a < b <= limit)
                     or t < 0 or t + b - a > 24 * 3600):
                 raise ValueError("Clip-Zeitbereich außerhalb der Aufnahme")
 
@@ -195,7 +210,8 @@ def edit_item(project: EditorProject, item_id: str, *,
 
 
 def add_item(project: EditorProject, track_id: str, start: float,
-             end: float, timeline_start: float, label: str = "") -> EditorProject:
+             end: float, timeline_start: float, label: str = "",
+             *, media_path: str | None = None, gain_db: float = 0.0) -> EditorProject:
     track = next((t for t in project.tracks if t.id == track_id), None)
     if not track or track.locked:
         raise ValueError("Zielspur fehlt oder ist gesperrt")
@@ -206,7 +222,8 @@ def add_item(project: EditorProject, track_id: str, start: float,
     updated = replace(
         project, items=(*project.items,
                         TimelineItem(f"clip_{index}", track_id, start, end,
-                                     timeline_start, label)))
+                                     timeline_start, label, media_path,
+                                     gain_db)))
     updated.validate()
     return updated
 
@@ -289,7 +306,8 @@ def load_project(video: VideoInfo, *, root: Path | None = None) -> EditorProject
         raise ValueError("Projektdatei ist zu groß")
     try:
         doc = json.loads(path.read_text(encoding="utf-8"))
-        if not isinstance(doc, dict) or doc.get("schema_version") != SCHEMA_VERSION:
+        if (not isinstance(doc, dict)
+                or doc.get("schema_version") not in {LEGACY_SCHEMA_VERSION, SCHEMA_VERSION}):
             raise ValueError("Unbekannte Projektformat-Version")
         project = EditorProject(
             SCHEMA_VERSION, VideoInfo(**doc["source"]),
