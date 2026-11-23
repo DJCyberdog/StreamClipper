@@ -1,5 +1,42 @@
 # StreamClipper 0.4 (experimenteller Export)
 
+## M12b – Eigene Audiodateien auf der Timeline mischen (Draft)
+
+Die M11-Spuren unterstützen jetzt eine **opt-in Audio-Komposition**:
+Im Reiter **Spuren** eine Audio-/Mikrofon-/Musikspur wählen, dann
+**🎵 Audiodatei einfügen …** anklicken (lokale WAV/MP3/FLAC/M4A/OGG-Datei).
+Der Clip wird referenziert, nicht kopiert; seine ursprüngliche Datei
+bleibt unverändert. Quelle IN/OUT und Timeline-Start lassen sich editieren;
+**Pegel …** regelt den Clip in dB (−60 bis +12). Spur-Stumm schaltet
+sämtliche Clips dieser Audiospur aus; Sperre unterbindet Bearbeitung,
+nicht Wiedergabe; „ausgeblendet“ ist nur eine GUI-Eigenschaft.
+
+Im **Export**-Reiter opt-in **„Audiospuren mitmischen (M12b, experimentell)“**
+setzen. Dann verwenden normaler MP4-Export **und** die maximal 20 Sekunden
+lange Render-Vorschau denselben versionierten Graphen und die gleiche
+FFmpeg-Audiomischung. Die Original-Tonspur bleibt Basis; weitere Audios
+werden anhand von Quell-IN/OUT und Position auf der Ausgabe-Timeline
+mittels FFmpeg gemischt; Pausen und Überlappungen sind unterstützt.
+Achtung: Mehrere laute Audiosignale können übersteuern. Den Clip-Pegel
+ggf. absenken; Loudness-/True-Peak-Normalisierung folgt später.
+
+**Rückwärtskompatibel:** Bestehende Projektdateien/Checkpoints im
+Schema v1 werden lesend nach v2 migriert. Neue Versionen werden atomar
+als v2 gespeichert. Fehlende/unpassende lokale Audiodateien werden
+vor dem Rendern abgewiesen und niemals stillschweigend übersprungen.
+
+**Bewusste M12b-Grenzen:** Nur **ein** unverändertes Hauptvideo mit
+darübergelegten Audiospuren wird komponiert. Extra-Videoclips, Grafik-/
+Overlay-Layer und eigenständige Timeline-Caption-Clips sind noch
+**nicht** gerendert; bei opt-in Graph-Auswahl gibt es eine verständliche
+Ablehnung statt eines scheinbar vollständigen Ergebnisses. Die
+bisherigen ASS-Untertitel über das Transkript bleiben unterstützt.
+Audio-Datei-Metadaten werden beim Einfügen per FFprobe geprüft; später
+wird dieser Preflight in einen eigenen Hintergrundjob ausgelagert.
+Keine VST-/Audio-Trennung, kein NVENC, keine Renderqueue oder
+automatische True-Peak-Prüfung. Nicht nach 1.0 verschoben.
+
+
 ## M12a – Exportgetreue Render-Vorschau für einen Quellclip (Draft)
 
 Im **Export**-Reiter gibt es den neuen Button
