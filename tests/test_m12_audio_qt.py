@@ -59,8 +59,10 @@ def test_audio_file_adds_to_selected_track_and_goes_to_preview_request(tmp_path,
         window.worker = None
         window._busy(False)
         window.track_clips_table.selectRow(1)
+        monkeypatch.setattr(QInputDialog,"getDouble",
+                            lambda *args, **kwargs: (-6., True))
         window._edit_selected_clip_gain()
-        assert window.editor_project.items[-1].gain_db == -9
+        assert window.editor_project.items[-1].gain_db == -6
         window._undo_project()
         assert window.editor_project.items[-1].gain_db == -9
     finally:
