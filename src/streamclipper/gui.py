@@ -391,7 +391,8 @@ class MainWindow(QMainWindow):
         self.resize(1440, 920)
         self.source: str | None = None
         self.analysis: AnalysisResult | None = None
-        self.worker: AnalysisThread | ExportThread | TwitchImportThread | None = None
+        self.worker: AnalysisThread | ExportThread | TwitchImportThread | RenderPreviewThread | None = None
+        self._render_preview_dialog: RenderedClipDialog | None = None
         self.preview_end: float | None = None
         self.transcript_dirty = False
         self.report_path: str | None = None
@@ -992,6 +993,13 @@ class MainWindow(QMainWindow):
         self.burn_subtitles.setChecked(True)
         self.burn_subtitles.setToolTip("Benötigt eine durch Whisper transkribierte Aufnahme.")
         actions.addWidget(self.burn_subtitles)
+        self.render_preview_button = QPushButton("🎞 Exportgetreue Vorschau (bis 20 s)")
+        self.render_preview_button.setToolTip(
+            "Rendert den ausgewählten Highlight- oder Timeline-Bereich mit "
+            "genau dem FFmpeg-Pfad des MP4-Exports. Keine Mischspuren.")
+        self.render_preview_button.clicked.connect(self.start_render_preview)
+        self.render_preview_button.setEnabled(False)
+        actions.addWidget(self.render_preview_button)
         self.single_export = QPushButton("Ausgewählten Clip exportieren")
         self.single_export.clicked.connect(lambda: self.start_export(False))
         self.single_export.setEnabled(False)
@@ -1216,6 +1224,8 @@ class MainWindow(QMainWindow):
         for button in self.model_download_buttons.values():
             button.setEnabled(not busy and not bool(self.model_worker and self.model_worker.isRunning()))
         self.cancel_button.setEnabled(busy)
+        self.render_preview_button.setEnabled(
+            bool(self._video_info) and not busy)
         ready = self.analysis is not None and not busy
         self.single_export.setEnabled(ready and bool(self.table.selectedItems()))
         self.all_export.setEnabled(ready and bool(self.analysis.candidates if self.analysis else []))
@@ -1733,6 +1743,10 @@ class MainWindow(QMainWindow):
     def load_video_source(self, source: str) -> bool:
         if not self.confirm_discard_edits():
             return False
+        if self._render_preview_dialog is not None:
+            self._render_preview_dialog.close()
+            self._render_preview_dialog = None
+        self.render_preview_button.setEnabled(False)
         for old in self._waveform_workers:
             old.cancel()
         if self.proxy_worker is not None:
@@ -1807,6 +1821,7 @@ class MainWindow(QMainWindow):
             return
         video, peaks = result
         self._video_info = video
+        self.render_preview_button.setEnabled(not self._history_blocked)
         self._proxy_state = cached_proxy(video)
         if self._proxy_state:
             self.proxy_progress.setValue(100)
@@ -2933,6 +2948,9 @@ class MainWindow(QMainWindow):
         if not self.confirm_discard_edits():
             event.ignore()
             return
+        if self._render_preview_dialog is not None:
+            self._render_preview_dialog.close()
+            self._render_preview_dialog = None
         if self.proxy_worker is not None:
             self.proxy_worker.cancel()
             if not self.proxy_worker.wait(3000):
