@@ -331,6 +331,21 @@ Accessibility und Performance-Messungen.
 Das übergeordnete 60-Feature-Inventar bleibt unverändert; die
 Premiere-inspirierte UX-Architektur wird iterativ umgesetzt.
 
+**M12-UX Teil 2 (Draft):** Wellenform/Untertitel und M11-Spur-Canvas
+belegen jetzt genau **einen gemeinsamen Timeline-Dock** mit
+gemeinsamem sichtbaren Zeitintervall, ausgerichteter 128px-Zeitachse,
+Playhead, IN/OUT, Zoom und horizontalem Scrollen. Auf einer
+vertikalen Splitterfläche bleiben die bisherigen Zeichen-/Edit-
+Kontrollen erhalten, statt parallele Zeitachsen in zwei Tabs zu
+zeigen. 8px-Magnetismus für Clipstart/-ende an andere Kanten,
+Playhead, IN/OUT ist abschaltbar; Track-Lock und
+Undo-/Persistenz-Regeln gelten. Der Inspector editiert Clip-
+Quell-IN/OUT, Timeline-IN und ggf. Gain in **einem** atomaren,
+undoable Delta; ungültige Eingaben scheitern ohne Zwischenstand.
+Nicht implementiert: Ripple/Roll-/Multi-Clip-NLE, tatsächlicher
+Mehrspurvideo-/Overlay-Graph und vollständige Live-WYSIWYG-Simulation.
+Reale Windows-/6h-Bedienbarkeit und GPU-Tuning sind Release-Gates.
+
 ### 5.3 M12 – Vorschau & gemeinsame Renderpipeline
 
 **M12a (Draft):** Gemeinsamer, unveränderlicher `RenderRequest` für
