@@ -52,6 +52,31 @@ unter Erhalt aller bestehenden Player-, Timeline-, Undo-/Redo- und
 Highlighter-Funktionen. Nicht gleichzeitig einen neuen Render-Engine-
 Stack anfangen. M13/M14/M15 ergänzen nur die fachlichen Panels.
 
+## M19-UX: Direktveröffentlichung nach Export (Owner-Wunsch 23.11.2026)
+
+Der neue Premiere-inspirierte Workspace erhält „Veröffentlichen“ mit
+**YouTube/Shorts, TikTok, Instagram Reels, Snapchat Spotlight**. Ein
+`PublishAsset`-Übergabevertrag und Provider-Adapter gehören in die
+Architekturplanung; actual API-Integration erst nach validierbarem
+M12–M14-Export, Account-OAuth-/App-Scopes und testbarem M19-Scope.
+
+- YouTube Data API OAuth/`videos.insert`, Shorts werden von YouTube
+  eingestuft.
+- TikTok Content Posting API, `video.publish` mit Audit (unauditierte
+  Clients privat); `video.upload` als Übergabe-Alternative.
+- Instagram Reels Content Publishing nur Professional-Konten,
+  Provider-verfügbare Video-Transferart prüfen.
+- Snapchat Spotlight Public Profile API; allowlist nötig, sonst
+  expliziter manueller Export.
+- Nutzer:innen bestätigen **jedes** Ziel; niemals Autopublishing
+  (F-Tier #50 bleibt ausgeschlossen). Tokens nur geschützt.
+- Pro-Plattform-Status/Fehler, Wiederholbarkeit ohne Doppelposts;
+  positive Publikationsmeldung erst nach Provider-Prüfung.
+
+Ausführliche Owner-Entscheidung und Referenzen in ROADMAP.md §5.5.1.
+Diese Planung verschiebt oder blockiert **nicht** das aktuelle
+M12b-Video-/Overlay-Compositing oder die Dock-UI-Arbeit.
+
 ## Nicht behaupten
 
 Kein vollständiges Live-Mehrspur-WYSIWYG, kein Video-/Overlay-Compositor,
