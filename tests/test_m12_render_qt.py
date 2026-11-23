@@ -72,7 +72,7 @@ def test_rendered_preview_uses_separate_player_and_cleans_temp_files(tmp_path):
         assert dialog.player is not original
         assert dialog.scope_label.text().find("120") == -1  # hh:mm:ss formatting
         assert "00:02:00" in dialog.scope_label.text()
-        assert dialog.player.source().toLocalFile() == str(output)
+        assert gui.Path(dialog.player.source().toLocalFile()).resolve() == output.resolve()
     finally:
         dialog.close()
         app.processEvents()
