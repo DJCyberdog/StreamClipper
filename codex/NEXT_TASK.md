@@ -2,7 +2,7 @@
 
 **Stack:** M10.5 #31 → M11a #34 → M11b #36 →
 M11c Checkpoints #37 → M11c Undo #38 → M11c Highlight Import #39 →
-M11c Proxy Preview Draft #40.
+M11c Proxy Preview Draft #40 → HF-Token/Download-UX Draft #41.
 `main` bleibt unverändert. Echte Abnahmen vor dem Merge dokumentieren.
 
 ## M11c Teil 4 (zur Prüfung)
@@ -19,6 +19,16 @@ M11c Proxy Preview Draft #40.
 - GUI-Umschaltung Original/Proxy mit identischen Originalzeiten,
   automatischer Fallback bei InvalidMedia.
 - Pytest-, VFR-FFmpeg-, Qt-Offscreen- und Windows-Portabel-Build-Gates.
+
+## Nichtblockierender HF-Wunsch #32 (Implementierung im gestapelten Draft)
+
+- Unterer GUI-Fortschrittsbalken zeigt HF-Transferbytes bei bekannter
+  Gesamtgröße; andernfalls indeterminiert. Keine Dateizähler-Prozente.
+- Modellprüfung/Alternative-Gewichte, Cancel und sichere Fehlermeldungen.
+- Maskierte HF-Token-Eingabe mit Sitzungsspeicher, explizitem Online-Check,
+  optionalem Windows Credential Manager und Entfernen.
+- Kein Neubau der M11-Entwicklung und kein unfreigegebener Merge nach main.
+- Echte Windows-11-Prüfung mit großem Modell und echtem Read-Token bleibt offen.
 
 ## Nächste begrenzte Schritte
 
