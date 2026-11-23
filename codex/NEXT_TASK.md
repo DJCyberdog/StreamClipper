@@ -36,6 +36,22 @@ M12b Audio Track Graph Draft #43.
 5. Reale Windows-11-Aufnahmen inklusive 6h OBS-VOD, CPU/GPU/RAM/VRAM,
    Audio-Synchronität und Audioübersteuerungen messbar abnehmen.
 
+## UI-Zielbild (Owner-Beschluss 23.11.2026)
+
+Premiere-inspirierte **dockbare PySide6-NLE-Workspaces** für Highlights,
+Schnitt, Audio, Untertitel und Export, keine 1:1-Kopie und keine neue
+App-Technologie. Mediensammlung/AI-Highlights links, Monitor zentral,
+**eine gemeinsame** mehrspurige Timeline unten, Kontext-/Effektpanel
+rechts. Panel-Presets, Resize, Reset, gespeicherte Layouts, Shortcuts,
+1366×768 und 1920×1080. Zielbild/Etappen verbindlich in ROADMAP.md
+5.2.2 dokumentiert; **noch keine UI-Implementierung**.
+
+Für nächste Umsetzung: nach Sicherung M12b-Teil-1-Tests den **M12-UX
+Dock-/Splitter-Shell-Prototyp** in einem begrenzten stacked Draft bauen,
+unter Erhalt aller bestehenden Player-, Timeline-, Undo-/Redo- und
+Highlighter-Funktionen. Nicht gleichzeitig einen neuen Render-Engine-
+Stack anfangen. M13/M14/M15 ergänzen nur die fachlichen Panels.
+
 ## Nicht behaupten
 
 Kein vollständiges Live-Mehrspur-WYSIWYG, kein Video-/Overlay-Compositor,
