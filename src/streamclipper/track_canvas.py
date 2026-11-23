@@ -36,6 +36,9 @@ class TrackCanvas(QWidget):
         self._selected = ""
         self._drag: tuple[str, float, float] | None = None
         self._preview_position: float | None = None
+        self._playhead: float = 0.0
+        self._selection: tuple[float, float] = (0.0, 0.0)
+        self._snap_enabled = True
         self.setMinimumHeight(220)
         self.setMouseTracking(True)
         self.setToolTip("Clip anklicken = auswählen · Clip ziehen = Timeline-Position ändern. "
@@ -48,6 +51,42 @@ class TrackCanvas(QWidget):
         if project and not any(item.id == self._selected for item in project.items):
             self._selected = ""
         self.update()
+
+    def set_playhead(self, second: float) -> None:
+        """Source/timeline readout without moving the media decoder."""
+        self._playhead = max(0.0, float(second))
+        self.update()
+
+    def set_selection(self, start: float, end: float) -> None:
+        self._selection = (float(start), float(end))
+        self.update()
+
+    def set_snap_enabled(self, enabled: bool) -> None:
+        self._snap_enabled = bool(enabled)
+        self.update()
+
+    def _snap_time(self, value: float, moving_id: str, clip_duration: float) -> float:
+        """Magnet: 8px tolerance, nearest non-self clip edge/playhead/IN/OUT.
+
+        Both edges of the moved clip can align to the same target, while
+        snapping never changes source time, media bytes or track ownership.
+        """
+        if not self._snap_enabled or not self.project:
+            return value
+        threshold = 8 * (self.view_end - self.view_start) / max(
+            1, self.width() - self._LEFT - 8)
+        boundaries = [self._playhead, *self._selection]
+        for item in self.project.items:
+            if item.id != moving_id:
+                boundaries.extend((item.timeline_start,
+                                   item.timeline_start + item.source_end - item.source_start))
+        best_distance, best = threshold, value
+        for point in boundaries:
+            for candidate in (point, point - clip_duration):
+                distance = abs(candidate-value)
+                if distance < best_distance:
+                    best_distance, best = distance, candidate
+        return max(0.0, round(best, 3))
 
     def set_visible_range(self, start: float, end: float) -> None:
         if not 0 <= start < end:
@@ -75,6 +114,9 @@ class TrackCanvas(QWidget):
         width = self.width()
         p.setPen(QColor("#afc1d7"))
         p.drawText(9, 22, "SPUREN")
+        if self._snap_enabled:
+            p.setPen(QColor("#78B9DB"))
+            p.drawText(max(self._LEFT+12, width-64), 22, "SNAP")
         p.drawText(self._LEFT + 3, 22, format_timestamp(self.view_start)[:-4])
         p.drawText(max(self._LEFT + 10, width - 85), 22,
                    format_timestamp(self.view_end)[:-4])
@@ -87,6 +129,13 @@ class TrackCanvas(QWidget):
             p.drawText(10, 80, "Eine Aufnahme öffnen, um Spuren zu sehen.")
             p.end()
             return
+        # A single timebase governs the waveform above and the track lanes.
+        left_sel = max(self._LEFT, self._x(self._selection[0]))
+        right_sel = min(width, self._x(self._selection[1]))
+        if right_sel > left_sel:
+            p.fillRect(QRectF(left_sel, self._TOP, right_sel-left_sel,
+                              max(0, self.height()-self._TOP)),
+                       QColor(248, 181, 65, 18))
         for row, track in enumerate(self.project.tracks):
             y = self._TOP + row * self._ROW
             p.fillRect(QRectF(0, y, width, self._ROW - 1),
@@ -123,6 +172,10 @@ class TrackCanvas(QWidget):
                                   self._ROW - 13),
                            Qt.AlignmentFlag.AlignVCenter, (item.label or item.id)[:60])
                 p.restore()
+        x = self._x(self._playhead)
+        if self._LEFT <= x <= width:
+            p.setPen(QPen(QColor("#FF655F"), 2))
+            p.drawLine(round(x), 0, round(x), self.height())
         p.end()
 
     def mousePressEvent(self, event):
@@ -142,7 +195,7 @@ class TrackCanvas(QWidget):
                     item.timeline_start + item.source_end - item.source_start):
                 self.set_selected_clip(item.id)
                 self.clipSelected.emit(item.id)
-                if not track.locked:
+                if not track.locked and item.id != "source":
                     self._drag = (item.id, item.timeline_start, event.position().x())
                     self._preview_position = item.timeline_start
                 return
@@ -153,7 +206,13 @@ class TrackCanvas(QWidget):
         _, old_position, down_x = self._drag
         delta = (event.position().x() - down_x) * (
             self.view_end - self.view_start) / max(1, self.width() - self._LEFT - 8)
-        self._preview_position = max(0.0, round(old_position + delta, 3))
+        candidate = max(0.0, round(old_position + delta, 3))
+        if self.project:
+            item = next(i for i in self.project.items if i.id == self._drag[0])
+            duration = item.source_end - item.source_start
+            candidate = self._snap_time(candidate, item.id, duration)
+            candidate = min(candidate, max(0.0, 86400-duration))
+        self._preview_position = candidate
         self.update()
 
     def mouseReleaseEvent(self, event):
