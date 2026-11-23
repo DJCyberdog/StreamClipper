@@ -6,7 +6,12 @@ setup command or the corresponding user-initiated GUI action.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from fnmatch import fnmatch
 from pathlib import Path
+from typing import Callable
+
+from .model_download_progress import ModelDownloadProgress, ProgressEvent
+from .media import CancelledError
 
 from .model_checks import validate_clip_model
 from .semantic import default_models_directory
@@ -97,20 +102,99 @@ def is_installed(model_id: str, root: Path | None = None) -> bool:
     return True
 
 
-def download_preset(model_id: str, root: Path | None = None) -> Path:
-    """Only call from an explicit setup/download action. Never from inference."""
+def _expected_model_bytes(api, model: ModelPreset, patterns: list[str],
+                          *, token: str | None) -> int | None:
+    """Compute real aggregate bytes from the repository file metadata.
+
+    Missing sizes imply a busy progress indicator; never invent totals from
+    number of files. The fallback weight choice is included only when needed.
+    """
+    try:
+        info = api.model_info(model.repository, files_metadata=True, token=token)
+        siblings = list(info.siblings or [])
+        present = {f.rfilename for f in siblings}
+        selected = set()
+        for sibling in siblings:
+            name = sibling.rfilename
+            if any(fnmatch(name, pattern) for pattern in patterns):
+                selected.add(name)
+        if model.kind != 'speech' and 'model.safetensors' not in present:
+            if 'pytorch_model.bin' in present:
+                selected.add('pytorch_model.bin')
+        if not selected:
+            return None
+        lengths = {f.rfilename: f.size for f in siblings if f.rfilename in selected}
+        if any(not isinstance(lengths.get(name), int) or lengths[name] <= 0
+               for name in selected):
+            return None
+        return sum(lengths[name] for name in selected)
+    except Exception:
+        # Metadata preflight may be unsupported, private, or rate-limited;
+        # actual download errors remain observable via snapshot_download.
+        return None
+
+
+def safe_hf_error(exc: Exception) -> str:
+    """Do not surface raw HF exceptions that may contain tokens or headers."""
+    response = getattr(exc, 'response', None)
+    status = getattr(response, 'status_code', None)
+    if status == 401:
+        return 'Hugging Face: Token ungültig oder abgelaufen (401).'
+    if status == 403:
+        return 'Hugging Face: Keine Berechtigung für dieses Modell (403).'
+    if status == 404:
+        return 'Hugging Face: Modell nicht gefunden oder nicht zugänglich (404).'
+    if isinstance(exc, (FileNotFoundError, PermissionError)):
+        return 'Lokaler Modellordner fehlt, ist unvollständig oder nicht beschreibbar.'
+    if isinstance(exc, (TimeoutError, ConnectionError)):
+        return 'Verbindung zu Hugging Face fehlgeschlagen. Erneut versuchen.'
+    return f'Modellvorgang fehlgeschlagen ({type(exc).__name__}); bitte Verbindung, Rechte und Installation prüfen.'
+
+
+def download_preset(
+        model_id: str, root: Path | None = None, *,
+        token: str | None = None,
+        progress: ProgressEvent | None = None,
+        cancelled: Callable[[], bool] | None = None) -> Path:
+    """Explicit, cancellable snapshot download with real network byte tracking.
+
+    The opt-in token never enters logs, environment variables, CLI arguments
+    or local metadata. 100% is emitted only after validated model weights.
+    """
     model = preset(model_id)
     folder = preset_path(model_id, root)
+    if cancelled and cancelled():
+        raise CancelledError('Modelldownload abgebrochen')
     try:
-        from huggingface_hub import snapshot_download
+        from huggingface_hub import HfApi, snapshot_download
     except ImportError as exc:
         raise RuntimeError('Modell-Setup fehlt: pip install -e ".[models]"') from exc
     common = ['*.json', '*.txt', '*.model', 'vocabulary.*', 'merges.txt']
     weights = ['model.bin'] if model.kind == 'speech' else ['model.safetensors']
-    snapshot_download(repo_id=model.repository, local_dir=str(folder),
-                      allow_patterns=common + weights)
-    if model.kind != 'speech':
-        if not (folder / 'model.safetensors').is_file():
-            snapshot_download(repo_id=model.repository, local_dir=str(folder),
-                              allow_patterns=['pytorch_model.bin'])
-    return validate_model_dir(model.kind, folder)
+    patterns = common + weights
+    tracker = ModelDownloadProgress(progress, cancelled=cancelled) if progress else None
+    if tracker:
+        tracker.report('metadata')
+        expected = _expected_model_bytes(HfApi(), model, patterns, token=token)
+        tracker.set_total(expected)
+    options = dict(repo_id=model.repository, local_dir=str(folder),
+                   token=token)
+    if tracker:
+        options['tqdm_class'] = tracker.tqdm_class()
+    if cancelled and cancelled():
+        raise CancelledError('Modelldownload abgebrochen')
+    snapshot_download(**options, allow_patterns=patterns)
+    if cancelled and cancelled():
+        raise CancelledError('Modelldownload abgebrochen')
+    if model.kind != 'speech' and not (folder / 'model.safetensors').is_file():
+        if tracker:
+            tracker.report('fallback')
+        snapshot_download(**options, allow_patterns=['pytorch_model.bin'])
+    if cancelled and cancelled():
+        raise CancelledError('Modelldownload abgebrochen')
+    if tracker:
+        tracker.report('validation')
+    verified = validate_model_dir(model.kind, folder)
+    if tracker:
+        tracker.finish()
+    return verified
