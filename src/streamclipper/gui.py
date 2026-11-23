@@ -2816,6 +2816,99 @@ class MainWindow(QMainWindow):
         self.preview_end = None  # manual scrubbing may leave suggested time span
         self._set_preview_position(pos)
 
+    def start_render_preview(self) -> None:
+        """Render a bounded export-identical MP4 without touching source playback."""
+        if (self.worker is not None and self.worker.isRunning()) or (
+                self.model_worker is not None or self._history_blocked):
+            return
+        if not self._video_info or not self.source:
+            self.statusBar().showMessage("Videodaten werden noch geladen")
+            return
+        if not self.apply_word_editor() or not self.apply_transcript_editor():
+            return
+        clip = self.selected_candidate() if self.analysis else None
+        if clip is None:
+            start, end = self.timeline.in_point, self.timeline.out_point
+        else:
+            start, end = clip.start, clip.end
+        transcript = (tuple(self.analysis.transcript)
+                      if self.analysis and self.analysis.video.path == self.source
+                      else ())
+        try:
+            request = RenderRequest(
+                video=self._video_info, start=start, end=end,
+                mode=str(self.mode.currentData()),
+                burn_subtitles=(self.burn_subtitles.isChecked() and bool(transcript)),
+                subtitle_offset=self.caption_offset.value(),
+                transcript=transcript,
+            ).preview_excerpt()
+        except (ValueError, OSError) as exc:
+            QMessageBox.warning(self, "Render-Vorschau nicht möglich", str(exc))
+            return
+        if self._render_preview_dialog is not None:
+            self._render_preview_dialog.close()
+            self._render_preview_dialog = None
+        worker = RenderPreviewThread(request, self)
+        self.worker = worker
+        worker.progress_changed.connect(
+            lambda value, w=worker: self._render_preview_progress(w, value))
+        worker.done.connect(
+            lambda value, w=worker: self._render_preview_done(w, value))
+        worker.failed.connect(
+            lambda reason, w=worker: self._render_preview_failed(w, reason))
+        worker.was_cancelled.connect(
+            lambda w=worker: self._render_preview_cancelled(w))
+        worker.finished.connect(lambda w=worker: self._render_preview_finished(w))
+        self.progress.setRange(0, 100)
+        self.progress.setValue(0)
+        self.progress.setFormat("Render-Vorschau · %p %")
+        self._busy(True)
+        self.statusBar().showMessage(
+            "Render-Vorschau wird mit den MP4-Exportfiltern erstellt …")
+        worker.start()
+
+    def _render_preview_progress(self, worker: RenderPreviewThread, value: int) -> None:
+        if self.worker is worker:
+            self.progress.setValue(value)
+
+    def _render_preview_done(self, worker: RenderPreviewThread, outcome: object) -> None:
+        result, temporary = outcome
+        if (self.worker is not worker or not self.source or
+                result.request.video.path != self.source):
+            temporary.cleanup()
+            return
+        dialog = RenderedClipDialog(result, temporary, self)
+        self._render_preview_dialog = dialog
+        dialog.finished.connect(
+            lambda _status, d=dialog: self._render_preview_dialog_finished(d))
+        dialog.show()
+        dialog.player.play()
+        self.progress.setValue(100)
+        self.statusBar().showMessage(
+            "Exportgetreuer Ausschnitt bereit · eigene Wiedergabe, Original unverändert")
+
+    def _render_preview_dialog_finished(self, dialog: RenderedClipDialog) -> None:
+        if self._render_preview_dialog is dialog:
+            self._render_preview_dialog = None
+
+    def _render_preview_failed(self, worker: RenderPreviewThread, reason: str) -> None:
+        if self.worker is worker:
+            self.progress.setValue(0)
+            self.statusBar().showMessage("Render-Vorschau fehlgeschlagen")
+            QMessageBox.warning(self, "Render-Vorschau fehlgeschlagen", reason)
+
+    def _render_preview_cancelled(self, worker: RenderPreviewThread) -> None:
+        if self.worker is worker:
+            self.progress.setValue(0)
+            self.statusBar().showMessage(
+                "Render-Vorschau abgebrochen · Original und Projekt unverändert")
+
+    def _render_preview_finished(self, worker: RenderPreviewThread) -> None:
+        if self.worker is worker:
+            self.worker = None
+        worker.deleteLater()
+        self._busy(False)
+
     def start_export(self, all_clips: bool) -> None:
         if not self.analysis or not self.apply_word_editor() or not self.apply_transcript_editor():
             return
