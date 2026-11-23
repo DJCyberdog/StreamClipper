@@ -3018,7 +3018,8 @@ class MainWindow(QMainWindow):
         if self.model_worker is not None:
             self.model_worker.cancel()
             self.statusBar().showMessage("Modelldownload-Abbruch angefordert …")
-        elif self.worker and self.worker.isRunning():
+        elif self.worker is not None:
+            # Also catch QThreads queued for start but not yet isRunning().
             self.worker.cancel()
             self.statusBar().showMessage("Abbruch angefordert …")
 
