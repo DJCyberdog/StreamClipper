@@ -1,48 +1,43 @@
-# NEXT_TASK – M11c Preview-Abnahme / M12 Render-Vertrag
+# NEXT_TASK – M12b: Gemeinsamer Mehrspur-Rendervertrag
 
 **Stack:** M10.5 #31 → M11a #34 → M11b #36 →
-M11c Checkpoints #37 → M11c Undo #38 → M11c Highlight Import #39 →
-M11c Proxy Preview Draft #40 → HF-Token/Download-UX Draft #41.
-`main` bleibt unverändert. Echte Abnahmen vor dem Merge dokumentieren.
+M11c Checkpoints #37 → M11c Undo #38 →
+M11c Highlight Import #39 → M11c Proxy #40 →
+HF-UX #41 → M12a single-source Render Preview Draft #42.
+Keine unfreigegebenen Merges nach `main`.
 
-## M11c Teil 4 (zur Prüfung)
+## M12a (im Draft, Review-/Abnahmezustand separat dokumentieren)
 
-- CPU-basiertes, optionales 854×480-H.264/AAC-Proxy-Transcoding mit
-  FFmpeg im QThread, Abbrechen/Fortschritt und originaltreuem Schnittmodell.
-- VFR-frame PTS-Abstände erhalten (`-fps_mode passthrough`), Video-PTS
-  auf Proxy-Beginn normalisieren; getrennte Original↔Proxy-Zeitzuordnung.
-- Start-/Audioversatz über 150 ms sowie Gesamtdrift über 300 ms
-  ausdrücklich ablehnen statt scheinbarer Synchronität.
-- Quelle/Video-Metadaten, Größe/mtime_ns und Encoder-Preset binden Cache
-  unter `data/proxies/`; temporäre Dateien und Manifest atomisch
-  publizieren, alte/kaputte Caches nicht für Vorschau anbieten.
-- GUI-Umschaltung Original/Proxy mit identischen Originalzeiten,
-  automatischer Fallback bei InvalidMedia.
-- Pytest-, VFR-FFmpeg-, Qt-Offscreen- und Windows-Portabel-Build-Gates.
+- `RenderRequest` ist das eine unveränderliche Quellclip-/Modus-/
+  Untertitel- und Zeitfensterobjekt für tatsächlichen MP4-Export
+  **und** 20-Sekunden-Render-Vorschau.
+- Beide nutzen denselben `export_clip`-FFmpeg-Boundary; keine
+  approximative UI-Filtervorschau als „exportgetreu“ ausgeben.
+- QThread, untere Fortschrittsleiste, Abbruch, separates Player-Fenster
+  und temporäre MP4, die nach Ansicht gelöscht wird.
+- Keine Modelltranskription, Proxy-Konvertierung oder Spuränderungen
+  für diesen Vorschauklick; Original bleibt unangetastet.
+- Decoded-Frame-Parität inkl. eingebrannter ASS-Untertitel,
+  Qt-Offscreen, Linux-Pytest/compileall und Windows-Build prüfen.
 
-## Nichtblockierender HF-Wunsch #32 (Implementierung im gestapelten Draft)
+## M12b: Nächste abgegrenzte Entwicklung
 
-- Unterer GUI-Fortschrittsbalken zeigt HF-Transferbytes bei bekannter
-  Gesamtgröße; andernfalls indeterminiert. Keine Dateizähler-Prozente.
-- Modellprüfung/Alternative-Gewichte, Cancel und sichere Fehlermeldungen.
-- Maskierte HF-Token-Eingabe mit Sitzungsspeicher, explizitem Online-Check,
-  optionalem Windows Credential Manager und Entfernen.
-- Kein Neubau der M11-Entwicklung und kein unfreigegebener Merge nach main.
-- Echte Windows-11-Prüfung mit großem Modell und echtem Read-Token bleibt offen.
-
-## Nächste begrenzte Schritte
-
-1. Auf echtem Windows 11 ergonomische Vorschau bei 1366×768 und
-   1920×1080 prüfen; Audioausgabe, Wechsel im Playback, Worttiming.
-2. Reale sechsstündige OBS-/Twitch-VODs mit VFR und Audio-Offsets
-   messen: Peak-RAM/VRAM, Encode-Dauer, Scrubbing/Drift und Cancel/Crash.
-3. Cachepublikation nach Strom-/Festplattenfehler sowie concurrent
-   Worker konkurrierender Quellen härten; Fallback-Tests erweitern.
-4. Separat M12-Datenvertrag für WYSIWYG-Vorschau/MP4-Rendergraph
-   der Video-, Audio-, Untertitel- und Overlay-Spuren definieren.
-5. `main` weiterhin nicht ohne Ownerfreigabe verändern.
+1. Versioniertes `RenderGraph`-Schema für **wirkliche** Timeline-
+   Spuren aus M11: Gameplay-Video, Clipzeiten, unabhängige Mik-/Musik-
+   Audiospuren, Mute, Captions, Grafiken; Quell- und Zielzeit explizit.
+2. Deterministische Reihenfolge, Track-Lock-/Mute-Semantik,
+   Timeline-Lücken, Überlappung, A/V-PTS, Audiopegel, Clip-Speed
+   und valide/ungültige Quellreferenzen fail-closed modellieren.
+3. Erst dann denselben Graph sowohl im echten Mehrspur-Preview als auch
+   im Export realisieren, mit Golden-Frame- und Audiovergleich;
+   keinen stillen Unterschied zwischen „Preview“ und „Export“.
+4. Danach M12c NVENC/H.264+HEVC/CPU-Fallback, M12d Export-QA,
+   M12e Renderqueue/Recovery, reales Windows-11-End-to-End.
+5. Reale 6h-VOD-Messungen, Windows 1366×768/1080p UX und
+   20s-Renderpreview-GPU/RAM-/Audio- und Cancel-Tests abnehmen.
 
 ## Nicht behaupten
 
-Keine exportgetreue Mehrspur-Vorschau, keine frameidentische Proxyansicht
-und keine echte Windows-/6h-Abnahme ohne reproduzierbare Messungen.
+M12 nicht abgeschlossen. Kein Mehrspur-WYSIWYG, keine externe
+Cloud-Abhängigkeit, keine automatische Veröffentlichung, kein
+Projekt-Merge ohne explizite Owner-Freigabe.
