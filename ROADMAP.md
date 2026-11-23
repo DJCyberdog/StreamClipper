@@ -250,6 +250,17 @@ Mehrspur-Komposition, Live-WYSIWYG, NVENC, Export-QA und Renderqueue
 bleiben offen. M11-Metadaten-Spuren wirken weiterhin nicht auf den
 Rendergraph.
 
+**M12b Teil 1 (Draft):** Versionierter, deterministischer Rendergraph
+und Projektformat v2 (v1-Dateien und v1-Checkpoints beim Lesen migrieren).
+Editor kann lokale WAV/MP3/FLAC-Audiomedien mit Quellzeit, Zielzeit
+und Pegel als Spurclips referenzieren. Opt-in FFmpeg-Audio-Compositor
+mit Stumm-/Sperr-/Ausblenden-Semantik; Ausgaben aus MP4-Export und
+20-s-Render-Vorschau haben identische Graph-Parameter und Audiomischung.
+Noch keine Mehrspur-Videokomposition, kein Overlay-Compositing,
+keine durchgehende Live-WYSIWYG-Vorschau. Diese werden bei angeforderter
+Graph-Verarbeitung ausdrücklich abgelehnt statt ignoriert. Echte
+Windows-/6h-VOD-Abnahme noch offen.
+
 - Rendergraph/-Parameter für Vorschau und MP4-Export gemeinschaftlich definieren (**#01**).
 - NVENC (H.264/HEVC), sichere CPU-Fallbacks, stapelbare Renderjobs und Exportqualitätsprüfung (**#06–#08**).
 - Die Vorschau darf nicht nur „ungefähr“ stimmen: Kamerafahrt- und Untertiteltests werden in **M13/M14** gegen denselben Rendervertrag erweitert.
