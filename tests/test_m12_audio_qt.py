@@ -36,6 +36,7 @@ def test_audio_file_adds_to_selected_track_and_goes_to_preview_request(tmp_path,
         window._source_duration = 100
         window.timeline.set_duration(100)
         window._open_editor_project(info)
+        window._busy(False)  # mirrors waveform_finished enabling the video preview
         assert not window.include_track_audio.isEnabled()
         window.tracks_table.selectRow(1)  # microphone
         assert window.track_audio_import.isEnabled()
