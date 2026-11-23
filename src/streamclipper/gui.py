@@ -2841,7 +2841,7 @@ class MainWindow(QMainWindow):
                 burn_subtitles=(self.burn_subtitles.isChecked() and bool(transcript)),
                 subtitle_offset=self.caption_offset.value(),
                 transcript=transcript,
-            ).preview_excerpt()
+            ).validate()
         except (ValueError, OSError) as exc:
             QMessageBox.warning(self, "Render-Vorschau nicht möglich", str(exc))
             return
