@@ -1,5 +1,39 @@
 # StreamClipper 0.4 (experimenteller Export)
 
+## M12-UX – Premium-Workspace und andockbare Panels (Draft)
+
+StreamClipper Studio bekommt eine **Premiere-inspirierte, aber eigenständige**
+Editoroberfläche. Sie besteht aus einem zentralen **Programmmonitor**,
+einem andockbaren **Projekt-/Werkzeugdock** mit allen bisherigen
+Registerkarten, einer separaten **Timeline** und einem kontextbezogenen
+**Eigenschaften-Inspektor**. Dies ist die erste funktionierende
+Docking-Shell, noch keine abgeschlossene Profi-NLE.
+
+Oben rechts in der Anwendung zwischen den Arbeitsbereichen
+**Highlights / Schnitt / Audio / Untertitel / Export** wechseln.
+Wiedergabe, Quellzeit, Projektinhalt und Undo-Historie bleiben erhalten.
+Unter **Ansicht & Arbeitsbereiche** kannst du einzelne Panels
+ein-/ausblenden, per Titelleiste umsetzen/abdocken, das aktuelle Layout
+speichern oder **Layout zurücksetzen**. Das Layout wird auch beim
+normalen Beenden lokal gespeichert und beim Neustart wiederhergestellt.
+Die UI-Konfiguration liegt separat im portablen Verzeichnis unter
+`data/ui/workspace-layout-v1.json` (versioniert, atomar, keine Tokens
+und keine Projekt-/Video-Inhalte). Window-Positionen werden absichtlich
+nicht automatisch wiederhergestellt, damit eine Änderung der
+Monitoranordnung die App nicht außerhalb des Bildschirms platziert.
+
+Die bestehende Original-/Proxy- und Render-Vorschau, alle M11-Clip-/
+Wort-Edits, M12-Audiospuren sowie Export-/Download-Worker bleiben
+dieselben Objekte und Signale. Zusätzliche Untermenüs und die grafische
+Anordnung sind noch **experimentell**; die vereinheitlichte
+mehrspurige Timeline, Drag&Drop, Keyframe-Panels und weitere
+Polishing-Schritte werden in M12-UX Teil 2/M13 bearbeitet.
+
+**Wichtig:** Premium-Ziel bedeutet nicht, dass unfertige Renderfähigkeiten
+vorgetäuscht werden. M12-UX verbessert die Bedienoberfläche; es ersetzt
+keine noch offenen M12-Video-Overlays, NVENC-/Export-QA- oder M19-Upload-Funktionen.
+
+
 ## M12b – Eigene Audiodateien auf der Timeline mischen (Draft)
 
 Die M11-Spuren unterstützen jetzt eine **opt-in Audio-Komposition**:
