@@ -54,6 +54,8 @@ def test_audio_file_adds_to_selected_track_and_goes_to_preview_request(tmp_path,
         window.start_render_preview()
         assert isinstance(window.worker, RenderPreviewThread)
         assert window.worker.request.project == window.editor_project
+        assert window.include_track_audio.isChecked()
+        assert not window.include_track_audio.isEnabled()
         assert window.worker.request.start == 20
         assert audio.read_bytes() == b"unchanged audio"
         assert video.read_bytes() == b"original"
