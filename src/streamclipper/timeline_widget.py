@@ -41,6 +41,7 @@ class TimelineWidget(QWidget):
         self.cues: list[TranscriptSegment] = []
         self.selected_word: tuple[int, int] | None = None
         self.caption_offset = 0.0
+        self.left_gutter = 0  # M12-UX shares 128px time origin with track lanes
         self._drag: str | None = None
         self._anchor = 0.0
         self._word_drag: tuple[int, int, str] | None = None
@@ -110,13 +111,27 @@ class TimelineWidget(QWidget):
         if not a <= t <= b:
             self.set_offset(t - (b - a) / 2)
 
+    def set_left_gutter(self, width: int) -> None:
+        """Align waveform and TrackCanvas rulers without changing source times.
+
+        Default 0 preserves standalone TimelineWidget / M11 compatibility.
+        """
+        if not isinstance(width, int) or not 0 <= width <= 280:
+            raise ValueError("Ungültiger Timeline-Rand")
+        self.left_gutter = width
+        self.update()
+
+    def _plot_width(self) -> int:
+        return max(1, self.width() - self.left_gutter - (8 if self.left_gutter else 0))
+
     def _x(self, sec: float) -> float:
-        return x_at_time(sec, max(1, self.width()), self.duration,
-                         self.zoom, self.offset)
+        return self.left_gutter + x_at_time(
+            sec, self._plot_width(), self.duration, self.zoom, self.offset)
 
     def _t(self, px: float) -> float:
-        return time_at_x(px, max(1, self.width()), self.duration,
-                         self.zoom, self.offset)
+        return time_at_x(
+            max(0, px-self.left_gutter), self._plot_width(),
+            self.duration, self.zoom, self.offset)
 
     def paintEvent(self, _event):
         p = QPainter(self)
@@ -126,32 +141,39 @@ class TimelineWidget(QWidget):
         if w <= 0 or h <= 0:
             return
         a, b = self.visible()
+        gutter, plot_width = self.left_gutter, self._plot_width()
         # Three tracks: ruler, audio, subtitles.
         p.fillRect(QRectF(0, 25, w, 94), QColor("#202b3d"))
         p.fillRect(QRectF(0, 122, w, h - 122), QColor("#1e2330"))
+        if gutter:
+            p.fillRect(QRectF(0, 0, gutter, h), QColor("#202c3b"))
+            p.setPen(QColor("#D6E5F5"))
+            p.drawText(9, 71, "WELLENFORM")
+            p.drawText(9, 146, "WÖRTER")
         p.setFont(QFont("Arial", 9))
         p.setPen(QColor("#b4c4da"))
         ticks = 10
         for i in range(ticks + 1):
             t = a + (b - a) * i / ticks
-            x = round(w * i / ticks)
+            x = round(gutter + plot_width * i / ticks)
             p.drawLine(x, 19, x, 25)
-            p.drawText(min(w-92, max(3, x + 2)), 14, format_timestamp(t)[:-4])
+            p.drawText(min(w-92, max(gutter+3, x+2)), 14, format_timestamp(t)[:-4])
         # Highlights under waveform: green for manual / blue for AI suggestions.
         for clip in self.candidates:
             if clip.end <= a or clip.start >= b:
                 continue
-            left, right = max(0, self._x(clip.start)), min(w, self._x(clip.end))
+            left, right = max(gutter, self._x(clip.start)), min(w, self._x(clip.end))
             p.fillRect(QRectF(left, 30, max(1, right-left), 83),
                        QColor(38, 114, 75, 92) if clip.origin == "manual"
                        else QColor(47, 103, 178, 66))
         # Visible-only waveform sampling; never retain rasterized 6h pixmaps.
-        amplitudes = waveform_window(self.peaks, self.duration, a, b, w)
+        amplitudes = waveform_window(
+            self.peaks, self.duration, a, b, plot_width)
         p.setPen(QPen(QColor("#67bee5"), 1))
         middle = 70
         for x, amp in enumerate(amplitudes):
             height = max(1, round(41 * amp))
-            p.drawLine(x, middle-height, x, middle+height)
+            p.drawLine(gutter+x, middle-height, gutter+x, middle+height)
         # WORD track: only the current in/out (highlight) range, never the
         # entire 6-hour transcript. Purple = native timing; amber = estimated.
         for segment_index, word_index, word in words_in_clip(
@@ -164,7 +186,7 @@ class TimelineWidget(QWidget):
             cue_end += self.caption_offset
             if cue_end <= a or cue_start >= b:
                 continue
-            left, right = max(0, self._x(cue_start)), min(w, self._x(cue_end))
+            left, right = max(gutter, self._x(cue_start)), min(w, self._x(cue_end))
             if right-left < 2:
                 continue
             selected = self.selected_word == (segment_index, word_index)
@@ -179,15 +201,16 @@ class TimelineWidget(QWidget):
                            word.text[:50])
         # Selection overlay and In/Out grab handles.
         left, right = self._x(self.in_point), self._x(self.out_point)
-        p.fillRect(QRectF(max(0, left), 24, max(0, min(w,right)-max(0,left)), h-24),
+        p.fillRect(QRectF(max(gutter, left), 24,
+                          max(0, min(w,right)-max(gutter,left)), h-24),
                    QColor(248, 181, 65, 33))
         p.setPen(QPen(QColor("#ffcf75"), 2))
         for x, label in ((left, "IN"), (right, "OUT")):
-            if 0 <= x <= w:
+            if gutter <= x <= w:
                 p.drawLine(int(x), 25, int(x), h)
                 p.drawText(int(x)+3 if x < w-35 else int(x)-32, 39, label)
         x = self._x(self.position)
-        if 0 <= x <= w:
+        if gutter <= x <= w:
             p.setPen(QPen(QColor("#ff655f"), 2))
             p.drawLine(int(x), 0, int(x), h)
         p.end()
@@ -196,6 +219,8 @@ class TimelineWidget(QWidget):
         if event.button() != Qt.MouseButton.LeftButton:
             return
         x, y = event.position().x(), event.position().y()
+        if x < self.left_gutter:
+            return
         t = self._t(x)
         # Bottom track chooses individual words in current highlight.
         if y >= 122 and not (event.modifiers() & Qt.KeyboardModifier.ShiftModifier):
