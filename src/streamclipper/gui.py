@@ -18,7 +18,7 @@ from PySide6.QtWidgets import (
     QApplication, QCheckBox, QComboBox, QDialog, QDockWidget, QFileDialog, QHBoxLayout, QLabel, QLineEdit, QMainWindow,
     QMessageBox, QPlainTextEdit, QProgressBar, QPushButton, QSlider, QSpinBox,
     QInputDialog,
-    QDoubleSpinBox, QSplitter, QTableWidget, QTableWidgetItem, QTabWidget,
+    QDoubleSpinBox, QFormLayout, QSplitter, QTableWidget, QTableWidgetItem, QTabWidget,
     QVBoxLayout, QWidget, QScrollArea,
 )
 
@@ -809,7 +809,9 @@ class MainWindow(QMainWindow):
         self.track_canvas.trackSelected.connect(self._select_project_track)
         self.track_canvas.clipSelected.connect(self._select_project_clip)
         self.track_canvas.clipMoved.connect(self._drag_project_clip)
-        tracks_layout.addWidget(self.track_canvas)
+        tracks_layout.addWidget(QLabel(
+            "Grafische Spuren: unten in der gemeinsamen Timeline · "
+            "die Tabellen hier bleiben für präzise Verwaltung verfügbar."))
         self.tracks_table = QTableWidget(0, 5)
         self.tracks_table.setMinimumHeight(145)
         self.tracks_table.setHorizontalHeaderLabels(
@@ -920,7 +922,7 @@ class MainWindow(QMainWindow):
         self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self.timeline_dock)
         # M6: zoomable waveform editing; existing player/timing stay unchanged.
         timeline_header = QHBoxLayout()
-        timeline_header.addWidget(QLabel("TIMELINE · Audio / Highlights / Untertitel"))
+        timeline_header.addWidget(QLabel("TIMELINE · Wellenform / Clips / Untertitel"))
         timeline_header.addStretch()
         timeline_header.addWidget(QLabel("Zoom"))
         self.timeline_zoom = QComboBox()
@@ -933,6 +935,13 @@ class MainWindow(QMainWindow):
         timeline_header.addWidget(self.timeline_zoom)
         self.timeline_zoom_hint = QLabel("1×")
         timeline_header.addWidget(self.timeline_zoom_hint)
+        self.timeline_snap = QCheckBox("Magnet")
+        self.timeline_snap.setChecked(True)
+        self.timeline_snap.setToolTip(
+            "Spurclips an Playhead, IN/OUT und anderen Clipkanten einrasten "
+            "(8 Pixel Toleranz).")
+        self.timeline_snap.toggled.connect(self.track_canvas.set_snap_enabled)
+        timeline_header.addWidget(self.timeline_snap)
         self.timeline_status = QLabel("Keine Aufnahme geladen")
         timeline_header.addWidget(self.timeline_status)
         self.undo_button = QPushButton("↶ Rückgängig")
@@ -957,7 +966,15 @@ class MainWindow(QMainWindow):
         self.timeline.subtitleSelected.connect(self.timeline_select_subtitle)
         self.timeline.wordSelected.connect(self.select_timeline_word)
         self.timeline.wordBoundaryCommitted.connect(self.commit_timeline_word_edge)
-        timeline_layout.addWidget(self.timeline)
+        self.timeline.set_left_gutter(self.track_canvas._LEFT)
+        self.unified_timeline = QSplitter(Qt.Orientation.Vertical)
+        self.unified_timeline.setObjectName("streamclipper.unifiedTimeline")
+        self.unified_timeline.addWidget(self.timeline)
+        self.unified_timeline.addWidget(self.track_canvas)
+        self.unified_timeline.setChildrenCollapsible(False)
+        self.unified_timeline.setSizes([210, 280])
+        timeline_layout.addWidget(self.unified_timeline, 1)
+        self.track_canvas.set_playhead(0)
         self.timeline_scroll = QSlider(Qt.Orientation.Horizontal)
         self.timeline_scroll.setMinimum(0)
         self.timeline_scroll.setMaximum(0)
@@ -1160,7 +1177,7 @@ class MainWindow(QMainWindow):
         self._timeline_buttons = (self.timeline_in, self.timeline_out,
                                   self.timeline_play, self.timeline_add,
                                   self.timeline_trim, self.timeline_zoom,
-                                  self.timeline_scroll)
+                                  self.timeline_scroll, self.timeline_snap)
         self._busy(False)
         self.setStyleSheet(EDITOR_STYLESHEET)
         self._load_workspace_on_start()
@@ -1507,6 +1524,7 @@ class MainWindow(QMainWindow):
         self._update_track_actions()
         self._update_checkpoint_actions()
         self._update_proxy_controls()
+        self._update_inspector()
 
     def _update_history_controls(self, enabled: bool = True) -> None:
         active = enabled and not self._history_blocked
@@ -1804,6 +1822,7 @@ class MainWindow(QMainWindow):
             self.track_canvas.set_visible_range(*self.timeline.visible())
         self.track_canvas.set_selected_clip(old_clip)
         self._update_track_actions()
+        self._update_inspector()
 
     def _select_project_track(self, track_id: str) -> None:
         if not self.editor_project:
@@ -1824,8 +1843,13 @@ class MainWindow(QMainWindow):
     def _track_clip_selection_changed(self) -> None:
         self.track_canvas.set_selected_clip(self._selected_clip_id())
         self._update_track_actions()
+        self._update_inspector()
 
     def _drag_project_clip(self, item_id: str, position: float) -> None:
+        if item_id == "source":
+            self.statusBar().showMessage(
+                "Die M12b-Basisaufnahme bleibt am Timeline-Ursprung.", 4000)
+            return
         self._apply_project_edit(edit_item, item_id, timeline_start=position)
 
     def _update_track_actions(self) -> None:
@@ -2211,6 +2235,8 @@ class MainWindow(QMainWindow):
     def timeline_seek(self, second: float):
         self.preview_end = None
         self._set_preview_position(round(second * 1000))
+        self.timeline.set_position(second)
+        self.track_canvas.set_playhead(second)
 
     def timeline_range_changed(self, start: float, end: float):
         if not self.apply_word_editor():
@@ -2218,6 +2244,7 @@ class MainWindow(QMainWindow):
             self.timeline.set_selection(*self._last_timeline_range)
             return
         self._last_timeline_range = (start, end)
+        self.track_canvas.set_selection(start, end)
         self._refresh_word_refs()
         self.timeline_in.blockSignals(True)
         self.timeline_out.blockSignals(True)
@@ -3121,6 +3148,7 @@ class MainWindow(QMainWindow):
             self.seek.setValue(original_ms)
         self.time_label.setText(display_time(original_ms / 1000))
         self.timeline.set_position(original_ms / 1000)
+        self.track_canvas.set_playhead(original_ms / 1000)
         if (self.timeline.zoom > 1.0 and
                 self.player.playbackState() == QMediaPlayer.PlaybackState.PlayingState):
             a, b = self.timeline.visible()
