@@ -1,5 +1,43 @@
 # StreamClipper 0.4 (experimenteller Export)
 
+## M12a – Exportgetreue Render-Vorschau für einen Quellclip (Draft)
+
+Im **Export**-Reiter gibt es den neuen Button
+**🎞 Exportgetreue Vorschau (bis 20 s)**. Er rendert die ersten
+maximal 20 Sekunden des ausgewählten Highlights; ohne Highlightauswahl
+den Bereich aus der Haupt-Timeline. Der Fortschritt steht in der
+unteren App-Leiste, Abbruch erfolgt über **Abbrechen**.
+
+Im Gegensatz zur bisherigen Original-/480p-Proxy-Vorschau zeigt diese
+Render-Vorschau eine **echte temporäre MP4** mit denselben FFmpeg-
+Exportfiltern: eingestellter 16:9-/9:16-Modus, der für den Clip
+berechnete dynamische Bildausschnitt und optional im Video eingebrannte,
+korrigierte Untertitel samt Zeitversatz. Ein einziger unveränderlicher
+`RenderRequest` mit Quellvideo und Originalzeitfenster ist das
+gemeinsame Parametermodell. Sowohl regulärer MP4-Export als auch die
+Vorschau rufen den identischen `export_clip`-Encoder auf.
+
+Die kurze Datei wird nur auf Klick und auf einem QThread erzeugt.
+Die Vorschau öffnet in einem eigenen Player. Originalplayer,
+Proxy-Umschaltung und Timeline-Zeitbasis werden nicht verändert.
+Temporäre MP4s werden nach Schließen des Vorschaufensters entfernt,
+sofern Windows die Video-Dateisperre schon freigegeben hat.
+
+**Bewusste Grenzen von M12a:** noch kein zusammengesetzter Mehrspur-
+Rendergraph: zusätzliche Video-/Audiotracks, Overlays, Facecam, spätere
+Smart-Director-Keyframes und M13/M14-Effekte erscheinen hier **noch
+nicht**. Für den bereits existierenden Single-Source-FFmpeg-Pfad
+sind die Ausgabeparameter identisch; das ist noch nicht die vollständige
+Live-WYSIWYG-Vorschau aller geplanten Features. Es gibt weiterhin
+keine NVENC-/HEVC-Engine, Render-Queue und umfassende automatische
+Export-QA (M12b ff.).
+
+**Abnahme:** automatisierte Parität von exportiertem und gerendertem
+Clip bei identischem Quellfenster inklusive ASS-Untertiteln; Windows-
+Qt-Offscreen-Regressionsprüfung und portables Paket. Echte Windows-11-
+End-to-End- und 6h-VOD-Messungen bleiben offene Freigabeschritte.
+
+
 ## M10.5-Ergänzung – Modellspeicher und HF-Token (Draft)
 
 Im Reiter **KI & Modelle** lässt sich ein optionaler Hugging-Face-Read-Token
