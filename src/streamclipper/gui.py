@@ -15,7 +15,7 @@ from PySide6.QtGui import QColor, QKeySequence, QShortcut
 from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
 from PySide6.QtMultimediaWidgets import QVideoWidget
 from PySide6.QtWidgets import (
-    QApplication, QCheckBox, QComboBox, QFileDialog, QHBoxLayout, QLabel, QLineEdit, QMainWindow,
+    QApplication, QCheckBox, QComboBox, QDialog, QFileDialog, QHBoxLayout, QLabel, QLineEdit, QMainWindow,
     QMessageBox, QPlainTextEdit, QProgressBar, QPushButton, QSlider, QSpinBox,
     QInputDialog,
     QDoubleSpinBox, QSplitter, QTableWidget, QTableWidgetItem, QTabWidget,
@@ -23,7 +23,9 @@ from PySide6.QtWidgets import (
 )
 
 from .analyze import analyze
-from .media import CancelledError, export_clip, probe_video, safe_destination, tool_path, waveform_peaks
+from .media import CancelledError, probe_video, safe_destination, tool_path, waveform_peaks
+from .render_contract import RenderRequest, render_request
+from .rendered_preview import RenderedPreview, render_clip_preview
 from .model_checks import validate_clip_model
 from .model_catalog import (DEFAULTS, download_preset, is_installed, preset,
                             preset_path, presets_for, validate_model_dir, safe_hf_error)
@@ -125,12 +127,14 @@ class ExportThread(QThread):
                 if self._cancelled.is_set():
                     raise CancelledError("Export abgebrochen")
                 target = safe_destination(self.directory, f"{stem}_clip_{i:02d}.mp4")
-                actual = export_clip(
-                    self.analysis.video, clip.start, clip.end, target,
-                    self.mode, cancelled=self._cancelled.is_set,
-                    transcript=self.analysis.transcript,
+                request = RenderRequest(
+                    video=self.analysis.video,
+                    start=clip.start, end=clip.end, mode=self.mode,
                     burn_subtitles=self.burn_subtitles,
                     subtitle_offset=self.subtitle_offset,
+                    transcript=tuple(self.analysis.transcript))
+                actual = render_request(
+                    request, target, cancelled=self._cancelled.is_set,
                     progress=lambda value, i=i: self.progress_changed.emit(
                         round(((i - 1) + value / 100) / len(self.items) * 100)
                     ),
