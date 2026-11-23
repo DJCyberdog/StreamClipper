@@ -166,7 +166,7 @@ def download_preset(
     if cancelled and cancelled():
         raise CancelledError('Modelldownload abgebrochen')
     try:
-        from huggingface_hub import HfApi, snapshot_download
+        from huggingface_hub import snapshot_download
     except ImportError as exc:
         raise RuntimeError('Modell-Setup fehlt: pip install -e ".[models]"') from exc
     common = ['*.json', '*.txt', '*.model', 'vocabulary.*', 'merges.txt']
@@ -175,10 +175,15 @@ def download_preset(
     tracker = ModelDownloadProgress(progress, cancelled=cancelled) if progress else None
     if tracker:
         tracker.report('metadata')
-        expected = _expected_model_bytes(HfApi(), model, patterns, token=token)
+        try:
+            from huggingface_hub import HfApi
+            expected = _expected_model_bytes(HfApi(), model, patterns, token=token)
+        except ImportError:
+            expected = None
         tracker.set_total(expected)
-    options = dict(repo_id=model.repository, local_dir=str(folder),
-                   token=token)
+    options = dict(repo_id=model.repository, local_dir=str(folder))
+    if token is not None:
+        options['token'] = token
     if tracker:
         options['tqdm_class'] = tracker.tqdm_class()
     if cancelled and cancelled():
