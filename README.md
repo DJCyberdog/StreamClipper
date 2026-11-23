@@ -1,5 +1,41 @@
 # StreamClipper 0.4 (experimenteller Export)
 
+## M12-UX Teil 2 – Eine gemeinsame Timeline + editierbarer Inspector (Draft)
+
+Die Wellenform (Highlights, Untertitel/Wortzeiten) und die Grafik für
+Gameplay/Mikrofon/Musik/Grafik-Spuren sind nun **im selben Timeline-Dock**
+direkt untereinander angeordnet. Beide verwenden **denselben sichtbaren
+Quell-/Timeline-Zeitbereich und denselben 128px-Timeline-Rand**: Zoom,
+Scrollposition, Playhead und IN/OUT werden synchron angezeigt. Der
+vertikale Splitter zwischen Wellenform und Spurlanes kann skaliert
+werden; im Projektbereich gibt es keine zweite Track-Canvas-Duplikation
+mehr. `TimelineWidget` behält seinen eigenständigen Null-Rand-Modus,
+um alte Tests und externe Nutzer nicht zu brechen.
+
+**Magnet** im Timeline-Kopf schaltet 8-Pixel-Snapping ein/aus.
+Beim Verschieben eines Spurclips können seine linke oder rechte
+Clipkante an anderen Clipkanten, Playhead oder Markierungen einrasten;
+das vorhandene Undo/Redo und die gesperrten Spuren gelten weiter.
+Der erste originale Basisclip kann nicht über das grafische Drag
+verschoben werden, weil der M12b-Renderer die veränderte Basisspur noch
+nicht komposen kann.
+
+Im Arbeitsbereich Schnitt/Audio zeigt das Eigenschaften-Panel
+**direkt editierbare** Quell-IN/OUT, Timeline-IN und Audioclip-Pegel.
+Die Aktion **Änderungen übernehmen** committet alle vier Felder
+atomar als **genau einen** Projekt-/Undo-Schritt. Gesperrte Spuren und
+Basisclip sind dort schreibgeschützt; fehlerhafte Werte werden vom
+Projektvertrag abgewiesen. **Werte zurücksetzen** verwirft unbestätigte
+Änderungen, ohne Projekt- oder Videodateien zu verändern.
+
+**Noch nicht vollständig:** Das ist ein integrierter Timeline-
+Viewport mit getrennt implementierten Wellenform-/Track-Zeichen-
+schichten, keine vollständige Premiere-Sequenz mit Ripple-/Roll-
+Edits, automatischem Mehrspur-Video-Compositor oder Effektrenderer.
+M12b Zusatzvideo-/Overlay-Komposition, NVENC und Export-QA bleiben
+eigene Meilensteine. UI-Tests für echtes 6h-VOD unter Windows
+und unterschiedliche Bildschirmauflösungen bleiben offen.
+
 ## M12-UX – Premium-Workspace und andockbare Panels (Draft)
 
 StreamClipper Studio bekommt eine **Premiere-inspirierte, aber eigenständige**
