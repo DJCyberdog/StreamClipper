@@ -36,6 +36,8 @@ class ModelDownloadProgress:
             total = self.total
             done = self.transferred
         percent = min(99, done * 100 // total) if total and done else None
+        if percent == 0:
+            percent = None  # under 1 %: show activity, not a stalled 0 %
         self.notify(percent, done, total, stage)
 
     def set_total(self, total: int | None) -> None:
