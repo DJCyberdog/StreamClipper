@@ -1,46 +1,51 @@
-# NEXT_TASK – M12-UX: Premium Dock-Shell / M12b Video-Compositor
+# NEXT_TASK – M12b Video-/Overlay-Compositor, M12c Render-Backends
 
-**Branch-Stack:** M10.5 #31 → M11a #34 → M11b #36 →
-M11c #37/#38/#39/#40 → HF UX #41 → M12a #42 →
-M12b Audio Graph #43 → M12-UX Premium Dock Shell Draft #44.
-`main` unverändert; kein Merge ohne explizite Ownerfreigabe.
+**Stack (Draft, kein Merge nach main):**
+M10.5 #31 → M11a #34 → M11b #36 → M11c #37/#38/#39/#40
+→ HF UX #41 → M12a #42 → M12b Audio #43
+→ Premium Dock Shell #44 → **M12-UX Teil 2** (neu, auf #44).
 
-## Im aktuellen M12-UX-Teil-1-Draft
+## M12-UX Teil 2 (im Draft, noch keine reale Windows-End-to-End-Abnahme)
 
-- Existing GUI in **Qt QMainWindow/DockWidgets**: Projekt-/Highlight-Tools
-  links, zentraler Programmmonitor, **bewegliche Timeline unten**,
-  kontextbezogener Inspector rechts. Spuren-/Underteitel-/Export-Widgets
-  werden wiederverwendet, keine geklonten Signal- oder Editzustände.
-- Arbeitsbereich-Umschalter: Highlights / Schnitt / Audio / Untertitel
-  / Export. Nur UI-Sichtbarkeit/Tabfokus wird geändert, niemals
-  Quelle, Playhead, Clipauswahl oder Edit-Historie neu angelegt.
-- Einheitliches Premium-QSS (Graphit/Saphir, lesbare Zustände).
-- Layout im lokalen `data/ui/workspace-layout-v1.json` ohne Medien-
-  daten oder Credentials, versioniert, atomar und mit Reset. Keine
-  Fensterposition über Monitorwechsel hinweg wiederherstellen.
-- Windows-Qt-Offscreen-Regression: Docks/Areas, Presets, Wiedergabe-
-  Identität, Layout-Neustart, Inspector und 1366x768. Pure Storage-
-  Tests für Validierung, korruptes JSON, unbekannte Schemas.
+- **Ein Timeline-Dock:** Wellenform/Highlights/Wortzeiten plus
+  Gameplay/Mikrofon/Musik/Overlay-Cliplanes untereinander, gleicher
+  sichtbarer Zeitbereich, gleiches 128px-Gutter, Zoom/Scroll/Playhead/IN/OUT.
+- Vertikaler QSplitter trennt renderfreie Zeichenlagen; kein zweites
+  Track-Canvas mehr im Reiter „Spuren“.
+- M12 Magnet: 8px-Snapping an andere Clips, Playhead und IN/OUT;
+  jederzeit abschaltbar. Kein Edit des originalen M12b-Basisclips
+  durch Dragging; gesperrte Tracks bleiben geschützt.
+- **Eigenschaften-Editor:** Quell-IN, Quell-OUT, Timeline-IN,
+  Audiogain. Ein Bestätigen -> genau ein `edit_item`-
+  History-/atomarer-Save-Schritt. Sperre, Base-Source und Invalid-
+  Values fail closed, Reset verwirft ungespeicherte UI-Felder.
+- Windows Qt Offscreen: gleiche Pixelabbildung, Scroll/Zoom,
+  Magnet, Undo/Redo, Schreibfehler, Originaldatei intakt.
+- M11/M12 Rückwärtskompatibilität und bestehende Extras erhalten.
 
-## Nächste begrenzte Schritte
+## Jetzt abzuarbeiten
 
-1. Linux-Python-Tests und Windows-Qt-/Portable-Build auf **exaktem**
-   PR-Head abnehmen; gefundenes Fail gezielt beheben.
-2. **M12-UX Teil 2:** tatsächliche zusammengeführte mehrspurige
-   Timeline (ein TrackCanvas, eine Wellenform, eine Zeitbasis),
-   Splitter-Resizing/Drag-Drop, Mini-/Full-Track-Ansichten,
-   Inspector-Eigenschaftseditor und Shortcuts; Änderungen bleiben
-   nichtdestruktiv und undoable.
-3. **M12b Teil 2:** zusätzliche Video- und Grafikquellen korrekt
-   compositen, zeitbasierte Overlaps/Layering und eindeutige
-   Preview-vs-MP4-Goldentest; derzeit fail-closed.
-4. **M12c** NVENC/H264/HEVC/CPU-Fallback; **M12d**
-   Exportqualitätskontrolle; **M12e** Renderqueue mit Recovery.
-5. Reale Windows-11-Tests auf 1366x768/1920x1080, 6h-OBS-Aufnahmen,
-   GPU/RAM/VRAM, Audio-PTS, Export-Abbruch und Portabilität.
-6. M13–M19 fachliche Inspector/Workspace-Integration und
-   ausschließlich bestätigtes Online-Publishing über offizielle APIs.
+1. Python- und Windows-CI am exakten PR-Head prüfen; inklusive
+   Preview/Export, Projekt-Checkpoints, Dock-Presets, Qt-Layout-
+   Restore, Audio-Spuren und portablem ZIP.
+2. **M12b Teil 2:** Video-/Grafik-Overlay-Compositor über denselben
+   versionierten `RenderRequest`, inclusive Source-/Timeline-PTS,
+   Bildreihenfolge, Lücken, Opacity und Skalierung; verifizieren
+   mit Pixel-/Frame-Golden-Tests vs. Preview. Ungeprüfte Clips
+   weiterhin fail-closed statt still ignorieren.
+3. **M12c** Encoder-Auswahl und NVENC H.264/HEVC/CPU-Fallback;
+   **M12d** vollständige Export-QA;
+   **M12e** Renderqueue, Recovery, keine unbestätigten Uploads.
+4. Weitere Premium-UX: Clip-Kanten-Ripple/Roll, Track-Lock in der
+   Timeline, Audio-Solo, Keyframes und erweitertes M13/M14-
+   Inspector-Panel nach echtem Rendergraph (keine Fake-UI).
+5. Reale 6h-VOD-/Windows-11-Messung 1366×768, 1920×1080,
+   CPU/GPU/VRAM, verschobene Clips/Audio-PTS und
+   Projekt-Recovery. Alle Test-Accounts und Online-Freigaben
+   bleiben M19.
+6. M19 Publishing über offizielle YouTube/TikTok/Instagram/
+   Snapchat APIs, pro Ziel explizite Veröffentlichung.
 
-**Nicht behaupten:** Das Docking-Grundlayout ist noch kein vollständiger
-Premiere-Ersatz, keine komplette Live-WYSIWYG-Mehrspur-Vorschau und
-kein abgeschlossener M12-Freeze. Keine Autoposts/Cloud-Pflicht.
+**Grenze:** Neu ist ein synchronisierter zusammengesetzter Timeline-
+Viewport und ein echter Property-Editor, kein kompletter NLE-
+Multi-Video-Compositor oder fertiger Premiere-Ersatz.
