@@ -305,10 +305,31 @@ Zwischenlösung, **nicht** die endgültige Informationsarchitektur.
       zeigen die tatsächliche Renderfähigkeit und kennzeichnen
       noch nicht implementierte Video-/Audio-Funktionen.
 
-**Status:** Entwurf/Owner-Beschluss, **noch nicht implementiert**.
-Die M12b-Mehrspur-Audiofunktion ist kein Ersatz für die Dock-UI.
-Das übergeordnete 60-Feature-Inventar bleibt unverändert; diese
-Entscheidung beschreibt eine durchgängige **UX-Architektur**.
+**Status M12-UX Teil 1 (Draft):** Die bestehende PySide6-Oberfläche
+wurde in ein dockbares Drei-Panel-/Timeline-Grundlayout überführt:
+Projekt-/Werkzeug-Dock (mit allen bisherigen Registerkarten), separater
+beweglicher **Timeline-Dock**, zentraler Original-/Proxy-Programmmonitor
+und ein kontextbezogener **Eigenschaften-Dock**. Der top-level
+Workspace-Schalter **Highlights / Schnitt / Audio / Untertitel / Export**
+ist mit echten bestehenden Editor-Panels verdrahtet, keine Attrappen.
+Dock-Größe/-Position, Sichtbarkeit und aktiver Workspace werden lokal,
+atomar, versioniert gespeichert; „Layout zurücksetzen“ stellt ein
+sicheres Standardlayout wieder her. Schlanke Graphit-/Saphir-Styles
+mit konsistentem Focus-, Hover-, Selektions- und deaktivierten Zustand
+ersetzen die bisher verstreuten QSS-Regeln. **Keine Projekt- oder
+Video-Migration erforderlich.**
+
+**Ehrliche Teil-1-Grenzen:** Kontextinspektor ist zunächst lesend und
+springt zu den bestehenden Editoren; Clip-Drag&Drop zwischen Docks,
+eine wirklich vereinte mehrspurige Timeline (bisher separate
+Wellenform-/Spur-Canvas), Keyframe-Property-Editor,
+weitere Workspace-Presets für benutzerdefinierte Panel-Inhalte sowie
+vollständiges UI/UX-Polishing stehen aus. Formale Abnahme erst nach
+Windows 1366×768/1920×1080, realen Tastatur-/Video-/Docking-Sessions,
+Accessibility und Performance-Messungen.
+
+Das übergeordnete 60-Feature-Inventar bleibt unverändert; die
+Premiere-inspirierte UX-Architektur wird iterativ umgesetzt.
 
 ### 5.3 M12 – Vorschau & gemeinsame Renderpipeline
 
