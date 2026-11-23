@@ -1546,10 +1546,16 @@ class MainWindow(QMainWindow):
                         self.tracks_table.setItem(row, col, QTableWidgetItem(value))
                 for row, item in enumerate(project.items):
                     names = {track.id: track.name for track in project.tracks}
+                    extra = ((Path(item.media_path).name if item.media_path
+                              else "Aufnahme") + f" · {item.gain_db:+.1f} dB"
+                             if names[item.track_id] and
+                             next(t for t in project.tracks
+                                  if t.id == item.track_id).kind == "audio"
+                             else "—")
                     values = (item.label or item.id, names[item.track_id],
                               format_timestamp(item.source_start),
                               format_timestamp(item.source_end),
-                              format_timestamp(item.timeline_start))
+                              format_timestamp(item.timeline_start), extra)
                     for col, value in enumerate(values):
                         self.track_clips_table.setItem(row, col, QTableWidgetItem(value))
                 for row, track in enumerate(project.tracks):
@@ -1602,9 +1608,29 @@ class MainWindow(QMainWindow):
                         self.track_mute_button, self.track_lock_button,
                         self.track_up_button, self.track_down_button):
             control.setEnabled(bool(selected))
+        track = next((t for t in self.editor_project.tracks if t.id == selected),
+                     None) if ready else None
+        clip_obj = next((i for i in self.editor_project.items if i.id == clip),
+                        None) if ready else None
+        clip_track = next((t for t in self.editor_project.tracks
+                           if clip_obj and t.id == clip_obj.track_id),
+                          None) if ready else None
         self.track_clip_add.setEnabled(bool(selected) and self._source_duration > 0)
         self.track_clip_move.setEnabled(bool(clip))
         self.track_clip_trim.setEnabled(bool(clip))
+        self.track_audio_import.setEnabled(
+            bool(track and track.kind == "audio" and not track.locked))
+        self.track_gain_button.setEnabled(
+            bool(clip_obj and clip_track and clip_track.kind == "audio"
+                 and not clip_track.locked))
+        if hasattr(self, "include_track_audio"):
+            has_audio = bool(ready and any(
+                t.kind == "audio" and any(i.track_id == t.id
+                                          for i in self.editor_project.items)
+                for t in self.editor_project.tracks))
+            self.include_track_audio.setEnabled(has_audio)
+            if not has_audio:
+                self.include_track_audio.setChecked(False)
         self.track_import_button.setEnabled(
             ready and self.analysis is not None and bool(self.analysis.candidates))
         self._update_history_controls()
@@ -1702,6 +1728,54 @@ class MainWindow(QMainWindow):
         self._apply_project_edit(add_item, track_id, a, b, a,
                                  f"Ausschnitt {format_timestamp(a)}")
 
+    def _add_audio_file_to_track(self) -> None:
+        """Explicitly reference a local audio file; never upload or modify it."""
+        track_id = self._selected_track_id()
+        if not self.editor_project or self._history_blocked or not track_id:
+            return
+        track = next((t for t in self.editor_project.tracks if t.id == track_id), None)
+        if not track or track.kind != "audio" or track.locked:
+            return
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Lokale Audiodatei für die Spur auswählen", "",
+            "Audio (*.wav *.mp3 *.flac *.m4a *.aac *.ogg *.opus);;Alle Dateien (*)")
+        if not path:
+            return
+        try:
+            audio_source = Path(path).resolve(strict=True)
+            duration = probe_audio_duration(audio_source)
+            if duration > 86400:
+                raise ValueError("Audiodateien über 24 Stunden werden nicht unterstützt")
+            at = self.timeline.in_point
+            end = min(duration, 86400-at)
+            if end < .01:
+                raise ValueError("Kein Platz mehr auf der Timeline")
+        except (OSError, ValueError) as exc:
+            QMessageBox.warning(self, "Audiodatei nicht verwendbar", str(exc))
+            return
+        gain, accepted = QInputDialog.getDouble(
+            self, "Audiopegel", "Pegel in dB (maximal +12)", 0, -60, 12, 1)
+        if accepted:
+            self._apply_project_edit(
+                add_item, track_id, 0.0, end, at,
+                audio_source.stem[:120], media_path=str(audio_source),
+                gain_db=gain)
+
+    def _edit_selected_clip_gain(self) -> None:
+        if not self.editor_project or self._history_blocked:
+            return
+        item_id = self._selected_clip_id()
+        item = next((i for i in self.editor_project.items if i.id == item_id), None)
+        track = next((t for t in self.editor_project.tracks
+                      if item and t.id == item.track_id), None)
+        if not item or not track or track.kind != "audio" or track.locked:
+            return
+        value, ok = QInputDialog.getDouble(
+            self, "Clip-Pegel", "Pegel in dB (-60 bis +12)",
+            item.gain_db, -60, 12, 1)
+        if ok:
+            self._apply_project_edit(edit_item, item.id, gain_db=value)
+
     def _move_selected_track_clip(self) -> None:
         item_id = self._selected_clip_id()
         if not item_id or not self.editor_project:
@@ -1728,6 +1802,12 @@ class MainWindow(QMainWindow):
             return
         item = next(i for i in self.editor_project.items if i.id == item_id)
         limit = self.editor_project.source.duration
+        if item.media_path is not None:
+            try:
+                limit = probe_audio_duration(item.media_path)
+            except (OSError, ValueError) as exc:
+                QMessageBox.warning(self, "Audioquelle fehlt", str(exc))
+                return
         start, accepted = QInputDialog.getDouble(
             self, "Clip trimmen", "Quellbeginn (Sekunden)",
             item.source_start, 0, limit, 3)
