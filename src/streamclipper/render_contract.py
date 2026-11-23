@@ -1,8 +1,7 @@
-"""M12a: immutable single-source render contract shared by preview and MP4 export.
+"""Shared immutable render request for legacy clips and opt-in M12b audio graph.
 
-This is deliberately not the M12 multi-track render graph: it describes the
-existing source video, aspect/reframe mode and burned-in transcript only.
-Both paths call the exact same export_clip FFmpeg command builder/encoder.
+Both preview and export use the identical FFmpeg boundary. Project snapshots
+are explicit and opt-in: unimplemented video/graphic composition fails closed.
 """
 from __future__ import annotations
 
@@ -13,6 +12,8 @@ from typing import Callable
 
 from .media import (build_export_command, export_clip, video_dimensions)
 from .models import TranscriptSegment, VideoInfo
+from .editor_project import EditorProject
+from .render_graph import build_render_graph
 
 PREVIEW_MAX_SECONDS = 20.0
 
@@ -28,6 +29,7 @@ class RenderRequest:
     transcript: tuple[TranscriptSegment, ...] = ()
     width: int = 1080
     height: int = 1920
+    project: EditorProject | None = None  # opt-in M12b graph snapshot
 
     def validate(self) -> "RenderRequest":
         times = (self.start, self.end, self.video.duration, self.subtitle_offset)
@@ -44,6 +46,8 @@ class RenderRequest:
             burned_captions=self.burn_subtitles)
         if self.burn_subtitles and not self.transcript:
             raise ValueError("Zum Einbrennen der Untertitel fehlt das Transkript")
+        if self.project is not None:
+            build_render_graph(self.project, self.video, self.start, self.end)
         return self
 
     def preview_excerpt(self, maximum: float = PREVIEW_MAX_SECONDS) -> "RenderRequest":
@@ -67,11 +71,16 @@ def render_request(
     spawning FFmpeg and preserve atomic/non-overwriting export_clip semantics.
     """
     request.validate()
+    options = {}
+    if request.project is not None:
+        graph = build_render_graph(
+            request.project, request.video, request.start, request.end)
+        options["audio_layers"] = graph.audio_layers
     return export_clip(
         request.video, request.start, request.end, destination,
         mode=request.mode, width=request.width, height=request.height,
         transcript=list(request.transcript),
         burn_subtitles=request.burn_subtitles,
         subtitle_offset=request.subtitle_offset,
-        progress=progress, cancelled=cancelled,
+        progress=progress, cancelled=cancelled, **options,
     )
