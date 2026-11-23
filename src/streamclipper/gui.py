@@ -1155,6 +1155,38 @@ class MainWindow(QMainWindow):
             "Hier siehst du den aktuellen Zustand des Projekts.")
         self.inspector_details.setWordWrap(True)
         inspector_layout.addWidget(self.inspector_details)
+        # Direct clip properties edit one immutable EditorProject delta through
+        # the same atomic save + undo path used by the original Spuren tab.
+        self._inspector_item_id: str | None = None
+        self.inspector_edit_area = QWidget()
+        property_form = QFormLayout(self.inspector_edit_area)
+        property_form.setContentsMargins(0, 6, 0, 6)
+        property_form.setSpacing(8)
+        self.inspector_source_start = QDoubleSpinBox()
+        self.inspector_source_end = QDoubleSpinBox()
+        self.inspector_timeline_start = QDoubleSpinBox()
+        self.inspector_gain = QDoubleSpinBox()
+        for label, control in (
+                ("Quell-IN", self.inspector_source_start),
+                ("Quell-OUT", self.inspector_source_end),
+                ("Timeline-IN", self.inspector_timeline_start),
+                ("Clip-Pegel", self.inspector_gain)):
+            control.setDecimals(3 if control is not self.inspector_gain else 1)
+            control.setSingleStep(.1 if control is not self.inspector_gain else .5)
+            control.setSuffix(" s" if control is not self.inspector_gain else " dB")
+            property_form.addRow(label, control)
+        self.inspector_gain.setRange(-60, 12)
+        self.inspector_gain.setToolTip(
+            "Pegel pro Audio-Clip; Stummschalten erfolgt weiterhin pro Spur.")
+        self.inspector_apply_button = QPushButton("Änderungen übernehmen")
+        self.inspector_apply_button.setProperty("role", "primary")
+        self.inspector_apply_button.clicked.connect(self._apply_inspector_clip)
+        property_form.addRow(self.inspector_apply_button)
+        self.inspector_cancel_button = QPushButton("Werte zurücksetzen")
+        self.inspector_cancel_button.clicked.connect(self._update_inspector)
+        property_form.addRow(self.inspector_cancel_button)
+        self.inspector_edit_area.setVisible(False)
+        inspector_layout.addWidget(self.inspector_edit_area)
         self.inspector_edit_button = QPushButton("Auswahl bearbeiten")
         self.inspector_edit_button.setEnabled(False)
         self.inspector_edit_button.clicked.connect(self._inspect_edit_selection)
@@ -1314,7 +1346,56 @@ class MainWindow(QMainWindow):
                 f"Aufnahme: {name}\\n"
                 f"Highlights: {count}\\n"
                 "Wähle einen Clip oder eine Spur, um Details zu sehen.")
+        self._inspector_item_id = clip.id if is_tracks and clip is not None else None
+        if self._inspector_item_id is not None:
+            owner = next(t for t in project.tracks if t.id == clip.track_id)
+            limit = 86400.0 if clip.media_path is not None else project.source.duration
+            self.inspector_source_start.setRange(0, limit)
+            self.inspector_source_end.setRange(0, limit)
+            self.inspector_timeline_start.setRange(0, 86400)
+            self.inspector_source_start.setValue(clip.source_start)
+            self.inspector_source_end.setValue(clip.source_end)
+            self.inspector_timeline_start.setValue(clip.timeline_start)
+            self.inspector_gain.setValue(clip.gain_db)
+            self.inspector_gain.setEnabled(owner.kind == "audio")
+            can_edit = not owner.locked and not self._history_blocked and clip.id != "source"
+            self.inspector_edit_area.setVisible(True)
+            for field in (self.inspector_source_start, self.inspector_source_end,
+                          self.inspector_timeline_start):
+                field.setEnabled(can_edit)
+            self.inspector_gain.setEnabled(can_edit and owner.kind == "audio")
+            self.inspector_apply_button.setEnabled(can_edit)
+            self.inspector_cancel_button.setEnabled(can_edit)
+            self.inspector_apply_button.setToolTip(
+                "" if can_edit else
+                "Basisspur oder gesperrte Spur: Eigenschaften sind schreibgeschützt.")
+        else:
+            self.inspector_edit_area.setVisible(False)
         self.inspector_edit_button.setEnabled(editable and not self._history_blocked)
+
+    def _apply_inspector_clip(self) -> None:
+        """Commit all visible clip-property edits as ONE undoable project edit."""
+        if (self._history_blocked or self.editor_project is None
+                or not self._inspector_item_id
+                or self._selected_clip_id() != self._inspector_item_id):
+            return
+        item = next(
+            (x for x in self.editor_project.items if x.id == self._inspector_item_id),
+            None)
+        if item is None or item.id == "source":
+            return
+        track = next(x for x in self.editor_project.tracks if x.id == item.track_id)
+        if track.locked:
+            return
+        payload = {
+            "source_start": self.inspector_source_start.value(),
+            "source_end": self.inspector_source_end.value(),
+            "timeline_start": self.inspector_timeline_start.value(),
+        }
+        if track.kind == "audio":
+            payload["gain_db"] = self.inspector_gain.value()
+        if self._apply_project_edit(edit_item, item.id, **payload):
+            self._update_inspector()
 
     def _inspect_edit_selection(self) -> None:
         """Open the *existing* editor rather than maintaining duplicate state."""
@@ -1322,7 +1403,10 @@ class MainWindow(QMainWindow):
             return
         if (self.tabs.tabText(self.tabs.currentIndex()) == "Spuren"
                 and self.editor_project is not None):
-            if self._selected_clip_id() is not None:
+            if self._selected_clip_id() is not None and self.inspector_apply_button.isEnabled():
+                self.inspector_source_start.setFocus()
+                self.inspector_source_start.selectAll()
+            elif self._selected_clip_id() is not None:
                 self.track_clips_table.setFocus()
             elif self._selected_track_id() is not None:
                 self.tracks_table.setFocus()
