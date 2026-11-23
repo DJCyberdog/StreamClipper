@@ -1,5 +1,35 @@
 # StreamClipper 0.4 (experimenteller Export)
 
+## M10.5-Ergänzung – Modellspeicher und HF-Token (Draft)
+
+Im Reiter **KI & Modelle** lässt sich ein optionaler Hugging-Face-Read-Token
+maskiert einfügen (**Übernehmen**), über **Verbindung prüfen** ausdrücklich
+online gegen die Hugging-Face-API prüfen oder über **Entfernen** aus
+StreamClipper löschen. Ohne Token bleiben öffentliche Modelle verwendbar.
+Bereits vorhandene HF_TOKEN-/HF-Login-Konfigurationen werden erkannt, aber
+weder angezeigt noch verändert. Read-Token erzeugen:
+https://huggingface.co/settings/tokens
+
+**Standard: Sitzungstoken im Arbeitsspeicher.** Die dauerhafte Speicherung
+erfolgt nur bei bewusst gesetzter Checkbox über den **Windows Credential
+Manager**; weder Dateien unter data/ noch Logs/CLI/Umgebungsvariablen
+enthalten diesen Token. Auf anderen Systemen ist nur der Sitzungsmodus
+verfügbar. „Entfernen“ beeinflusst keine außerhalb StreamClipper gesetzte
+HF-Umgebungsvariable.
+
+Beim Download zeigt der **untere Fortschrittsbalken** die tatsächlich
+gemeldeten Transfer-Bytes an. Nur bei vollständig bekannten Remote-
+Dateigrößen werden Prozentwerte (höchstens 99 vor Modellvalidierung)
+gezeigt. Bei nicht bekannten Größen, Metadaten- oder Rekonstruktionsarbeit
+ist die Leiste absichtlich unbestimmt. Der Download kann abgebrochen
+werden, ohne vorhandene Modelldateien zu löschen. Authentifizierung gilt
+für reguläre und alternative Gewichtsdownloads.
+
+Diese UX-Ergänzung ist **kein Entwicklungsblocker für M11/M12**.
+Reale Windows-Tests mit großem Modell und echtem Token stehen als
+optionale Abnahmebelege noch aus; niemals echte Tokens ins Repo legen.
+
+
 ## M11c / Teil 4 – Optionale Proxy-Vorschau (Draft)
 
 **Vorschau → Proxy erstellen** erzeugt auf ausdrücklichen Klick eine
