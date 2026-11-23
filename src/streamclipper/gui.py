@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import sys
 import threading
+import os
 from pathlib import Path
 
 from .portable import configure_portable_environment
@@ -25,7 +26,11 @@ from .analyze import analyze
 from .media import CancelledError, export_clip, probe_video, safe_destination, tool_path, waveform_peaks
 from .model_checks import validate_clip_model
 from .model_catalog import (DEFAULTS, download_preset, is_installed, preset,
-                            preset_path, presets_for, validate_model_dir)
+                            preset_path, presets_for, validate_model_dir, safe_hf_error)
+from .model_download_progress import format_bytes
+from .hf_credentials import (supported as hf_store_supported,
+    read_token as read_hf_credential, save_token as save_hf_credential,
+    remove_token as remove_hf_credential)
 from .models import AnalysisResult, Candidate, VideoInfo
 from .manual_highlights import add_manual_highlight, remove_manual_highlight, trim_manual_highlight
 from .twitch_import import download_twitch_vod, parse_twitch_vod_url
@@ -161,20 +166,59 @@ class TwitchImportThread(QThread):
 
 
 class ModelDownloadThread(QThread):
-    """Explicit model provisioning in a background thread; never in inference."""
+    """HF model download; byte updates and cancellation stay off the GUI."""
     done = Signal(str, str)
     failed = Signal(str, str)
+    was_cancelled = Signal(str)
+    progress_changed = Signal(object)
 
-    def __init__(self, model_id: str, parent=None):
+    def __init__(self, model_id: str, parent=None, *, token: str | None = None):
         super().__init__(parent)
         self.model_id = model_id
+        self.token = token
+        self._cancelled = threading.Event()
 
-    def run(self):
+    def cancel(self) -> None:
+        self._cancelled.set()
+
+    def run(self) -> None:
         try:
-            destination = download_preset(self.model_id)
+            def report(percent, transferred, total, stage):
+                self.progress_changed.emit(
+                    (self.model_id, percent, transferred, total, stage))
+            destination = download_preset(
+                self.model_id, token=self.token, progress=report,
+                cancelled=self._cancelled.is_set)
             self.done.emit(self.model_id, str(destination))
+        except CancelledError:
+            self.was_cancelled.emit(self.model_id)
         except Exception as exc:
-            self.failed.emit(self.model_id, str(exc))
+            self.failed.emit(self.model_id, safe_hf_error(exc))
+        finally:
+            # No credentials in persistent settings, logs or GUI progress.
+            self.token = None
+
+
+class HfTokenCheckThread(QThread):
+    """A token check is a user-initiated network request, never UI-blocking."""
+    checked = Signal(str)
+    failed = Signal(str)
+
+    def __init__(self, token: str | None, parent=None):
+        super().__init__(parent)
+        self.token = token
+
+    def run(self) -> None:
+        try:
+            from huggingface_hub import HfApi
+            details = HfApi().whoami(token=self.token)
+            # Do not surface arbitrary response data or exception messages.
+            self.checked.emit("Verbindung bestätigt" if isinstance(details, dict)
+                              else "Verbindung bestätigt")
+        except Exception as exc:
+            self.failed.emit(safe_hf_error(exc))
+        finally:
+            self.token = None
 
 
 class WaveformThread(QThread):
@@ -249,6 +293,8 @@ class MainWindow(QMainWindow):
         self._manual_pending: list[Candidate] = []
         self._waveform_workers: list[WaveformThread] = []
         self.model_worker: ModelDownloadThread | None = None
+        self.hf_check_worker: HfTokenCheckThread | None = None
+        self._hf_session_token: str | None = None
         self._source_duration: float = 0.0
         self._video_info: VideoInfo | None = None
         self._proxy_state: ProxyState | None = None
@@ -382,6 +428,36 @@ class MainWindow(QMainWindow):
         self.vision_select = self.model_selectors['vision']
         self.detector_select = self.model_selectors['detector']
         models_page_layout.addLayout(model_options)
+
+        hf_row = QHBoxLayout()
+        hf_row.addWidget(QLabel("Hugging Face Token (optional)"))
+        self.hf_token_input = QLineEdit()
+        self.hf_token_input.setEchoMode(QLineEdit.EchoMode.Password)
+        self.hf_token_input.setPlaceholderText("hf_… (wird nicht angezeigt oder protokolliert)")
+        self.hf_token_input.setToolTip("Token nur für die Sitzung; öffentlicher Download ohne Token möglich.")
+        hf_row.addWidget(self.hf_token_input, 1)
+        self.hf_use_token = QPushButton("Übernehmen")
+        self.hf_use_token.clicked.connect(self._apply_hf_token)
+        hf_row.addWidget(self.hf_use_token)
+        models_page_layout.addLayout(hf_row)
+
+        hf_buttons = QHBoxLayout()
+        self.hf_persist_token = QCheckBox("In Windows-Anmeldeinformationen sichern (optional)")
+        self.hf_persist_token.setEnabled(hf_store_supported())
+        self.hf_persist_token.setToolTip(
+            "Nur mit ausdrücklicher Auswahl. Sonst bleibt dein Token in dieser Sitzung.")
+        hf_buttons.addWidget(self.hf_persist_token)
+        self.hf_check_button = QPushButton("Verbindung prüfen")
+        self.hf_check_button.clicked.connect(self._check_hf_token)
+        hf_buttons.addWidget(self.hf_check_button)
+        self.hf_remove_button = QPushButton("Entfernen")
+        self.hf_remove_button.clicked.connect(self._remove_hf_token)
+        hf_buttons.addWidget(self.hf_remove_button)
+        models_page_layout.addLayout(hf_buttons)
+        self.hf_status = QLabel("Kein Sitzungstoken · öffentliche Modelle ohne Anmeldung möglich")
+        self.hf_status.setWordWrap(True)
+        models_page_layout.addWidget(self.hf_status)
+        self._refresh_hf_status()
         models_page_layout.addStretch()
 
         self.source_label = QLabel("Noch kein Video geladen. Videos bleiben lokal auf deinem Rechner.")
