@@ -103,6 +103,11 @@ class ModelDownloadProgress:
                     tracker.add(delta, channel=self._channel)
                 return result
 
+            def update_transfer(self, n=1):
+                # HF Xet uses this duck-typed callback for *network* bytes,
+                # distinct from .update() (bytes reconstructed on disk).
+                tracker.add(max(0, int(n or 0)), channel="transfer")
+
         return TrackedTqdm
 
 
