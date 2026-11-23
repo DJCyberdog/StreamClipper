@@ -2013,41 +2013,211 @@ class MainWindow(QMainWindow):
             f'{preset(selected).label}: '+('installiert' if is_installed(selected)
                                           else 'noch nicht installiert – Herunterladen klicken'))
 
+    def _refresh_hf_status(self) -> None:
+        if self._hf_session_token:
+            label = "Token für diese Sitzung hinterlegt"
+        else:
+            saved = False
+            if hf_store_supported():
+                try:
+                    saved = bool(read_hf_credential())
+                except OSError:
+                    pass
+            if saved:
+                label = "Token in Windows-Anmeldeinformationen hinterlegt"
+            elif os.getenv("HF_TOKEN") or os.getenv("HUGGING_FACE_HUB_TOKEN"):
+                label = "Hugging Face bereits über Umgebung konfiguriert"
+            else:
+                # No network, and no token string copied into a UI widget.
+                try:
+                    from huggingface_hub import get_token
+                    label = ("Hugging Face bereits über HF-Login konfiguriert"
+                             if get_token() else "Anonym · öffentliche Modelle verfügbar")
+                except ImportError:
+                    label = "Anonym · öffentliche Modelle verfügbar"
+        self.hf_status.setText(label)
+
+    def _apply_hf_token(self) -> bool:
+        token = self.hf_token_input.text().strip()
+        if not token.startswith("hf_") or len(token) > 4096 or len(token) < 6:
+            QMessageBox.warning(
+                self, "Hugging Face Token",
+                "Bitte ein gültiges Read-Token im Format hf_… einfügen.")
+            return False
+        if self.hf_persist_token.isChecked():
+            try:
+                save_hf_credential(token)
+            except (OSError, RuntimeError, ValueError):
+                QMessageBox.warning(
+                    self, "Token speichern",
+                    "Sicherer Windows-Speicher nicht verfügbar. Token wurde "
+                    "nicht dauerhaft gespeichert.")
+                return False
+        self._hf_session_token = token
+        self.hf_token_input.clear()  # no plain text left in the visible field
+        self._refresh_hf_status()
+        self.statusBar().showMessage("Hugging Face Token übernommen")
+        return True
+
+    def _active_hf_token(self) -> str | None:
+        if self.hf_token_input.text().strip():
+            if not self._apply_hf_token():
+                raise ValueError("Hugging Face Tokenformat ungültig")
+        if self._hf_session_token:
+            return self._hf_session_token
+        if hf_store_supported():
+            try:
+                return read_hf_credential()
+            except OSError:
+                self.hf_status.setText(
+                    "Windows-Anmeldeinformationen nicht verfügbar · Sitzungstoken möglich")
+        # None is HF's documented implicit environment/HF-login lookup.
+        return None
+
+    def _remove_hf_token(self) -> None:
+        if self.model_worker is not None or self.hf_check_worker is not None:
+            return
+        self.hf_token_input.clear()
+        self._hf_session_token = None
+        self.hf_persist_token.setChecked(False)
+        if hf_store_supported():
+            try:
+                remove_hf_credential()
+            except OSError:
+                QMessageBox.warning(
+                    self, "Token entfernen",
+                    "Windows-Anmeldeinformationen konnten nicht gelöscht werden.")
+                return
+        self._refresh_hf_status()
+        self.statusBar().showMessage(
+            "StreamClipper-Token entfernt · externe HF-Anmeldungen bleiben unberührt")
+
+    def _check_hf_token(self) -> None:
+        if self.hf_check_worker is not None or self.model_worker is not None:
+            return
+        try:
+            token = self._active_hf_token()
+        except ValueError:
+            return
+        worker = HfTokenCheckThread(token, self)
+        self.hf_check_worker = worker
+        self.hf_check_button.setEnabled(False)
+        self.hf_status.setText("Hugging Face: Verbindung wird geprüft …")
+        worker.checked.connect(self._hf_check_succeeded)
+        worker.failed.connect(self._hf_check_failed)
+        worker.finished.connect(lambda w=worker: self._hf_check_finished(w))
+        worker.start()
+
+    def _hf_check_succeeded(self, message: str) -> None:
+        self.hf_status.setText(message)
+        self.statusBar().showMessage("Hugging Face: authentifizierte Verbindung bestätigt")
+
+    def _hf_check_failed(self, message: str) -> None:
+        self.hf_status.setText(message)
+
+    def _hf_check_finished(self, worker: HfTokenCheckThread) -> None:
+        if self.hf_check_worker is worker:
+            self.hf_check_worker = None
+        worker.deleteLater()
+        self.hf_check_button.setEnabled(self.model_worker is None)
+
+    def _model_download_progress(self, worker: ModelDownloadThread, event: object) -> None:
+        if self.model_worker is not worker:
+            return
+        model_id, percent, transferred, total, stage = event
+        if model_id != worker.model_id:
+            return
+        label = preset(model_id).label
+        if stage == "complete":
+            self.progress.setRange(0, 100)
+            self.progress.setValue(100)
+            self.progress.setFormat(f"Modell: {label} · 100 % · geprüft")
+            return
+        if percent is None:
+            self.progress.setRange(0, 0)  # busy, never a fictional percentage
+        else:
+            self.progress.setRange(0, 100)
+            self.progress.setValue(percent)
+        details = {
+            "metadata": "Dateien/Größen werden ermittelt",
+            "fallback": "Alternative Gewichtsdatei wird geladen",
+            "validation": "Modell wird validiert",
+            "download": "Modell wird geladen",
+        }.get(stage, "Modell wird geladen")
+        amount = format_bytes(transferred)
+        suffix = f" / {format_bytes(total)}" if total else ""
+        self.progress.setFormat(f"{label}: {details} · {amount}{suffix}")
+        self.statusBar().showMessage(f"{label}: {details} · {amount}{suffix}")
+
+    def _model_download_cancelled(self, model_id: str) -> None:
+        self.progress.setRange(0, 100)
+        self.progress.setValue(0)
+        self.progress.setFormat("Bereit")
+        self.statusBar().showMessage(
+            f"Modelldownload abgebrochen: {preset(model_id).label} · vorhandene Dateien behalten")
+
+    def _model_worker_finished(self, worker: ModelDownloadThread) -> None:
+        if self.model_worker is worker:
+            self.model_worker = None
+        worker.deleteLater()
+        self._busy(False)
+        self.hf_check_button.setEnabled(self.hf_check_worker is None)
+        self.hf_use_token.setEnabled(True)
+        self.hf_remove_button.setEnabled(True)
+
     def download_selected_model(self, kind: str) -> None:
-        if self.model_worker and self.model_worker.isRunning():
+        if (self.model_worker is not None or self.hf_check_worker is not None
+                or self._history_blocked):
             return
         model_id = self.model_selectors[kind].currentData()
         item = preset(model_id)
         choice = QMessageBox.question(
             self, 'Modell herunterladen',
-            f'„{item.label}“ von {item.repository} aus dem Internet herunterladen?\n'
-            f'Ziel: {preset_path(model_id)}\n\n'
+            f'„{item.label}“ von {item.repository} aus dem Internet herunterladen?\\n'
+            f'Ziel: {preset_path(model_id)}\\n\\n'
             'Je nach Variante werden mehrere hundert MB bis einige GB benötigt. '
             'Das Modell wird nur nach deiner Zustimmung geladen.',
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No)
         if choice != QMessageBox.StandardButton.Yes:
             return
-        self.model_worker = ModelDownloadThread(model_id, self)
-        self.model_worker.done.connect(self.model_download_finished)
-        self.model_worker.failed.connect(self.model_download_failed)
-        self.model_worker.finished.connect(lambda: self._busy(False))
-        for button in self.model_download_buttons.values():
-            button.setEnabled(False)
-        self.analyze_button.setEnabled(False)
+        try:
+            token = self._active_hf_token()
+        except ValueError:
+            return
+        worker = ModelDownloadThread(model_id, self, token=token)
+        self.model_worker = worker
+        worker.progress_changed.connect(
+            lambda event, w=worker: self._model_download_progress(w, event))
+        worker.done.connect(self.model_download_finished)
+        worker.failed.connect(self.model_download_failed)
+        worker.was_cancelled.connect(self._model_download_cancelled)
+        worker.finished.connect(lambda w=worker: self._model_worker_finished(w))
+        self.progress.setRange(0, 0)
+        self.progress.setFormat(f"Modell: {item.label} · Metadaten werden geladen")
+        self._busy(True)
+        self.hf_check_button.setEnabled(False)
+        self.hf_use_token.setEnabled(False)
+        self.hf_remove_button.setEnabled(False)
         self.statusBar().showMessage(f'Lade {item.label} (expliziter Online-Download) …')
-        self.model_worker.start()
+        worker.start()
 
     def model_download_finished(self, model_id: str, folder: str) -> None:
         item = preset(model_id)
         getattr(self, f'{item.kind}_path').setText(folder)
+        self.progress.setRange(0, 100)
+        self.progress.setValue(100)
+        self.progress.setFormat(f"Modell: {item.label} · 100 % · validiert")
         self.statusBar().showMessage(f'Bereit und überprüft: {item.label}')
-        QMessageBox.information(self, 'Modell bereit', f'{item.label}\n{folder}')
+        QMessageBox.information(self, 'Modell bereit', f'{item.label}\\n{folder}')
 
     def model_download_failed(self, model_id: str, error: str) -> None:
+        self.progress.setRange(0, 100)
+        self.progress.setValue(0)
+        self.progress.setFormat("Modelldownload fehlgeschlagen")
         self.statusBar().showMessage('Modelldownload fehlgeschlagen')
         QMessageBox.warning(self, 'Modelldownload fehlgeschlagen',
-                            f'{preset(model_id).label}\n{error}')
+                            f'{preset(model_id).label}\\n{error}')
 
     def choose_model(self, target: QLineEdit) -> None:
         directory = QFileDialog.getExistingDirectory(self, "Lokales Modellverzeichnis auswählen")
@@ -2629,12 +2799,20 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage("Analyse mit Transkript geladen – ohne Whisper-Neuanalyse")
 
     def cancel_job(self) -> None:
-        if self.worker and self.worker.isRunning():
+        if self.model_worker is not None:
+            self.model_worker.cancel()
+            self.statusBar().showMessage("Modelldownload-Abbruch angefordert …")
+        elif self.worker and self.worker.isRunning():
             self.worker.cancel()
             self.statusBar().showMessage("Abbruch angefordert …")
 
     def closeEvent(self, event) -> None:
-        if self.model_worker and self.model_worker.isRunning():
+        if self.hf_check_worker is not None:
+            QMessageBox.information(self, "Verbindungsprüfung läuft",
+                                    "Bitte die laufende Verbindungskontrolle abschließen lassen.")
+            event.ignore()
+            return
+        if self.model_worker is not None:
             QMessageBox.information(self, 'Modelldownload läuft',
                                     'Der Modelldownload muss vor dem Schließen abgeschlossen werden.')
             event.ignore()
