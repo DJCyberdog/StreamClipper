@@ -23,7 +23,8 @@ from PySide6.QtWidgets import (
 )
 
 from .analyze import analyze
-from .media import CancelledError, probe_video, safe_destination, tool_path, waveform_peaks
+from .media import (CancelledError, probe_video, probe_audio_duration,
+                    safe_destination, tool_path, waveform_peaks)
 from .render_contract import RenderRequest, render_request
 from .rendered_preview import RenderedPreview, render_clip_preview
 from .model_checks import validate_clip_model
@@ -48,7 +49,7 @@ from .captioning import subtitle_text_at_time
 from .highlight_lexicon_dialog import HighlightLexiconDialog
 from .editor_project import (EditorProject, initial_project,
     add_track, remove_track, rename_track, move_track, toggle_track,
-    add_item, edit_item, load_project, save_project)
+    add_item, edit_item, load_project, save_project, Track)
 from .track_canvas import TrackCanvas
 from .proxy import (
     ProxyState, cached_proxy, ensure_proxy, original_to_proxy_ms,
@@ -106,7 +107,8 @@ class ExportThread(QThread):
 
     def __init__(self, analysis: AnalysisResult, items: list[Candidate], directory: str,
                  mode: str, parent=None, burn_subtitles: bool = False,
-                 subtitle_offset: float = 0.0):
+                 subtitle_offset: float = 0.0,
+                 project: EditorProject | None = None):
         super().__init__(parent)
         self.analysis = analysis
         self.items = items
@@ -114,6 +116,7 @@ class ExportThread(QThread):
         self.mode = mode
         self.burn_subtitles = burn_subtitles
         self.subtitle_offset = subtitle_offset
+        self.project = project
         self._cancelled = threading.Event()
 
     def cancel(self) -> None:
@@ -132,7 +135,8 @@ class ExportThread(QThread):
                     start=clip.start, end=clip.end, mode=self.mode,
                     burn_subtitles=self.burn_subtitles,
                     subtitle_offset=self.subtitle_offset,
-                    transcript=tuple(self.analysis.transcript))
+                    transcript=tuple(self.analysis.transcript),
+                    project=self.project)
                 actual = render_request(
                     request, target, cancelled=self._cancelled.is_set,
                     progress=lambda value, i=i: self.progress_changed.emit(
@@ -758,15 +762,16 @@ class MainWindow(QMainWindow):
         transcript_layout.addWidget(self.transcript_editor_hint)
         self.tabs.addTab(transcript_tab, "Untertitel")
         self.tabs.addTab(self.models_page, "KI & Modelle")
-        # M11b: metadata-based multitrack editor. No audio mix/export yet.
+        # M12b opt-in sound layers; video/overlay clips remain metadata.
         self.tracks_page = QScrollArea()
         self.tracks_page.setWidgetResizable(True)
         tracks_content = QWidget()
         tracks_layout = QVBoxLayout(tracks_content)
         self.tracks_page.setWidget(tracks_content)
         tracks_intro = QLabel(
-            "Spurplan für Schnitt und künftige Mehrspur-Exporte. "
-            "Wiedergabe und Export nutzen derzeit noch die Originalaufnahme.")
+            "Spurplan: Gameplay + optionale Mikrofon-/Musikdateien. "
+            "Zusätzliche Audiospuren wirken nur bei aktiviertem M12b-Spurton "
+            "im Export; Mehrspurvideo/Grafiken folgen später.")
         tracks_intro.setWordWrap(True)
         tracks_layout.addWidget(tracks_intro)
         import_row = QHBoxLayout()
@@ -776,7 +781,7 @@ class MainWindow(QMainWindow):
             "Original und Export bleiben unverändert.")
         self.track_import_button.clicked.connect(self._import_analysis_highlights)
         import_row.addWidget(self.track_import_button)
-        import_row.addWidget(QLabel("Nur Spurplan · kein Mehrspur-Export"), 1)
+        import_row.addWidget(QLabel("Audio-Mischung opt-in · keine Videospur-Komposition"), 1)
         tracks_layout.addLayout(import_row)
         self.track_canvas = TrackCanvas()
         self.track_canvas.trackSelected.connect(self._select_project_track)
@@ -818,10 +823,10 @@ class MainWindow(QMainWindow):
             row2.addWidget(control)
         tracks_layout.addLayout(row2)
         tracks_layout.addWidget(QLabel("Clips / Zeitpositionen"))
-        self.track_clips_table = QTableWidget(0, 5)
+        self.track_clips_table = QTableWidget(0, 6)
         self.track_clips_table.setMinimumHeight(125)
         self.track_clips_table.setHorizontalHeaderLabels(
-            ["Clip", "Spur", "Quelle IN", "Quelle OUT", "Timeline IN"])
+            ["Clip", "Spur", "Quelle IN", "Quelle OUT", "Timeline IN", "Audiodatei / Pegel"])
         self.track_clips_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.track_clips_table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
         self.track_clips_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
@@ -835,8 +840,15 @@ class MainWindow(QMainWindow):
         self.track_clip_move.clicked.connect(self._move_selected_track_clip)
         self.track_clip_trim = QPushButton("Clip trimmen")
         self.track_clip_trim.clicked.connect(self._trim_selected_track_clip)
+        self.track_audio_import = QPushButton("🎵 Audiodatei einfügen …")
+        self.track_audio_import.setToolTip(
+            "Lokale WAV/MP3/FLAC-Datei auf der gewählten Audiospur einfügen.")
+        self.track_audio_import.clicked.connect(self._add_audio_file_to_track)
+        self.track_gain_button = QPushButton("Pegel …")
+        self.track_gain_button.clicked.connect(self._edit_selected_clip_gain)
         for control in (self.track_clip_add, self.track_clip_move,
-                        self.track_clip_trim):
+                        self.track_clip_trim, self.track_audio_import,
+                        self.track_gain_button):
             row3.addWidget(control)
         tracks_layout.addLayout(row3)
         history_hint = QLabel(
@@ -993,6 +1005,12 @@ class MainWindow(QMainWindow):
         self.burn_subtitles.setChecked(True)
         self.burn_subtitles.setToolTip("Benötigt eine durch Whisper transkribierte Aufnahme.")
         actions.addWidget(self.burn_subtitles)
+        self.include_track_audio = QCheckBox("Audiospuren mitmischen (M12b, experimentell)")
+        self.include_track_audio.setToolTip(
+            "Mikrofon-/Musik-Spurclips mischen, auch bei überlappenden Clips. "
+            "Das Originalvideo bleibt die einzige Bildquelle. "
+            "Nicht unterstützte Grafik-/Video-Komposition wird abgewiesen.")
+        actions.addWidget(self.include_track_audio)
         self.render_preview_button = QPushButton("🎞 Exportgetreue Vorschau (bis 20 s)")
         self.render_preview_button.setToolTip(
             "Rendert den ausgewählten Highlight- oder Timeline-Bereich mit "
@@ -2841,6 +2859,8 @@ class MainWindow(QMainWindow):
                 burn_subtitles=(self.burn_subtitles.isChecked() and bool(transcript)),
                 subtitle_offset=self.caption_offset.value(),
                 transcript=transcript,
+                project=(self.editor_project if self.include_track_audio.isChecked()
+                         else None),
             ).validate()
         except (ValueError, OSError) as exc:
             QMessageBox.warning(self, "Render-Vorschau nicht möglich", str(exc))
@@ -2924,7 +2944,10 @@ class MainWindow(QMainWindow):
                                    str(self.mode.currentData()), self,
                                    burn_subtitles=self.burn_subtitles.isChecked()
                                    and bool(self.analysis.transcript),
-                                   subtitle_offset=self.caption_offset.value())
+                                   subtitle_offset=self.caption_offset.value(),
+                                   project=(self.editor_project
+                                            if self.include_track_audio.isChecked()
+                                            else None))
         self.worker.progress_changed.connect(self.progress.setValue)
         self.worker.done.connect(self.export_finished)
         self.worker.failed.connect(self.job_failed)
