@@ -238,6 +238,78 @@ präzise Tabellen-/Dialogeingaben nutzbar. Ein editierbarer Spurplan darf
       sind unabhängige Audiospuren und grafische Effekte **Metadaten**,
       noch keine abgemischten Video-/Audio-Exporte.
 
+#### 5.2.2 Owner-Entscheidung (23.11.2026): Premiere-inspirierte Editor-UI
+
+**Zielbild:** StreamClipper Studio bekommt eine **professionelle,
+panelbasierte, frei anpassbare NLE-Arbeitsfläche**, inspiriert von den
+Bedienprinzipien von Adobe Premiere Pro, jedoch **kein Design-/Markenklon**.
+Die Kernstärke **KI-Highlights → schnelle Überprüfung → gezielter Schnitt
+→ Export** bleibt ein erster, gleichberechtigter Workflow und wird nicht
+hinter tiefen Profi-Menüs versteckt. Die bestehenden fünf Reiter sind eine
+Zwischenlösung, **nicht** die endgültige Informationsarchitektur.
+
+**Zielaufbau:**
+
+- Obere Menü-/Workspace-Leiste: **Highlights**, **Schnitt**, **Audio**,
+  **Untertitel**, **Export**; optional **Einfach-/Expertenansicht**.
+- **Projekt-/Medien-Browser und KI-Highlight-Liste** links, in Panels
+  als Tabs oder per Drag-and-Drop andockbar. Medienimport, Suche,
+  Kandidatenscores, Quellinformationen und Batch-Vorschau.
+- **Programmmonitor** zentral/rechts mit transport-/framegenauem
+  Scrubbing und gut sichtbarer Zeitcodeanzeige; optionaler Quellmonitor.
+  Sichtbarer Modusstatus: Original/Proxy/echte Render-Vorschau.
+- **Mehrspur-Timeline unten als primärer Arbeitsbereich**, frei
+  höhenverstellbar, Video-/Audiolanes, Waveforms, Clipkanten, Zoom,
+  magnetisches Snapping, Playhead, Marker, Lock/Mute/Solo und
+  Tastaturbefehle; keine doppelte Timeline in parallelen Tabs.
+- **Eigenschaften/Effekte/Audiomixer rechts** als Kontextpanel,
+  nur zur aktuellen Auswahl; Worteditor und Modellkonfiguration
+  einklappbar. Exportjobs mit sichtbarer Fortschritts-/Fehlerliste.
+- Panel-Docking/-Undocking, anpassbare Splitter und mehrere
+  **gespeicherte Workspace-Layouts** inklusive „Layout zurücksetzen“;
+  kein Verlust von Timeline-/Projektzuständen durch Layoutwechsel.
+
+**Etappen nach fachlicher Zugehörigkeit statt separater UI-Neubau:**
+
+1. **M12-UX:** Qt-Dock-/Splitter-Shell, Workspace-Presets,
+   Programmmonitor + Projekt/Highlights + Timeline sowie persistierte
+   Layoutzustände auf der bestehenden PySide6-Anwendung; funktionales
+   Behavior aus M11 erhalten, keine neue App/Portierung.
+2. **M13-UX:** Echtzeitnahe Parameter-/Keyframe-/Camera-Controls
+   im Auswahl- und Effektpanel, Drag&Drop/Snapping/Multi-Clip-Editing.
+3. **M14/M15-UX:** Direkt bearbeitbare Untertitelspuren, Audiopegel,
+   Audiomixer, Effekt- und Musik-Panels; einheitliche Preview-/Exportzustände.
+4. **M16–M19:** KI-Hit-Browser, Varianten/Montage, Quellenimport,
+   optionaler Publish-Workflow als zusätzliche Workspaces statt immer
+   längerer Tab-Formulare.
+5. **M20:** Verbindliche End-to-End-UX-Abnahme, Accessibility,
+   Shortcuts, Layoutmigration, Projektkonsistenz und Regression.
+
+**Abnahmekriterien (vor 1.0):**
+
+- [ ] Bei **1366×768** und **1920×1080** sind Timeline,
+      Monitor, Medienbrowser und Hauptaktionen ohne abgeschnittene
+      Bedienelemente erreichbar; auch mit vielen Tracks/Long-VODs.
+- [ ] Panels andocken, verschieben, ein-/ausblenden, Layout
+      speichern/laden/zurücksetzen; Wechsel während Wiedergabe
+      verliert weder Playhead, Selektion noch offene Edits.
+- [ ] Bedienung mit Maus und Tastatur, eindeutiger aktiver Fokus,
+      Undo/Redo und Snapping, kein doppeltes Shortcut-Handling.
+- [ ] **Highlights-first** und **professioneller Mehrspurschnitt**
+      sind gleichwertig nutzbar; neue Nutzer:innen müssen keine
+      Expert:innenkonfiguration öffnen, um einen Clip zu erstellen.
+- [ ] Panelzustände lokal und versionsverträglich speichern,
+      alte M11/M12-Projekte ohne Datenverlust übernehmen; keine
+      erzwungene Cloud-/Adobe-Abhängigkeit.
+- [ ] Keine bloße „Premiere-Optik“ vortäuschen: Monitor/Timeline
+      zeigen die tatsächliche Renderfähigkeit und kennzeichnen
+      noch nicht implementierte Video-/Audio-Funktionen.
+
+**Status:** Entwurf/Owner-Beschluss, **noch nicht implementiert**.
+Die M12b-Mehrspur-Audiofunktion ist kein Ersatz für die Dock-UI.
+Das übergeordnete 60-Feature-Inventar bleibt unverändert; diese
+Entscheidung beschreibt eine durchgängige **UX-Architektur**.
+
 ### 5.3 M12 – Vorschau & gemeinsame Renderpipeline
 
 **M12a (Draft):** Gemeinsamer, unveränderlicher `RenderRequest` für
