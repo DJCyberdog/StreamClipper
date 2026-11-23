@@ -240,6 +240,16 @@ präzise Tabellen-/Dialogeingaben nutzbar. Ein editierbarer Spurplan darf
 
 ### 5.3 M12 – Vorschau & gemeinsame Renderpipeline
 
+**M12a (Draft):** Gemeinsamer, unveränderlicher `RenderRequest` für
+den bestehenden Single-Source-FFmpeg-Export und die ausdrücklich
+ausgelöste, auf 20 Sekunden begrenzte Render-Vorschau (MP4).
+Identische Crop-/Reframe-/ASS-Untertitelparameter in beiden Pfaden,
+separater Qt-Player, Hintergrundjob, Abbruch und temporäre Datei.
+Dies ist **noch kein M12-Freeze**: reale Windows-/6h-Abnahme,
+Mehrspur-Komposition, Live-WYSIWYG, NVENC, Export-QA und Renderqueue
+bleiben offen. M11-Metadaten-Spuren wirken weiterhin nicht auf den
+Rendergraph.
+
 - Rendergraph/-Parameter für Vorschau und MP4-Export gemeinschaftlich definieren (**#01**).
 - NVENC (H.264/HEVC), sichere CPU-Fallbacks, stapelbare Renderjobs und Exportqualitätsprüfung (**#06–#08**).
 - Die Vorschau darf nicht nur „ungefähr“ stimmen: Kamerafahrt- und Untertiteltests werden in **M13/M14** gegen denselben Rendervertrag erweitert.
