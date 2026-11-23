@@ -10,12 +10,12 @@ from .portable import configure_portable_environment
 
 configure_portable_environment()
 
-from PySide6.QtCore import QEvent, Qt, QThread, QTimer, QUrl, Signal
+from PySide6.QtCore import QByteArray, QEvent, Qt, QThread, QTimer, QUrl, Signal
 from PySide6.QtGui import QColor, QKeySequence, QShortcut
 from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
 from PySide6.QtMultimediaWidgets import QVideoWidget
 from PySide6.QtWidgets import (
-    QApplication, QCheckBox, QComboBox, QDialog, QFileDialog, QHBoxLayout, QLabel, QLineEdit, QMainWindow,
+    QApplication, QCheckBox, QComboBox, QDialog, QDockWidget, QFileDialog, QHBoxLayout, QLabel, QLineEdit, QMainWindow,
     QMessageBox, QPlainTextEdit, QProgressBar, QPushButton, QSlider, QSpinBox,
     QInputDialog,
     QDoubleSpinBox, QSplitter, QTableWidget, QTableWidgetItem, QTabWidget,
@@ -51,6 +51,9 @@ from .editor_project import (EditorProject, initial_project,
     add_track, remove_track, rename_track, move_track, toggle_track,
     add_item, edit_item, load_project, save_project, Track)
 from .track_canvas import TrackCanvas
+from .editor_theme import EDITOR_STYLESHEET
+from .workspace_layout import (WORKSPACE_NAMES, WorkspaceLayout,
+                               save_workspace, load_workspace, delete_workspace)
 from .proxy import (
     ProxyState, cached_proxy, ensure_proxy, original_to_proxy_ms,
     proxy_to_original_ms)
@@ -391,8 +394,15 @@ class RenderedClipDialog(QDialog):
 class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
-        self.setWindowTitle("StreamClipper Studio – Editor (experimentell)")
+        self.setWindowTitle("StreamClipper Studio | Schnitt & Highlights")
         self.resize(1440, 920)
+        self.setDockNestingEnabled(True)
+        self.setDockOptions(
+            QMainWindow.DockOption.AllowNestedDocks
+            | QMainWindow.DockOption.AllowTabbedDocks
+            | QMainWindow.DockOption.AnimatedDocks)
+        self._workspace_name = "Highlights"
+        self._default_dock_state: QByteArray | None = None
         self.source: str | None = None
         self.analysis: AnalysisResult | None = None
         self.worker: AnalysisThread | ExportThread | TwitchImportThread | RenderPreviewThread | None = None
@@ -439,7 +449,8 @@ class MainWindow(QMainWindow):
         root = QWidget()
         self.setCentralWidget(root)
         main = QVBoxLayout(root)
-        main.setSpacing(7)
+        main.setContentsMargins(10, 8, 10, 8)
+        main.setSpacing(8)
         # Permanent preview and timeline, tool panels in the sidebar.
         self.models_page = QScrollArea()
         self.models_page.setWidgetResizable(True)
@@ -453,6 +464,10 @@ class MainWindow(QMainWindow):
         self.export_page.setWidget(export_content)
 
         toolbar = QHBoxLayout()
+        studio_label = QLabel("STREAMCLIPPER  /  STUDIO")
+        studio_label.setStyleSheet(
+            "color: #91BBDD; font-weight: 700; letter-spacing: 1px;")
+        toolbar.addWidget(studio_label)
         self.open_button = QPushButton("📂 Aufnahme öffnen")
         self.open_button.clicked.connect(self.open_video)
         toolbar.addWidget(self.open_button)
@@ -474,11 +489,18 @@ class MainWindow(QMainWindow):
         self.cancel_button.clicked.connect(self.cancel_job)
         self.cancel_button.setEnabled(False)
         toolbar.addWidget(self.cancel_button)
+        toolbar.addStretch()
+        toolbar.addWidget(QLabel("Arbeitsbereich"))
+        self.workspace_picker = QComboBox()
+        self.workspace_picker.setObjectName("streamclipper.workspacePicker")
+        for workspace in WORKSPACE_NAMES:
+            self.workspace_picker.addItem(workspace)
+        self.workspace_picker.currentTextChanged.connect(self._activate_workspace)
+        toolbar.addWidget(self.workspace_picker)
         self.highlight_words_button = QPushButton("Highlight-Wörter …")
         self.highlight_words_button.setToolTip("Eigene sprachliche Highlight-Ausdrücke und Gewichtungen verwalten")
         self.highlight_words_button.clicked.connect(self.edit_highlight_words)
         models_page_layout.addWidget(self.highlight_words_button)
-        toolbar.addStretch()
         main.addLayout(toolbar)
         # Keep project management out of the increasingly crowded editor tabs.
         project_menu = self.menuBar().addMenu("Datei && Projekt")
@@ -577,7 +599,6 @@ class MainWindow(QMainWindow):
         self.source_label.setWordWrap(True)
         main.addWidget(self.source_label)
 
-        splitter = QSplitter(Qt.Orientation.Horizontal)
         preview_container = QWidget()
         preview_layout = QVBoxLayout(preview_container)
         preview_layout.setContentsMargins(0, 0, 0, 0)
@@ -633,7 +654,8 @@ class MainWindow(QMainWindow):
         preview_layout.addWidget(QLabel(
             "Vorschau: Originalbild + Untertitel. 16:9/9:16-Reframing erst im Export."
         ))
-        splitter.addWidget(preview_container)
+        preview_container.setObjectName("streamclipper.programMonitor")
+        main.addWidget(preview_container, 1)
 
         results_container = QWidget()
         results_layout = QVBoxLayout(results_container)
@@ -861,12 +883,42 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(self.tracks_page, "Spuren")
         QShortcut(QKeySequence("Ctrl+Return"), self, activated=self.apply_transcript_editor)
         QShortcut(QKeySequence("Ctrl+S"), self, activated=self.save_report)
-        splitter.addWidget(results_container)
-        splitter.setSizes([580, 620])
-        main.addWidget(splitter, 1)
+        # M12-UX: the same existing tool tabs are docked rather than
+        # recreated, preserving all analysis/editor signal connections.
+        self.project_dock = QDockWidget("PROJEKT / HIGHLIGHTS / WERKZEUGE", self)
+        self.project_dock.setObjectName("streamclipper.projectDock")
+        self.project_dock.setAllowedAreas(
+            Qt.DockWidgetArea.LeftDockWidgetArea |
+            Qt.DockWidgetArea.RightDockWidgetArea)
+        self.project_dock.setFeatures(
+            QDockWidget.DockWidgetFeature.DockWidgetMovable |
+            QDockWidget.DockWidgetFeature.DockWidgetFloatable |
+            QDockWidget.DockWidgetFeature.DockWidgetClosable)
+        self.project_dock.setWidget(results_container)
+        self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.project_dock)
 
-        # M6: zoomable waveform editing. Waveform is decoded on a background
-        # thread and has a fixed upper bound independent of VOD duration.
+        # Timeline lives in a separate movable/resizable bottom dock.
+        # Scroll area prevents controls clipping on 1366x768 screens.
+        timeline_scroll_host = QScrollArea()
+        timeline_scroll_host.setObjectName("streamclipper.timelineScroller")
+        timeline_scroll_host.setWidgetResizable(True)
+        timeline_content = QWidget()
+        timeline_layout = QVBoxLayout(timeline_content)
+        timeline_layout.setContentsMargins(10, 8, 10, 8)
+        timeline_layout.setSpacing(6)
+        timeline_scroll_host.setWidget(timeline_content)
+        self.timeline_dock = QDockWidget("SEQUENZ / TIMELINE", self)
+        self.timeline_dock.setObjectName("streamclipper.timelineDock")
+        self.timeline_dock.setAllowedAreas(
+            Qt.DockWidgetArea.TopDockWidgetArea |
+            Qt.DockWidgetArea.BottomDockWidgetArea)
+        self.timeline_dock.setFeatures(
+            QDockWidget.DockWidgetFeature.DockWidgetMovable |
+            QDockWidget.DockWidgetFeature.DockWidgetFloatable |
+            QDockWidget.DockWidgetFeature.DockWidgetClosable)
+        self.timeline_dock.setWidget(timeline_scroll_host)
+        self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self.timeline_dock)
+        # M6: zoomable waveform editing; existing player/timing stay unchanged.
         timeline_header = QHBoxLayout()
         timeline_header.addWidget(QLabel("TIMELINE · Audio / Highlights / Untertitel"))
         timeline_header.addStretch()
@@ -897,7 +949,7 @@ class MainWindow(QMainWindow):
         self.undo_shortcut.activated.connect(self._shortcut_undo)
         self.redo_shortcut = QShortcut(QKeySequence("Ctrl+Shift+Z"), self)
         self.redo_shortcut.activated.connect(self._shortcut_redo)
-        main.addLayout(timeline_header)
+        timeline_layout.addLayout(timeline_header)
 
         self.timeline = TimelineWidget()
         self.timeline.playheadMoved.connect(self.timeline_seek)
@@ -905,19 +957,19 @@ class MainWindow(QMainWindow):
         self.timeline.subtitleSelected.connect(self.timeline_select_subtitle)
         self.timeline.wordSelected.connect(self.select_timeline_word)
         self.timeline.wordBoundaryCommitted.connect(self.commit_timeline_word_edge)
-        main.addWidget(self.timeline)
+        timeline_layout.addWidget(self.timeline)
         self.timeline_scroll = QSlider(Qt.Orientation.Horizontal)
         self.timeline_scroll.setMinimum(0)
         self.timeline_scroll.setMaximum(0)
         self.timeline_scroll.valueChanged.connect(self.timeline_scroll_changed)
-        main.addWidget(self.timeline_scroll)
+        timeline_layout.addWidget(self.timeline_scroll)
 
         # Integrated word editor: active highlight only, directly below the
         # waveform and word track. No separate transcription tab required.
         self.word_editor_toggle = QPushButton("▸ Worteditor einblenden")
         self.word_editor_toggle.setCheckable(True)
         self.word_editor_toggle.toggled.connect(self.toggle_word_editor)
-        main.addWidget(self.word_editor_toggle)
+        timeline_layout.addWidget(self.word_editor_toggle)
         self.word_editor_panel = QWidget()
         word_panel_layout = QVBoxLayout(self.word_editor_panel)
         word_panel_layout.setContentsMargins(0, 0, 0, 0)
@@ -959,7 +1011,7 @@ class MainWindow(QMainWindow):
         self.word_apply.clicked.connect(self.apply_word_editor)
         word_controls.addWidget(self.word_apply)
         word_panel_layout.addLayout(word_controls)
-        main.addWidget(self.word_editor_panel)
+        timeline_layout.addWidget(self.word_editor_panel)
         self.word_editor_panel.hide()
 
         clip_tools = QHBoxLayout()
@@ -991,7 +1043,7 @@ class MainWindow(QMainWindow):
         self.timeline_trim.clicked.connect(self.trim_timeline_highlight)
         clip_tools.addWidget(self.timeline_trim)
         clip_tools.addStretch()
-        main.addLayout(clip_tools)
+        timeline_layout.addLayout(clip_tools)
 
         actions = QVBoxLayout()
         actions.addWidget(QLabel("Exportformat"))
