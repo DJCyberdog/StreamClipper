@@ -164,7 +164,7 @@ Vorhandene *experimentelle* Implementierungen umfassen Audio-Highlighting, nicht
 
 ### 5.1 Meilensteinregeln und Abhängigkeiten
 
-1. **M10.5 zuerst:** Bestehende gestapelte Code-PRs integrieren und mit realen Windows-Daten testen. **P1-Bugfix #32 (Modelldownload-Fortschritt) vor M10.5-Abnahme erledigen.** Erst dann neue komplexe Workflows aufbauen.
+1. **M10.5-Baseline und Review:** Bestehende gestapelte Code-PRs integrieren und mit realen Windows-Daten testen. **P1-UX-Wunsch #32** (Modellfortschritt/HF-Token) wird im Entwicklungszweig ergänzt, **ist aber kein technischer oder zeitlicher Blocker für M11/M12**. Seine eigenen Abnahmekriterien bleiben bis zur Release-Freigabe nachvollziehbar.
 2. **M11 (Editor) → M12 (Render-Vertrag) → M13 (Kamera):** Persistente Timeline-/Szenenstruktur und verlässliche Renderpipeline sind Voraussetzung für den Smart Director. M12 stellt die exportgetreue Grundlage bereit; M13 und M14 erweitern und verifizieren sie für ihre jeweiligen Effekte.
 3. **M14 (Captions) und M15 (Audio) → M16 (Intelligence) → M17 (Montage):** Wortkorrekturen und Audiosignale in die zweistufige Erkennung übernehmen, dann die Ereignisfenster in Story-aware Clipgrenzen überführen. Vor dem Ausbau der KI steht immer ein unabhängiger Qualitäts-Benchmark; Qualitätsgewinn wird nicht allein aus Modellgröße abgeleitet.
 4. **M17 (Montage) → M19 (Publishing):** Clips müssen vollständig bearbeitbar und exportierbar sein, bevor sie über Dienste veröffentlicht werden.
@@ -176,7 +176,7 @@ Vorhandene *experimentelle* Implementierungen umfassen Audio-Highlighting, nicht
 
 **Fehlerbild:** Beim explizit gestarteten Download lokaler Whisper-/CLIP-/DETR-Modellgewichte zeigt die Konsole den Fortschritt von `huggingface_hub.snapshot_download`; der **untere Fortschrittsbalken in StreamClipper bleibt bei 0 %**. Das ist eine Regression/fehlende Anbindung des **bestehenden** Modell-Workflows (M9), **kein neues Hauptfeature und kein M12-Renderjob**.
 
-**Verbindliche P1-Abnahme vor Abschluss von M10.5:**
+**P1-UX-Wunsch, zur Prüfung im Draft (kein Blocker für nachfolgende Entwicklung):**
 
 - [ ] `ModelDownloadThread` sendet **thread-sichere Progress-Events** an die GUI; die untere Leiste zeigt den Download **sofort** und nennt das aktuell geladene Modell.
 - [ ] Wenn Bytes und Gesamtgröße tatsächlich bekannt sind: Fortschritt auf Basis **der aufsummierten heruntergeladenen Bytes über alle Dateien**; Nachladungen wie `pytorch_model.bin` korrekt berücksichtigen. **Keine** fiktiven Prozentwerte anhand des Dateizählers.
@@ -194,7 +194,7 @@ Vorhandene *experimentelle* Implementierungen umfassen Audio-Highlighting, nicht
 - [ ] `snapshot_download(..., token=...)` für Haupt- und Gewichts-Fallback-Downloads verwenden; Verbindung, Fehler, Retry und **Downloadfortschritt** im gleichen GUI-Workflow miteinander koordinieren.
 - [ ] Automatisierte Sicherheitstests mit **Fake-Tokens** einschließlich Qt-Offscreen-Test; echter HF-Windows-Test nur mit lokal bereitgestelltem Token, **niemals** Test-Tokens ins Repo committen.
 
-**Priorisierung:** **M10.5, P1 / vor dem Integrationsabschluss**, danach keine separate Aufschiebung in M12. Die Tierlist bleibt **60 Hauptfeatures** mit **58 vorgesehenen Implementierungen und zwei F-Ausschlüssen**.
+**Priorisierung:** **M10.5, P1-Wunsch ohne Entwicklungsblockade**; Implementierung im späteren gestapelten Draft nach M11c, sodass M11-Arbeit nicht neu aufgebaut werden muss. Reale Modell-/Token-Windows-Prüfung bleibt Release-Gate. Die Tierlist bleibt **60 Hauptfeatures** mit **58 vorgesehenen Implementierungen und zwei F-Ausschlüssen**.
 
 ### 5.2 M11 – Editor, Timeline & Projektlebenszyklus
 
@@ -411,7 +411,7 @@ Für relevante Meilensteine sind reproduzierbare Nachweise im Issue/PR vorzulege
 6. Basis-Datenintegrität/Autosave (#04) und umfangreiche Projektverwaltung (D-B1) bleiben getrennte Funktionen, können technisch aber ein Speichermodell nutzen.
 7. Die Standard-Highlight-Wortliste wird **in künftigen Entwicklungsrunden** gepflegt; keine angebliche permanente Hintergrundarbeit ohne separate Automation.
 8. Meilensteine dürfen in kleine PRs gesplittet werden. **Keine stillen Scope-Reduktionen** und kein „fertig“ ohne Test- und Windows-Evidenz.
-9. Nächster Schritt bleibt **M10.5 – Integration & Stabilisierung**, anschließend **M11 – Editor, Timeline & Datenhaltung**.
+9. Nächster Schritt: M10.5-/M11-Review und Abnahme; die nichtblockierende UX-Ergänzung #32 läuft im gestapelten Draft. Danach M12.
 
 
 ---
