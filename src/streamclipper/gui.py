@@ -1165,6 +1165,155 @@ class MainWindow(QMainWindow):
         self.setStyleSheet(EDITOR_STYLESHEET)
         self._load_workspace_on_start()
 
+    _WORKSPACE_TABS = {
+        "Highlights": 0, "Schnitt": 3, "Audio": 3,
+        "Untertitel": 1, "Export": 4,
+    }
+
+    def _install_workspace_controls(self) -> None:
+        menu = self.menuBar().addMenu("Ansicht && Arbeitsbereiche")
+        for name in WORKSPACE_NAMES:
+            action = menu.addAction(name)
+            action.triggered.connect(
+                lambda _checked=False, preset=name: self._activate_workspace(preset))
+        menu.addSeparator()
+        self.save_workspace_action = menu.addAction(
+            "Aktuelles Layout speichern", self._save_workspace_layout)
+        self.reset_workspace_action = menu.addAction(
+            "Layout zurücksetzen", self._reset_workspace_layout)
+        menu.addSeparator()
+        for dock in (self.project_dock, self.timeline_dock, self.inspector_dock):
+            menu.addAction(dock.toggleViewAction())
+        self.tabs.currentChanged.connect(lambda _index: self._update_inspector())
+
+    def _activate_workspace(self, name: str) -> None:
+        """Switch what is visible, without resetting playback or user dock sizes."""
+        if name not in self._WORKSPACE_TABS or not hasattr(self, "project_dock"):
+            return
+        self._workspace_name = name
+        self.project_dock.show()
+        self.timeline_dock.show()
+        self.inspector_dock.setVisible(
+            name in {"Schnitt", "Audio", "Untertitel"})
+        self.tabs.setCurrentIndex(self._WORKSPACE_TABS[name])
+        if self.workspace_picker.currentText() != name:
+            self.workspace_picker.blockSignals(True)
+            try:
+                self.workspace_picker.setCurrentText(name)
+            finally:
+                self.workspace_picker.blockSignals(False)
+        self._update_inspector()
+        self.statusBar().showMessage(
+            f"Arbeitsbereich „{name}“ aktiv · Panelpositionen bleiben erhalten", 3500)
+
+    def _load_workspace_on_start(self) -> None:
+        """Restore valid Qt dock state, otherwise a safe default for any display."""
+        layout = load_workspace()
+        if layout is not None and self.restoreState(QByteArray(layout.state), 1):
+            self._workspace_name = layout.active
+            self.workspace_picker.blockSignals(True)
+            try:
+                self.workspace_picker.setCurrentText(layout.active)
+            finally:
+                self.workspace_picker.blockSignals(False)
+            self.tabs.setCurrentIndex(self._WORKSPACE_TABS[layout.active])
+            self._update_inspector()
+            return
+        self._activate_workspace("Highlights")
+
+    def _save_workspace_layout(self, quiet: bool = False) -> None:
+        try:
+            save_workspace(WorkspaceLayout(
+                self._workspace_name, bytes(self.saveState(1))))
+        except (OSError, ValueError) as exc:
+            if not quiet:
+                QMessageBox.warning(
+                    self, "Layout nicht gesichert",
+                    f"Der UI-Arbeitsbereich wurde nicht gespeichert: {exc}")
+        else:
+            if not quiet:
+                self.statusBar().showMessage(
+                    "Arbeitsbereich lokal gespeichert · Clip- und Projektdaten unverändert")
+
+    def _reset_workspace_layout(self) -> None:
+        """Recover a clean dock arrangement after accidental offscreen docking."""
+        try:
+            delete_workspace()
+        except OSError:
+            # In-memory reset is still safe if the portable folder is readonly.
+            pass
+        if self._default_dock_state is not None:
+            self.restoreState(self._default_dock_state, 1)
+        self._activate_workspace("Highlights")
+        self.statusBar().showMessage(
+            "Standardlayout wiederhergestellt · Quellvideo und Projekt unverändert")
+
+    def _update_inspector(self) -> None:
+        if not hasattr(self, "inspector_heading"):
+            return
+        project = self.editor_project
+        clip_id = self._selected_clip_id() if project else None
+        track_id = self._selected_track_id() if project else None
+        is_tracks = self.tabs.tabText(self.tabs.currentIndex()) == "Spuren"
+        clip = next((item for item in project.items if item.id == clip_id),
+                    None) if project else None
+        track = next((item for item in project.tracks if item.id == track_id),
+                     None) if project else None
+        candidate = self.selected_candidate() if self.analysis else None
+        editable = False
+        if is_tracks and clip is not None:
+            owner = next(t for t in project.tracks if t.id == clip.track_id)
+            self.inspector_heading.setText(clip.label or "Timeline-Clip")
+            self.inspector_details.setText(
+                f"Spur: {owner.name} ({owner.kind})\\n"
+                f"Quelle: {format_timestamp(clip.source_start)} bis "
+                f"{format_timestamp(clip.source_end)}\\n"
+                f"Timeline: {format_timestamp(clip.timeline_start)}\\n"
+                f"Pegel: {clip.gain_db:+.1f} dB\\n"
+                f"Stumm: {'Ja' if owner.muted else 'Nein'} · "
+                f"Gesperrt: {'Ja' if owner.locked else 'Nein'}")
+            editable = True
+        elif is_tracks and track is not None:
+            self.inspector_heading.setText(track.name)
+            self.inspector_details.setText(
+                f"Spurtyp: {track.kind}\\n"
+                f"Stumm: {'Ja' if track.muted else 'Nein'}\\n"
+                f"Gesperrt: {'Ja' if track.locked else 'Nein'}\\n"
+                f"Spurclips: {sum(i.track_id == track.id for i in project.items)}")
+            editable = True
+        elif candidate is not None:
+            self.inspector_heading.setText("Highlight-Auswahl")
+            self.inspector_details.setText(
+                f"Start: {format_timestamp(candidate.start)}\\n"
+                f"Ende: {format_timestamp(candidate.end)}\\n"
+                f"Dauer: {candidate.end-candidate.start:.2f} s\\n"
+                f"Erkennung: {candidate.reason}")
+            editable = True
+        else:
+            self.inspector_heading.setText("Projekt-Übersicht")
+            name = Path(self.source).name if self.source else "Keine Datei geöffnet"
+            count = len(self.analysis.candidates) if self.analysis else 0
+            self.inspector_details.setText(
+                f"Aufnahme: {name}\\n"
+                f"Highlights: {count}\\n"
+                "Wähle einen Clip oder eine Spur, um Details zu sehen.")
+        self.inspector_edit_button.setEnabled(editable and not self._history_blocked)
+
+    def _inspect_edit_selection(self) -> None:
+        """Open the *existing* editor rather than maintaining duplicate state."""
+        if self._history_blocked:
+            return
+        if (self.tabs.tabText(self.tabs.currentIndex()) == "Spuren"
+                and self.editor_project is not None):
+            if self._selected_clip_id() is not None:
+                self.track_clips_table.setFocus()
+            elif self._selected_track_id() is not None:
+                self.tracks_table.setFocus()
+        elif self.analysis is not None and self.selected_candidate() is not None:
+            self.tabs.setCurrentIndex(0)
+            self.preview_selected()
+            self.table.setFocus()
+
     def _source_position_ms(self) -> int:
         if self._preview_switching:
             return self._proxy_pending_original_ms
@@ -3250,6 +3399,7 @@ class MainWindow(QMainWindow):
                 event.ignore()
                 return
         self.player.stop()
+        self._save_workspace_layout(quiet=True)
         event.accept()
 
 
