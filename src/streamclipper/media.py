@@ -15,6 +15,7 @@ import sys
 from typing import Callable
 
 from .models import VideoInfo, TranscriptSegment
+from .render_graph import AudioLayer
 
 Progress = Callable[[int], None]
 Cancelled = Callable[[], bool]
@@ -76,6 +77,25 @@ def probe_video(path: str | Path) -> VideoInfo:
         height=int(v.get("height") or 0), fps=fps,
         has_audio=any(s.get("codec_type") == "audio" for s in streams),
     )
+
+
+def probe_audio_duration(path: str | Path) -> float:
+    """Validate a local audio-bearing file and retrieve finite duration."""
+    source = Path(path).resolve(strict=True)
+    if not source.is_file():
+        raise ValueError("Audiodatei ist kein regulärer Dateipfad")
+    report = subprocess.run(
+        [tool_path("ffprobe"), "-v", "error",
+         "-show_entries", "format=duration:stream=codec_type",
+         "-of", "json", str(source)],
+        check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        text=True, timeout=40)
+    data = json.loads(report.stdout)
+    duration = float(data.get("format", {}).get("duration") or 0)
+    if (not any(x.get("codec_type") == "audio" for x in data.get("streams", []))
+            or not math.isfinite(duration) or duration <= 0):
+        raise ValueError("Die Datei enthält keine gültige Audiospur")
+    return duration
 
 
 def audio_levels(video: VideoInfo, progress: Progress | None = None,
@@ -149,7 +169,8 @@ def video_dimensions(mode: str, width: int = 1080, height: int = 1920) -> tuple[
 def build_export_command(video: VideoInfo, start: float, end: float, destination: str | Path,
                          mode: str = "blur", width: int = 1080, height: int = 1920,
                          ffmpeg_executable: str = "ffmpeg", *,
-                         motion_points=None, burned_captions: bool = False) -> list[str]:
+                         motion_points=None, burned_captions: bool = False,
+                         audio_layers: tuple[AudioLayer, ...] = ()) -> list[str]:
     """Construct command without a shell. Optional captions use a local ASS file.
 
     If burned_captions, the caller must write `captions.ass` in the FFmpeg cwd.
@@ -186,9 +207,54 @@ def build_export_command(video: VideoInfo, start: float, end: float, destination
         )
     if burned_captions:
         chain += ";[base]ass=filename=captions.ass,format=yuv420p[v]"
-    return [ffmpeg_executable, "-hide_banner", "-nostdin", "-loglevel", "error", "-n",
-            "-ss", f"{start:.3f}", "-i", video.path, "-t", f"{end-start:.3f}",
-            "-filter_complex", chain, "-map", "[v]", "-map", "0:a:0?",
+    inputs = [ffmpeg_executable, "-hide_banner", "-nostdin", "-loglevel", "error", "-n",
+              "-ss", f"{start:.3f}", "-i", video.path]
+    audio_map = "0:a:0?"
+    if audio_layers:
+        if len(audio_layers) > 16:
+            raise ValueError("Zu viele gleichzeitige Audioquellen")
+        duration = end - start
+        if video.has_audio:
+            chain += (
+                f";[0:a:0]aresample=async=1:first_pts=0,"
+                f"aformat=sample_rates=48000:channel_layouts=stereo,"
+                f"apad,atrim=duration={duration:.6f}[base_audio]")
+        else:
+            chain += (
+                f";anullsrc=r=48000:cl=stereo,"
+                f"atrim=duration={duration:.6f}[base_audio]")
+        labels = ["[base_audio]"]
+        for i, layer in enumerate(audio_layers, start=1):
+            if (not os.path.isabs(layer.source_path)
+                    or not 0 <= layer.source_start < layer.source_end
+                    or layer.timeline_offset < 0
+                    or not -60 <= layer.gain_db <= 12
+                    or not all(math.isfinite(v) for v in (
+                        layer.source_start,layer.source_end,
+                        layer.timeline_offset,layer.gain_db))
+                    or layer.timeline_offset + layer.source_end-layer.source_start >
+                    duration + .005):
+                raise ValueError("Ungültiger Audio-Clip im Rendergraph")
+            inputs += ["-ss", f"{layer.source_start:.6f}", "-i", layer.source_path]
+            segment = layer.source_end-layer.source_start
+            delay = round(layer.timeline_offset * 1000)
+            chain += (
+                f";[{i}:a:0]atrim=duration={segment:.6f},"
+                "asetpts=PTS-STARTPTS,"
+                "aformat=sample_rates=48000:channel_layouts=stereo,"
+                f"volume={layer.gain_db:.3f}dB,"
+                f"adelay={delay}:all=1,apad,"
+                f"atrim=duration={duration:.6f}[audio_{i}]")
+            labels.append(f"[audio_{i}]")
+        chain += (
+            ";" + "".join(labels)
+            + f"amix=inputs={len(labels)}:duration=first:"
+              "normalize=0:dropout_transition=0,"
+            + f"atrim=duration={duration:.6f}[audio_out]")
+        audio_map = "[audio_out]"
+    return inputs + [
+            "-t", f"{end-start:.3f}",
+            "-filter_complex", chain, "-map", "[v]", "-map", audio_map,
             "-c:v", "libx264", "-preset", "veryfast", "-crf", "22", "-pix_fmt", "yuv420p",
             "-c:a", "aac", "-b:a", "160k", "-movflags", "+faststart",
             str(destination)]
@@ -254,7 +320,8 @@ def export_clip(video: VideoInfo, start: float, end: float, destination: str | P
                 progress: Progress | None = None, *,
                 transcript: list[TranscriptSegment] | None = None,
                 burn_subtitles: bool = False,
-                subtitle_offset: float = 0.0) -> Path:
+                subtitle_offset: float = 0.0,
+                audio_layers: tuple[AudioLayer, ...] = ()) -> Path:
     """Encode with cancellable progress and publish only validated, complete MP4s.
 
     The temporary file is on the destination filesystem for atomic publication.
@@ -269,7 +336,13 @@ def export_clip(video: VideoInfo, start: float, end: float, destination: str | P
     duration = end - start
     # Validate parameters before allocating temp files or starting FFmpeg.
     width, height = video_dimensions(mode, width, height)
-    build_export_command(video, start, end, output, mode, width, height)
+    build_export_command(
+        video, start, end, output, mode, width, height, audio_layers=audio_layers)
+    for layer in audio_layers:
+        actual_duration = probe_audio_duration(layer.source_path)
+        if layer.source_end > actual_duration + .1:
+            raise ValueError(
+                f"Audioquelle des Spurclips {layer.id} ist zu kurz oder wurde ausgetauscht")
     if not math.isfinite(subtitle_offset) or abs(subtitle_offset) > 5:
         raise ValueError("Untertitelversatz muss zwischen -5 und +5 Sekunden liegen")
     if burn_subtitles and not transcript:
@@ -289,7 +362,8 @@ def export_clip(video: VideoInfo, start: float, end: float, destination: str | P
                 encoding="utf-8-sig", newline="\n")
         cmd = build_export_command(video, start, end, partial, mode, width, height,
                                    tool_path("ffmpeg"), motion_points=motion_points,
-                                   burned_captions=burn_subtitles)
+                                   burned_captions=burn_subtitles,
+                                   audio_layers=audio_layers)
         cmd[1:1] = ["-progress", "pipe:1", "-stats_period", "0.25"]
         with tempfile.TemporaryFile(mode="w+b") as stderr_log:
             proc = subprocess.Popen(
