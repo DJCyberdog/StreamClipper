@@ -190,7 +190,8 @@ def _item_index(project: EditorProject, item_id: str) -> int:
 def edit_item(project: EditorProject, item_id: str, *,
               track_id: str | None = None, source_start: float | None = None,
               source_end: float | None = None,
-              timeline_start: float | None = None) -> EditorProject:
+              timeline_start: float | None = None,
+              gain_db: float | None = None) -> EditorProject:
     i = _item_index(project, item_id)
     before = project.items[i]
     destination = track_id or before.track_id
@@ -201,7 +202,8 @@ def edit_item(project: EditorProject, item_id: str, *,
         before, track_id=destination,
         source_start=before.source_start if source_start is None else source_start,
         source_end=before.source_end if source_end is None else source_end,
-        timeline_start=before.timeline_start if timeline_start is None else timeline_start)
+        timeline_start=before.timeline_start if timeline_start is None else timeline_start,
+        gain_db=before.gain_db if gain_db is None else gain_db)
     items = list(project.items)
     items[i] = candidate
     updated = replace(project, items=tuple(items))
