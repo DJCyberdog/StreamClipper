@@ -358,6 +358,81 @@ Windows-/6h-VOD-Abnahme noch offen.
 - **M18 Streaming-Integrationen & Multi-Plattform-Import:** Einmalige URL-Imports für Twitch/YouTube/Kick und weitere unterstützte Plattformen mit einer gemeinsamen Download-Engine; OBS, Stream Deck, NLE, Tastatur-/Sprachoberfläche, Watch Folders und **separater** optionaler Kanalimport. **#36 Shortcuts sind bereits M11 zugeordnet**, damit sie von Beginn an editorweit wirken.
 - **M19 Publishing & Collaboration:** Veröffentlichung nur mit Freigabe; Cloud Review, Sync, Analytics und Companion App ergänzen den Publishing-Workflow, erzwingen aber **keinen** Cloud-Zugang für lokales Editing.
 
+#### 5.5.1 M19-PUBLISH – Plattformübergreifender Direktupload (Owner-Wunsch 23.11.2026)
+
+**Produkterlebnis:** Im Premiere-inspirierten Editor erscheint der eigenständige
+Workspace **„Veröffentlichen“**, direkt nach erfolgreicher Render-/Export-QA.
+Nutzer:innen wählen bewusst eine oder mehrere Plattformen, sehen den
+korrekten Account, den fertigen Clip und dessen Ziel-Metadaten, passen
+Titel/Beschreibung/Hashtags/Sichtbarkeit und plattformspezifische Optionen
+an und bestätigen jede Veröffentlichung ausdrücklich. Ein **gemeinsamer
+Publish-Job** verwaltet pro Ziel isolierte Zustände, Fortschritte, Fehler,
+Abbruch und überprüfte Links zum veröffentlichten Beitrag. Der lokale MP4-
+Export bleibt ohne Kontoverknüpfung oder Cloud funktional.
+
+**Adapter (offizielle APIs; Verfügbarkeit und Prüfung vor Implementierung):**
+
+- **YouTube + Shorts**: OAuth 2.0, YouTube Data API v3 `videos.insert`,
+  resumierbarer Upload, Datenschutz-/Publikumsstatus, Thumbnail,
+  Titel/Beschreibung. Shorts sind keine separate Upload-API; die
+  Klassifikation erfolgt anhand der Plattformregeln zum Video.
+  Referenz: https://developers.google.com/youtube/data/reference/rest/v3/videos/insert
+- **TikTok**: Content Posting API – `video.publish` für Direct Post,
+  alternativ `video.upload` zum Weiterbearbeiten/Bestätigen in TikTok;
+  Creator-Info/Privacy-Möglichkeiten vorher abrufen, ausdrückliche Zustimmung.
+  Nicht auditierte Clients können nur privat posten; App-/Scope-Audit für
+  öffentliche Direct-Posts als externer Freigabeschritt.
+  Referenz: https://developers.tiktok.com/docs/en/content-posting-api-get-started
+- **Instagram Reels**: Instagram Platform Content Publishing mit
+  Professional-Business/Creator-Account und gültiger Berechtigung;
+  Container-Erstellung, Verarbeitung prüfen, erst dann `media_publish`.
+  Der dokumentierte `video_url`-Flow benötigt eine für Meta erreichbare
+  Video-URL: optionaler sicherer temporärer Transfer statt erzwungener
+  permanenter Video-Cloud; alternativ nur geprüfte offizielle Varianten.
+  Private Consumer-Konten sind kein API-Publishing-Ziel.
+  Referenz: https://www.postman.com/meta/instagram/folder/830j7my/reels-publishing
+- **Snapchat Spotlight**: Public Profile API: Media erstellen/verschlüsselt
+  hochladen, danach `POST /public_profiles/{profile_id}/spotlights`;
+  benötigte Public-Profile-/Partner-Freigabe ist aktuell **allowlist-only**.
+  Ohne Freigabe lokaler Spotlight-Export + manuelle Weitergabe statt
+  irreführendem „Direktupload verfügbar“.
+  Referenz: https://developers.snap.com/marketing-api/Public-Profile-API/GetStarted
+
+**Übergreifender technischer Vertrag:**
+
+1. **M12/M14 Export-Übergabe:** Versionierte `PublishAsset`-Referenz auf
+   fertig validierten lokalen MP4-Render (Hash, Dauer, Framerate, Format,
+   Ausmaße, Audiocodec, Thumbnail und Rechte-Metadaten). Plattform-Presets
+   (u. a. 9:16) werden bei Bedarf als **separate Render-Varianten**
+   produziert; niemals die falsche Version stillschweigend hochladen.
+2. **M18 Accounts/Upload-Adapter-Vorbereitung:** OAuth über Systembrowser,
+   minimale Scopes, Tokenverschlüsselung im Windows Credential Manager,
+   kein Token in Projektdatei/Logs/URL-/CLI-Argumenten. Adapter pro
+   Anbieter mit `authorize → validate → upload → publish → status`,
+   API-Gates, Retry/Backoff, Idempotenz und Provider-Fehlerzuordnung.
+3. **M19 Publish-Center:** Per-Plattform-Metadaten, Account-/Rechtecheck,
+   Inhaltssichtbarkeit, Musik-/Urheberrechtshinweise, freiwillige
+   Finalbestätigung pro Ziel. Getrennte Upload-/Publish-Zustände:
+   `READY / UPLOADING / PROCESSING / PUBLISHED / FAILED / REQUIRES_ACTION`;
+   erst nach gesichertem Provider-Status „veröffentlicht“ anzeigen.
+   Teilweise Erfolge dürfen nicht durch andere Plattformfehler verdeckt
+   werden. Doppelposts durch unkritische Retries verhindern.
+4. **Abnahme:** Offizielle Sandbox-/Testaccounts und überprüfte App-
+   Freigaben, Mock-Adapter ohne echte Veröffentlichungen, manuelle
+   E2E-Veröffentlichungen nur mit explizit erlaubtem Testinhalt,
+   6h-VOD-Erzeugung und echte Windows-Upload-/Abbruchtests. Externe
+   API-/Account-Audits bleiben offen, bis dokumentiert bestanden.
+
+**Harte Negativanforderung:** Keine automatische Veröffentlichung beim
+Export, beim Clip-Fund, beim Verbinden eines Kontos oder nach App-Start.
+Auch bei mehreren Plattformen zählt jede Veröffentlichungsfreigabe
+bewusst und nachvollziehbar. Keine offizielle API umgehen oder Browser-
+Automatisierung als vermeintlich vollwertigen Provider-Upload tarnen.
+
+**Status:** Geplant und fachlich M19 / B-B2 zugeordnet, **noch nicht
+implementiert**. Die bestehende 60-Feature-Tierliste bleibt unverändert.
+
+
 ### 5.6 M16 – Gaming Intelligence: verbindlicher Qualitätsausbau
 
 **Owner-Erweiterung vom 22.11.2026:** Keine neuen Hauptfeatures; diese Arbeitspakete vertiefen **S-B3**, **#17**, **#18**, **#20**, **#39**, **#40**, **D-B2** und **D-B3**. Die Frage ist nicht, wie viele Modelle geladen werden, sondern ob die besten Vorschläge auf unbekannten Streams **messbar häufiger echte Highlights** sind. Der bestehende M10.5-Code gilt als Vergleichsbasis, **nicht als bereits validierte Ereigniserkennung**.
