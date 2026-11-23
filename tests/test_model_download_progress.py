@@ -126,3 +126,26 @@ def test_preflight_missing_size_uses_indeterminate_progress():
     total = catalog._expected_model_bytes(
         api, catalog.preset("whisper-base"), ["model.bin"], token=None)
     assert total is None
+
+
+def test_xet_transfer_bytes_do_not_double_count_reconstruction(monkeypatch):
+    parent = ModuleType("tqdm")
+    auto = ModuleType("tqdm.auto")
+    class Tqdm:
+        def __init__(self, *args, **kwargs):
+            self.n = kwargs.get("initial", 0)
+        def update(self, n=1):
+            self.n += n
+    auto.tqdm = Tqdm
+    monkeypatch.setitem(sys.modules, "tqdm", parent)
+    monkeypatch.setitem(sys.modules, "tqdm.auto", auto)
+    results = []
+    tracker = ModelDownloadProgress(lambda *item: results.append(item))
+    tracker.set_total(1000)
+    bar = tracker.tqdm_class()(name="Reconstructing", unit="B")
+    bar.update(700)           # bytes written to disk: not network transfer
+    assert results[-1][1] == 0
+    bar.update_transfer(250)  # actual Xet network bytes
+    assert results[-1][:3] == (25, 250, 1000)
+    bar.update(200)
+    assert results[-1][1] == 250
