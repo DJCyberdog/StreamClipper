@@ -1624,11 +1624,12 @@ class MainWindow(QMainWindow):
             bool(clip_obj and clip_track and clip_track.kind == "audio"
                  and not clip_track.locked))
         if hasattr(self, "include_track_audio"):
-            has_audio = bool(ready and any(
+            has_audio = bool(self.editor_project and any(
                 t.kind == "audio" and any(i.track_id == t.id
                                           for i in self.editor_project.items)
                 for t in self.editor_project.tracks))
-            self.include_track_audio.setEnabled(has_audio)
+            # Busy state disables changes but must NOT clear user opt-in.
+            self.include_track_audio.setEnabled(has_audio and ready)
             if not has_audio:
                 self.include_track_audio.setChecked(False)
         self.track_import_button.setEnabled(
