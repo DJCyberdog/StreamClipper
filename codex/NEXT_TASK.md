@@ -1,43 +1,43 @@
-# NEXT_TASK – M12b: Gemeinsamer Mehrspur-Rendervertrag
+# NEXT_TASK – M12b: Audio-Compositor abnehmen / Video-Compositor vorbereiten
 
 **Stack:** M10.5 #31 → M11a #34 → M11b #36 →
-M11c Checkpoints #37 → M11c Undo #38 →
-M11c Highlight Import #39 → M11c Proxy #40 →
-HF-UX #41 → M12a single-source Render Preview Draft #42.
-Keine unfreigegebenen Merges nach `main`.
+M11c Checkpoints #37 → M11c Undo #38 → M11c Highlight-Import #39 →
+M11c Proxy #40 → HF-UX #41 → M12a Render Preview #42 →
+M12b Audio Track Graph Draft #43.
+**main unverändert; keine stillen Merges ohne Ownerfreigabe.**
 
-## M12a (im Draft, Review-/Abnahmezustand separat dokumentieren)
+## Im M12b Teil 1 Draft (abzugrenzen und zu prüfen)
 
-- `RenderRequest` ist das eine unveränderliche Quellclip-/Modus-/
-  Untertitel- und Zeitfensterobjekt für tatsächlichen MP4-Export
-  **und** 20-Sekunden-Render-Vorschau.
-- Beide nutzen denselben `export_clip`-FFmpeg-Boundary; keine
-  approximative UI-Filtervorschau als „exportgetreu“ ausgeben.
-- QThread, untere Fortschrittsleiste, Abbruch, separates Player-Fenster
-  und temporäre MP4, die nach Ansicht gelöscht wird.
-- Keine Modelltranskription, Proxy-Konvertierung oder Spuränderungen
-  für diesen Vorschauklick; Original bleibt unangetastet.
-- Decoded-Frame-Parität inkl. eingebrannter ASS-Untertitel,
-  Qt-Offscreen, Linux-Pytest/compileall und Windows-Build prüfen.
+- M11-Projekt-Schema v2: optionale lokale Audiodatei und Clip-Gain; v1-
+  Projektdateien und Checkpoints werden lesend migriert.
+- Deterministischer versionierter RenderGraph: alle Track-Node-Typen
+  repräsentiert, Audio-Overlaps/Source-vs-Timeline-Zeiten, Mute, Hidden,
+  Locked. Nicht unterstützte Video-/Grafik-Komposition fail-closed.
+- FFmpeg mappt explizit ausgewählte Audio-Clipintervalle (Originalton und
+  externe lokale Sounddateien) auf die Ausgabetimeline und mischt sie
+  gemeinsam mit der ursprünglichen Audioaufnahme.
+- Derselbe RenderRequest und graphbasierte FFmpeg-Pfad für MP4 und
+  20s-Render-Vorschau. Beta **nur per Checkbox**.
+- Qt: lokale Datei wählen, Pegel dB, Quell-/Timeline-Trimming,
+  Undo/Redo und Wiederherstellung; keine Änderung an Originaldateien.
+- Python-Unit, echte FFmpeg-Audioparität und Windows-Qt-Offscreen prüfen.
 
-## M12b: Nächste abgegrenzte Entwicklung
+## Abnahme vor Freigabe / nächste begrenzte Schritte
 
-1. Versioniertes `RenderGraph`-Schema für **wirkliche** Timeline-
-   Spuren aus M11: Gameplay-Video, Clipzeiten, unabhängige Mik-/Musik-
-   Audiospuren, Mute, Captions, Grafiken; Quell- und Zielzeit explizit.
-2. Deterministische Reihenfolge, Track-Lock-/Mute-Semantik,
-   Timeline-Lücken, Überlappung, A/V-PTS, Audiopegel, Clip-Speed
-   und valide/ungültige Quellreferenzen fail-closed modellieren.
-3. Erst dann denselben Graph sowohl im echten Mehrspur-Preview als auch
-   im Export realisieren, mit Golden-Frame- und Audiovergleich;
-   keinen stillen Unterschied zwischen „Preview“ und „Export“.
-4. Danach M12c NVENC/H.264+HEVC/CPU-Fallback, M12d Export-QA,
-   M12e Renderqueue/Recovery, reales Windows-11-End-to-End.
-5. Reale 6h-VOD-Messungen, Windows 1366×768/1080p UX und
-   20s-Renderpreview-GPU/RAM-/Audio- und Cancel-Tests abnehmen.
+1. CI/Windows-Portable-Gates gegen **exakten PR-Head** auswerten und
+   fehlgeschlagene Regressionen gezielt korrigieren.
+2. Zusätzliche Video-/Grafikclips im M12b-Teil-2-Compositor in
+   kontrollierter Reihenfolge mit expliziter Quell-/Ausgabezeit umsetzen,
+   mitsamt Offline-/Preview-FFmpeg-Parität und strukturiertem Overlaymodell.
+3. FFprobe-Audio-Preflight der UI asynchron machen, Dateisperren/
+   Medienersetzung und sichere Reparatur fehlender Pfade prüfen.
+4. M12c GPU NVENC/H.264+HEVC und CPU-Fallback, M12d Export-QA,
+   M12e Warteschlange/Recovery; keine automatischen Exporte ohne Klick.
+5. Reale Windows-11-Aufnahmen inklusive 6h OBS-VOD, CPU/GPU/RAM/VRAM,
+   Audio-Synchronität und Audioübersteuerungen messbar abnehmen.
 
 ## Nicht behaupten
 
-M12 nicht abgeschlossen. Kein Mehrspur-WYSIWYG, keine externe
-Cloud-Abhängigkeit, keine automatische Veröffentlichung, kein
-Projekt-Merge ohne explizite Owner-Freigabe.
+Kein vollständiges Live-Mehrspur-WYSIWYG, kein Video-/Overlay-Compositor,
+keine Loudness-/True-Peak-Garantie, keine echte Windows-/6h-VOD-Abnahme
+ohne reproduzierbaren Nachweis. Keine neuen obligatorischen Clouds.
