@@ -280,6 +280,110 @@ class ProxyThread(QThread):
             self.failed.emit(self.video.path, str(exc))
 
 
+class RenderPreviewThread(QThread):
+    """Prepare an export-identical short clip away from the UI thread."""
+    progress_changed = Signal(int)
+    done = Signal(object)
+    failed = Signal(str)
+    was_cancelled = Signal()
+
+    def __init__(self, request: RenderRequest, parent=None):
+        super().__init__(parent)
+        self.request = request
+        self._cancelled = threading.Event()
+
+    def cancel(self) -> None:
+        self._cancelled.set()
+
+    def run(self) -> None:
+        try:
+            outcome = render_clip_preview(
+                self.request, progress=self.progress_changed.emit,
+                cancelled=self._cancelled.is_set)
+            self.done.emit(outcome)
+        except CancelledError:
+            self.was_cancelled.emit()
+        except Exception as exc:
+            self.failed.emit(str(exc))
+
+
+class RenderedClipDialog(QDialog):
+    """Separate playback keeps source/proxy timeline positions untouched.
+
+    The temporary file exists only while this viewer owns it.
+    """
+    def __init__(self, result: RenderedPreview, temporary, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("M12a – Exportgetreue Clipvorschau")
+        self.resize(800, 610)
+        self._temporary = temporary
+        self._released = False
+        main = QVBoxLayout(self)
+        self.player = QMediaPlayer(self)
+        self.audio_output = QAudioOutput(self)
+        self.audio_output.setVolume(.65)
+        self.player.setAudioOutput(self.audio_output)
+        self.video_widget = QVideoWidget(self)
+        self.video_widget.setMinimumHeight(320)
+        self.player.setVideoOutput(self.video_widget)
+        main.addWidget(self.video_widget, 1)
+        controls = QHBoxLayout()
+        self.play_button = QPushButton("▶ Wiedergabe / Pause")
+        self.play_button.clicked.connect(self._toggle_play)
+        controls.addWidget(self.play_button)
+        self.seek = QSlider(Qt.Orientation.Horizontal)
+        self.seek.sliderMoved.connect(self.player.setPosition)
+        controls.addWidget(self.seek, 1)
+        self.time_label = QLabel("00:00:00")
+        controls.addWidget(self.time_label)
+        main.addLayout(controls)
+        self.player.positionChanged.connect(self._position_changed)
+        self.player.durationChanged.connect(
+            lambda value: self.seek.setRange(0, max(1, value)))
+        scope = ("erste 20 Sekunden des Bereichs" if result.excerpt_of_longer_clip
+                 else "gesamter ausgewählter Bereich")
+        self.scope_label = QLabel(
+            f"Render-Vorschau: {scope} · Originalzeit "
+            f"{display_time(result.request.start)}–{display_time(result.request.end)}")
+        self.scope_label.setWordWrap(True)
+        main.addWidget(self.scope_label)
+        disclaimer = QLabel(
+            "Derselbe FFmpeg-Renderpfad wie beim MP4-Export: Crop, dynamische "
+            "Kamera und optional eingebrannte Untertitel. "
+            "Noch KEINE Mischspuren, Overlays oder M13-Keyframes.")
+        disclaimer.setWordWrap(True)
+        main.addWidget(disclaimer)
+        close = QPushButton("Vorschau schließen und temporäre Datei entfernen")
+        close.clicked.connect(self.close)
+        main.addWidget(close)
+        self.player.setSource(QUrl.fromLocalFile(str(result.path)))
+
+    def _toggle_play(self) -> None:
+        if self.player.playbackState() == QMediaPlayer.PlaybackState.PlayingState:
+            self.player.pause()
+        else:
+            self.player.play()
+
+    def _position_changed(self, pos: int) -> None:
+        if not self.seek.isSliderDown():
+            self.seek.setValue(pos)
+        self.time_label.setText(display_time(pos / 1000))
+
+    def closeEvent(self, event) -> None:
+        self.player.stop()
+        self.player.setSource(QUrl())
+        if not self._released:
+            self._released = True
+            try:
+                self._temporary.cleanup()
+            except OSError:
+                # Windows backends can temporarily hold a decoder handle.
+                # Do not block app shutdown; the temporary directory stays
+                # clearly marked under data/tmp for later manual cleanup.
+                pass
+        super().closeEvent(event)
+
+
 class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
