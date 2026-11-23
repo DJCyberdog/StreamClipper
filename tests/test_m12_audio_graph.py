@@ -120,3 +120,25 @@ def test_graph_limits_overlapping_layers(tmp_path):
         p = add_item(p, "music", 0, 1, 5, f"Layer {i}")
     with pytest.raises(ValueError, match="Zu viele"):
         build_render_graph(p, v, 5, 6)
+
+
+def test_legacy_v1_checkpoint_restores_as_v2_without_modifying_checkpoint(tmp_path):
+    from streamclipper.project_checkpoints import (
+        _hash, checkpoint_dir, create_checkpoint, load_checkpoint)
+    v = info(tmp_path)
+    root = tmp_path/"checkpoints"
+    checkpoint = create_checkpoint(initial_project(v), "Before M12b", root=root)
+    path = checkpoint_dir(v.path, root=root)/f"{checkpoint.id}.checkpoint.json"
+    doc = json.loads(path.read_text())
+    doc["data"]["project"]["schema_version"] = 1
+    for item in doc["data"]["project"]["items"]:
+        item.pop("media_path", None)
+        item.pop("gain_db", None)
+    doc["sha256"] = _hash(doc["data"])
+    path.write_text(json.dumps(doc))
+    exact = path.read_bytes()
+    restored, analysis = load_checkpoint(v, checkpoint.id, root=root)
+    assert restored.schema_version == SCHEMA_VERSION
+    assert restored.items[0].media_path is None
+    assert analysis is None
+    assert path.read_bytes() == exact  # no silent rewrite of old snapshots
