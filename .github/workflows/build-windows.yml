@@ -20,7 +20,7 @@ jobs:
         shell: pwsh
         run: |
           $env:QT_QPA_PLATFORM = "offscreen"
-          python -m pytest -q tests/test_timeline_qt.py tests/test_highlight_lexicon_qt.py tests/test_m11_editor_qt.py tests/test_m11_workspace_qt.py tests/test_m11_checkpoints_qt.py tests/test_m11_unified_history_qt.py tests/test_m11_import_qt.py tests/test_m11_proxy_qt.py tests/test_m10_hf_qt.py tests/test_model_download_progress.py tests/test_hf_credentials.py tests/test_m12_render_qt.py tests/test_m12_render_contract.py tests/test_m12_audio_graph.py tests/test_m12_audio_qt.py tests/test_m12_audio_ffmpeg.py tests/test_m12_workspace_docks_qt.py tests/test_m12_workspace_layout.py
+          python -m pytest -q tests/test_timeline_qt.py tests/test_highlight_lexicon_qt.py tests/test_m11_editor_qt.py tests/test_m11_workspace_qt.py tests/test_m11_checkpoints_qt.py tests/test_m11_unified_history_qt.py tests/test_m11_import_qt.py tests/test_m11_proxy_qt.py tests/test_m10_hf_qt.py tests/test_model_download_progress.py tests/test_hf_credentials.py tests/test_m12_render_qt.py tests/test_m12_render_contract.py tests/test_m12_audio_graph.py tests/test_m12_audio_qt.py tests/test_m12_audio_ffmpeg.py tests/test_m12_workspace_docks_qt.py tests/test_m12_workspace_layout.py tests/test_m12_unified_timeline_qt.py
       - name: Build portable Windows executable
         run: pyinstaller --noconfirm --clean --onedir --windowed --name StreamClipper --paths src scripts/launch.py
       - name: Include startup notes
