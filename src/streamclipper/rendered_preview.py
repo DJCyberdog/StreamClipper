@@ -23,6 +23,7 @@ def render_clip_preview(
         max_seconds: float = 20.0,
         cancelled: Callable[[], bool] | None = None,
         progress: Callable[[int], None] | None = None,
+        encoder_notice: Callable[[str], None] | None = None,
         temp_root: Path | None = None) -> tuple[RenderedPreview, tempfile.TemporaryDirectory]:
     """Render a bounded preview MP4 with the same encoder as export.
 
@@ -39,7 +40,8 @@ def render_clip_preview(
     try:
         destination = Path(temporary.name) / "preview.mp4"
         output = render_request(
-            excerpt, destination, progress=progress, cancelled=cancelled)
+            excerpt, destination, progress=progress, cancelled=cancelled,
+            encoder_notice=encoder_notice)
         if cancelled and cancelled():
             raise CancelledError("Render-Vorschau abgebrochen")
         result = RenderedPreview(
