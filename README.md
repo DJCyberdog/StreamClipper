@@ -1,5 +1,48 @@
 # StreamClipper 0.4 (experimenteller Export)
 
+## M12c – NVIDIA NVENC / H.264 / HEVC mit sicherem CPU-Fallback (Draft)
+
+Im **Export**-Workspace stehen sechs gezielte Video-Encoder-Profile:
+
+| Auswahl | Encoder / Verhalten |
+| --- | --- |
+| **Automatisch H.264 (empfohlen)** | Echter NVENC-H.264-Test mit zwei Frames; NVIDIA-GPU wenn nutzbar, ansonsten CPU `libx264`. Bei unerwartetem GPU-Fehler während des finalen Rendervorgangs **genau ein neuer CPU-Versuch**, nie ein teilweise fertiger MP4-Upload. |
+| H.264 CPU | Immer `libx264`, kein GPU-Check (kompatible Standardwahl) |
+| H.264 NVIDIA-only | Immer `h264_nvenc`, **Fehler** statt stiller CPU-Umschaltung |
+| **Automatisch HEVC** | Gleiche GPU-Prüfung für `hevc_nvenc`, danach ggf. `libx265` |
+| HEVC CPU | Immer `libx265` (FFmpeg benötigt diesen Encoder im Build) |
+| HEVC NVIDIA-only | `hevc_nvenc` erforderlich; sonst Fehler |
+
+Für **NVIDIA RTX 5060 Ti** ist `Automatisch H.264` die
+sinnvolle Voreinstellung. StreamClipper fragt die Karte **erst im
+Hintergrund beim tatsächlichen Rendern** ab. Eine FFmpeg-Encoderliste
+allein ist kein GPU-Kompatibilitätsnachweis; der kurze echte Test
+kontrolliert Treiber, FFmpeg-Build und NVENC-Initialisierung. Der
+Statusbereich zeigt das gewählte Profil und den etwaigen CPU-Fallback
+ausdrücklich an; ein bereits beschädigter GPU-Teilrender wird vor
+dem CPU-Neustart verworfen, der finale MP4-Pfad erst nach
+abgeschlossenem Encode und Container-Prüfung publiziert.
+
+**Vorschau / Export:** Beide bekommen die identische Encoderwahl aus
+dem versionierten `RenderRequest`. Ein unterschiedliches Backend
+(GPU statt CPU) kann aufgrund eigener Kompression sichtbare kleine
+Pixelunterschiede verursachen; **Bitgleichheit zwischen Hardware und
+Software wird nicht behauptet**. Der Clip-Schnitt, alle
+Spurkompositionsfilter, Quellzeiten, Bilddimensionen und Audiowege
+sind gleich. HEVC-MP4 benutzt die Kennung `hvc1`, ist jedoch
+nicht auf allen Plattformen oder in allen Abspielgeräten gleich
+kompatibel; für Social-Media-Uploads zunächst H.264 wählen.
+
+**Grenzen / Abnahme:** Aktuell NVENC **Encoding**, nicht CUDA-
+Dekodierung oder GPU-Filtergraph, kein AV1/10-Bit/HDR. Der
+NVENC-Lauf der individuellen RTX-Karte kann nur auf einem
+Windows-11-Rechner mit ihr und passenden Treibern abschließend
+abgenommen werden. CI prüft CPU und simulierte NVENC-Fehler,
+nie eine vorhandene GPU. Ein echtes 6h-VOD-/Export-Performance-/
+Audio-Sync- und Qualitäts-Gate folgt in M12d. Kein automatischer
+Upload oder Versand.
+
+
 ## M12b Teil 2 – PiP-Videospuren und Grafik-Overlays (Draft)
 
 Im **Spuren**-Reiter eine **zusätzliche Videospur** ("＋ Spur" →
