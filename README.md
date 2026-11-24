@@ -1179,3 +1179,25 @@ bei neuen Setups zieht `setup_windows.bat` diese Abhängigkeit automatisch mit.
 Für die gepackte Windows-EXE genügt ein `pip install` in einer separaten
 `.venv` dagegen nicht; der portable Build muss neu erzeugt werden.
 
+
+
+### M14 – Untertitelgestaltung (Entwicklungsstand)
+
+**Branding → Untertitel gestalten …** speichert den Stil im aktuellen Projekt.
+Drei Vorlagen (Klassisch, Creator Highlight, Neon Pop), Schriftname, Größe,
+Text-/Akzent-/Konturfarbe, Wortgruppen und Position. Die Standardposition
+respektiert die M13-Szenen-Safe-Zone. Vorhandene Wortzeiten steuern
+Hervorhebung und Pop-Animation. Untimed Legacy-Transkripte bleiben normale
+Untertitel; keine erfundene exakte Ausrichtung. Eine eindeutige
+Einzelwort-Textkorrektur erhält die vorhandenen Zeitstempel.
+
+Stil wird über Undo/Redo und Checkpoints gespeichert und beim Renderauftrag
+eingefroren, auch bei deaktivierter Spurkomposition. Render-Vorschau, MP4
+und Queue verwenden denselben ASS-Renderpfad. Der Quellplayer bleibt eine
+Orientierungsvorschau, keine vollständige Branding-Simulation. Fonts müssen
+lokal verfügbar sein. Übersetzung, Callouts, Thumbnail-Designer und weitere
+Branding-Funktionen bleiben M14-Aufgaben. Keine 0.8-Freigabe.
+
+M13: lokale Abnahme durch Owner am 24.11.2026 bestätigt. Keine eigenen
+GPU-Messprotokolle; Windows-CI 45452643337 meldet 174 passed, 1 skipped,
+anschließend Exit 1; Build nicht erfolgreich. Linux-CI PASS.
