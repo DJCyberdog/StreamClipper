@@ -80,6 +80,14 @@ def test_insert_logo_then_edit_geometry_with_atomic_undo(editor,tmp_path,monkeyp
     window.redo_edit()
     assert window.editor_project.items[-1]==updated
     assert window.include_track_audio.isChecked()
+    window.track_clips_table.selectRow(1)
+    assert window.track_clip_delete.isEnabled()
+    window.track_clip_delete.click()
+    assert len(window.editor_project.items) == 1
+    window.undo_edit()
+    assert window.editor_project.items[-1] == updated
+    window.redo_edit()
+    assert len(window.editor_project.items) == 1
     assert base.read_bytes()==b"video-source-must-not-change"
     assert logo.read_bytes()==b"image-source-must-not-change"
 
