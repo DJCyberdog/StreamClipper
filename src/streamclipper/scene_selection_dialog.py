@@ -144,6 +144,8 @@ class SceneSelectionDialog(QDialog):
             self.frame_status.setText("Schnittpunkt muss innerhalb der Szene liegen.")
             return
         self.monitor.set_frame(b"")
+        self.subject_point = None
+        self.frame_at = None
         self.frame_button.setEnabled(False)
         self.scenes.setEnabled(False)
         self.frame_status.setText("Quellbild wird geladen …")
