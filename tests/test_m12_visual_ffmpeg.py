@@ -75,6 +75,7 @@ def test_actual_pip_logo_audio_same_pixel_audio_in_preview_and_mp4(tmp_path):
     ffmpeg("-f","lavfi","-i","sine=frequency=880:duration=1",
            "-c:a","pcm_s16le",sound)
     write_png(logo)
+    assert logo.read_bytes().startswith(bytes.fromhex("89504e470d0a1a0a"))
     info = probe_video(base)
     project = initial_project(info)
     project = add_item(project, "graphics", 0, 1, 2, "Logo",
