@@ -15,7 +15,7 @@ import sys
 from typing import Callable
 
 from .models import VideoInfo, TranscriptSegment
-from .render_graph import AudioLayer
+from .render_graph import AudioLayer, VisualLayer, MAX_VISUAL_LAYERS
 
 Progress = Callable[[int], None]
 Cancelled = Callable[[], bool]
@@ -98,6 +98,26 @@ def probe_audio_duration(path: str | Path) -> float:
     return duration
 
 
+def probe_still_image(path: str | Path) -> tuple[int, int]:
+    """Preflight a single local image without loading it into process memory."""
+    source = Path(path).resolve(strict=True)
+    if (not source.is_file()
+            or source.suffix.lower() not in {".png", ".jpg", ".jpeg", ".webp"}):
+        raise ValueError("Nur lokale PNG/JPEG/WebP-Bilder werden unterstützt")
+    result = subprocess.run(
+        [tool_path("ffprobe"), "-v", "error", "-select_streams", "v:0",
+         "-show_entries", "stream=codec_type,width,height",
+         "-of", "json", str(source)], check=True, stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE, text=True, timeout=40)
+    data = json.loads(result.stdout)
+    stream = next((x for x in data.get("streams", [])
+                   if x.get("codec_type") == "video"), None)
+    if (stream is None or not 1 <= int(stream.get("width") or 0) <= 16384
+            or not 1 <= int(stream.get("height") or 0) <= 16384):
+        raise ValueError("Grafikdatei enthält kein gültiges Einzelbild")
+    return int(stream["width"]), int(stream["height"])
+
+
 def audio_levels(video: VideoInfo, progress: Progress | None = None,
                  cancelled: Cancelled | None = None, sample_rate: int = 8000) -> list[float]:
     """Decode first audio track to mono PCM and calculate RMS dBFS in ~1s buckets.
@@ -170,7 +190,8 @@ def build_export_command(video: VideoInfo, start: float, end: float, destination
                          mode: str = "blur", width: int = 1080, height: int = 1920,
                          ffmpeg_executable: str = "ffmpeg", *,
                          motion_points=None, burned_captions: bool = False,
-                         audio_layers: tuple[AudioLayer, ...] = ()) -> list[str]:
+                         audio_layers: tuple[AudioLayer, ...] = (),
+                         visual_layers: tuple[VisualLayer, ...] = ()) -> list[str]:
     """Construct command without a shell. Optional captions use a local ASS file.
 
     If burned_captions, the caller must write `captions.ass` in the FFmpeg cwd.
@@ -183,7 +204,7 @@ def build_export_command(video: VideoInfo, start: float, end: float, destination
         raise ValueError("Breite und Höhe müssen positive gerade Zahlen sein")
     if not (0 <= start < end <= video.duration + 0.1):
         raise ValueError("Ungültiges Clip-Zeitfenster")
-    final_label = "base" if burned_captions else "v"
+    final_label = "base" if (burned_captions or visual_layers) else "v"
     if mode in {"smart16", "smart9"}:
         from .reframe import FocusPoint, smart_crop_filter
         if not motion_points:
@@ -205,10 +226,60 @@ def build_export_command(video: VideoInfo, start: float, end: float, destination
             "[back][front]overlay=(W-w)/2:(H-h)/2:shortest=1,"
             f"setsar=1,format=yuv420p[{final_label}]"
         )
-    if burned_captions:
-        chain += ";[base]ass=filename=captions.ass,format=yuv420p[v]"
     inputs = [ffmpeg_executable, "-hide_banner", "-nostdin", "-loglevel", "error", "-n",
               "-ss", f"{start:.3f}", "-i", video.path]
+    if len(visual_layers) > MAX_VISUAL_LAYERS:
+        raise ValueError("Zu viele Video-/Grafik-Layer")
+    base_label = "base"
+    duration = end-start
+    for i, layer in enumerate(visual_layers, start=1):
+        values = (layer.source_start, layer.source_end,
+                  layer.timeline_offset, layer.x, layer.y,
+                  layer.width, layer.height, layer.opacity)
+        if (layer.kind not in {"video", "overlay"}
+                or not os.path.isabs(layer.source_path)
+                or not all(math.isfinite(v) for v in values)
+                or not 0 <= layer.source_start < layer.source_end <= 86400
+                or not 0 <= layer.timeline_offset < duration
+                or layer.timeline_offset+layer.source_end-layer.source_start >
+                   duration+.005
+                or not 0 <= layer.x <= 1 or not 0 <= layer.y <= 1
+                or not .05 <= layer.width <= 1
+                or not .05 <= layer.height <= 1
+                or layer.x+layer.width > 1.000001
+                or layer.y+layer.height > 1.000001
+                or not 0 <= layer.opacity <= 1):
+            raise ValueError("Ungültiger Bild-Layer im Rendergraph")
+        if layer.kind == "video":
+            inputs += ["-ss", f"{layer.source_start:.6f}",
+                       "-i", layer.source_path]
+        else:
+            inputs += ["-loop", "1", "-framerate", "30",
+                       "-i", layer.source_path]
+        # Pad with transparent borders to preserve aspect ratio. Every
+        # dimension is bounded and numeric (no filenames inside filtergraph).
+        box_w = min(width, max(2, round(width * layer.width / 2) * 2))
+        box_h = min(height, max(2, round(height * layer.height / 2) * 2))
+        x = max(0, min(width-box_w, round(width*layer.x)))
+        y = max(0, min(height-box_h, round(height*layer.y)))
+        length = layer.source_end-layer.source_start
+        chain += (
+            f";[{i}:v:0]trim=duration={length:.6f},"
+            f"setpts=PTS-STARTPTS+{layer.timeline_offset:.6f}/TB,"
+            f"scale={box_w}:{box_h}:force_original_aspect_ratio=decrease,"
+            f"format=rgba,"
+            f"pad={box_w}:{box_h}:(ow-iw)/2:(oh-ih)/2:color=black@0,"
+            f"colorchannelmixer=aa={layer.opacity:.6f}[visual_{i}]"
+            f";[{base_label}][visual_{i}]overlay={x}:{y}:"
+            f"shortest=0:repeatlast=0:eof_action=pass:format=auto[composed_{i}]")
+        base_label = f"composed_{i}"
+    if visual_layers:
+        if burned_captions:
+            chain += f";[{base_label}]ass=filename=captions.ass,format=yuv420p[v]"
+        else:
+            chain += f";[{base_label}]format=yuv420p[v]"
+    elif burned_captions:
+        chain += ";[base]ass=filename=captions.ass,format=yuv420p[v]"
     audio_map = "0:a:0?"
     if audio_layers:
         if len(audio_layers) > 16:
@@ -224,7 +295,7 @@ def build_export_command(video: VideoInfo, start: float, end: float, destination
                 f";anullsrc=r=48000:cl=stereo,"
                 f"atrim=duration={duration:.6f}[base_audio]")
         labels = ["[base_audio]"]
-        for i, layer in enumerate(audio_layers, start=1):
+        for i, layer in enumerate(audio_layers, start=1+len(visual_layers)):
             if (not os.path.isabs(layer.source_path)
                     or not 0 <= layer.source_start < layer.source_end
                     or layer.timeline_offset < 0
@@ -321,7 +392,8 @@ def export_clip(video: VideoInfo, start: float, end: float, destination: str | P
                 transcript: list[TranscriptSegment] | None = None,
                 burn_subtitles: bool = False,
                 subtitle_offset: float = 0.0,
-                audio_layers: tuple[AudioLayer, ...] = ()) -> Path:
+                audio_layers: tuple[AudioLayer, ...] = (),
+                visual_layers: tuple[VisualLayer, ...] = ()) -> Path:
     """Encode with cancellable progress and publish only validated, complete MP4s.
 
     The temporary file is on the destination filesystem for atomic publication.
@@ -337,7 +409,18 @@ def export_clip(video: VideoInfo, start: float, end: float, destination: str | P
     # Validate parameters before allocating temp files or starting FFmpeg.
     width, height = video_dimensions(mode, width, height)
     build_export_command(
-        video, start, end, output, mode, width, height, audio_layers=audio_layers)
+        video, start, end, output, mode, width, height,
+        audio_layers=audio_layers, visual_layers=visual_layers)
+    for layer in visual_layers:
+        if cancelled and cancelled():
+            raise CancelledError("Export abgebrochen")
+        if layer.kind == "video":
+            other = probe_video(layer.source_path)
+            if layer.source_end > other.duration+.1:
+                raise ValueError(
+                    f"Videodatei für Clip {layer.id} ist zu kurz oder wurde ausgetauscht")
+        else:
+            probe_still_image(layer.source_path)
     for layer in audio_layers:
         actual_duration = probe_audio_duration(layer.source_path)
         if layer.source_end > actual_duration + .1:
@@ -363,7 +446,8 @@ def export_clip(video: VideoInfo, start: float, end: float, destination: str | P
         cmd = build_export_command(video, start, end, partial, mode, width, height,
                                    tool_path("ffmpeg"), motion_points=motion_points,
                                    burned_captions=burn_subtitles,
-                                   audio_layers=audio_layers)
+                                   audio_layers=audio_layers,
+                                   visual_layers=visual_layers)
         cmd[1:1] = ["-progress", "pipe:1", "-stats_period", "0.25"]
         with tempfile.TemporaryFile(mode="w+b") as stderr_log:
             proc = subprocess.Popen(
