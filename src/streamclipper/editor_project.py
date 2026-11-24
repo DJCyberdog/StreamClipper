@@ -18,6 +18,7 @@ from .models import VideoInfo
 from .portable import installation_directory
 from .scene_selection import SceneSelection, selection_from_dict
 from .caption_style import CaptionStyle, caption_style_from_dict
+from .callouts import Callout, callout_from_dict
 
 SCHEMA_VERSION = 3
 LEGACY_SCHEMA_VERSION = 1
@@ -55,6 +56,7 @@ class TimelineItem:
     width: float = .28
     height: float = .28
     opacity: float = 1.0
+    callout: Callout | None = None
 
 
 @dataclass(frozen=True)
@@ -119,6 +121,10 @@ class EditorProject:
             clip_ids.add(item.id)
             a, b, t = item.source_start, item.source_end, item.timeline_start
             track = next(x for x in self.tracks if x.id == item.track_id)
+            if item.callout is not None:
+                item.callout.validate()
+                if track.kind != 'overlay' or item.media_path is not None:
+                    raise ValueError('Callouts benötigen eine Grafikspur ohne externe Bilddatei')
             if item.media_path is not None:
                 if (track.kind not in {"audio", "video", "overlay"}
                         or not isinstance(item.media_path, str)
@@ -280,7 +286,7 @@ def add_item(project: EditorProject, track_id: str, start: float,
              *, media_path: str | None = None, gain_db: float = 0.0,
              x: float = .68, y: float = .08,
              width: float = .28, height: float = .28,
-             opacity: float = 1.0) -> EditorProject:
+             opacity: float = 1.0, callout: Callout | None = None) -> EditorProject:
     track = next((t for t in project.tracks if t.id == track_id), None)
     if not track or track.locked:
         raise ValueError("Zielspur fehlt oder ist gesperrt")
@@ -292,7 +298,7 @@ def add_item(project: EditorProject, track_id: str, start: float,
         project, items=(*project.items,
                         TimelineItem(f"clip_{index}", track_id, start, end,
                                      timeline_start, label, media_path,
-                                     gain_db, x, y, width, height, opacity)))
+                                     gain_db, x, y, width, height, opacity, callout)))
     updated.validate()
     return updated
 
@@ -382,7 +388,7 @@ def load_project(video: VideoInfo, *, root: Path | None = None) -> EditorProject
         project = EditorProject(
             SCHEMA_VERSION, VideoInfo(**doc["source"]),
             tuple(Track(**record) for record in doc["tracks"]),
-            tuple(TimelineItem(**record) for record in doc["items"]),
+            tuple(item_from_dict(record) for record in doc["items"]),
             tuple(selection_from_dict(p) for p in doc.get("scene_plans", [])),
             caption_style_from_dict(doc.get("caption_style")))
         project.validate()
@@ -416,3 +422,18 @@ def set_caption_style(project, style):
     updated=replace(project,caption_style=style.validate())
     updated.validate()
     return updated
+
+
+def item_from_dict(record):
+    return TimelineItem(**{**record,"callout":callout_from_dict(record.get("callout"))})
+
+
+def update_callout(project,item_id,spec,*,timeline_start,source_end,x,y,width,height,opacity):
+    index=_item_index(project,item_id)
+    old=project.items[index]
+    if old.callout is None or next(t for t in project.tracks if t.id==old.track_id).locked:
+        raise ValueError("Callout fehlt oder Spur gesperrt")
+    items=list(project.items)
+    items[index]=replace(old,callout=spec.validate(),source_start=0,source_end=source_end,
+        timeline_start=timeline_start,x=x,y=y,width=width,height=height,opacity=opacity)
+    updated=replace(project,items=tuple(items));updated.validate();return updated
