@@ -12,7 +12,7 @@ from PySide6.QtWidgets import (QDialog, QDialogButtonBox, QVBoxLayout, QHBoxLayo
     QFormLayout, QListWidget, QLabel, QDoubleSpinBox, QComboBox, QCheckBox, QScrollArea, QWidget,
     QPushButton, QMessageBox, QFileDialog)
 from .scene_camera import CameraKeyframe
-from .smart_director import Director, OverlayZone, KINDS, director_from_dict, safe_crop
+from .smart_director import Director, OverlayZone, KINDS, director_from_dict, crop_for_scene
 from .director_analysis import W,H,follow_patch,edge_candidates
 from .media import sampled_jpeg_frames
 
@@ -269,11 +269,14 @@ class DirectorDialog(QDialog):
         except (OSError,ValueError,TypeError,KeyError) as exc:QMessageBox.warning(self,"Profil nicht geladen",str(exc))
 
     def check_crop(self):
-        zones=[z.region for z in self.value.zones if z.active(self.scene.start,self.scene.end)]
         text=[]
+        scene=replace(self.scene,director=replace(self.value,avoid_overlays=True))
         for w,h in ((1080,1920),(1920,1080)):
-            result=safe_crop(zones,self.video.width,self.video.height,w,h)
-            text.append(f"{w}×{h}: "+("möglich" if result else "Konflikt"))
+            try:
+                result=crop_for_scene(scene,self.video,w,h)
+                text.append(f"{w}×{h}: "+("Overlayfreier Crop möglich" if result else "Kein Konflikt im gewählten Pfad"))
+            except ValueError as exc:
+                text.append(f"{w}×{h}: {exc}")
         if self.value.keys or self.scene.mode!="automatic":text.append("Manuelle Kamera wird nicht überschrieben.")
         QMessageBox.information(self,"Overlay-Crop", "\n".join(text))
 
