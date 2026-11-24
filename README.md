@@ -8,6 +8,9 @@ Im **Spuren**-Reiter eine **zusätzliche Videospur** ("＋ Spur" →
 (MP4/MKV/MOV/WebM/M4V/AVI) für **Picture-in-Picture/Facecam** oder
 ein statisches PNG/JPEG/WebP für ein **Logo/Grafik-Overlay** referenzieren.
 Die Dateien werden weder hochgeladen noch verändert.
+Über **„Clip entfernen“** lässt sich jeder nicht gesperrte,
+nicht zur Basisaufnahme gehörende Spurclip wieder entfernen;
+die Mediendatei bleibt erhalten und **Strg+Z** stellt den Clip wieder her.
 
 Die Timeline zeigt die Clips auf derselben Zeitachse wie die Aufnahme.
 Im Inspector **Links / Oben / Breite / Höhe** als Anteile des
