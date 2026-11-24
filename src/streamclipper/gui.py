@@ -1381,7 +1381,25 @@ class MainWindow(QMainWindow):
         "Untertitel": 1, "Export": 4,
     }
 
+    def _edit_scene_selection(self) -> None:
+        from .scene_selection_dialog import SceneSelectionDialog
+        clip = self.selected_candidate()
+        if not clip or not self._video_info:
+            QMessageBox.information(self, "Szenenauswahl", "Bitte zuerst ein Highlight auswählen.")
+            return
+        if not self.apply_word_editor() or not self.apply_transcript_editor():
+            return
+        try:
+            dialog = SceneSelectionDialog(self._video_info, clip.start, clip.end, self)
+        except (OSError, ValueError) as exc:
+            QMessageBox.warning(self, "Szenenplan nicht geladen", str(exc))
+            return
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            self.statusBar().showMessage("Szenenplan gespeichert · Renderanbindung noch offen")
+
     def _install_workspace_controls(self) -> None:
+        scene_menu = self.menuBar().addMenu("Szenen")
+        scene_menu.addAction("Highlight in Szenen bearbeiten …", self._edit_scene_selection)
         menu = self.menuBar().addMenu("Ansicht && Arbeitsbereiche")
         for name in WORKSPACE_NAMES:
             action = menu.addAction(name)
