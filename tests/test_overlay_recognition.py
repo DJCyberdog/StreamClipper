@@ -33,3 +33,23 @@ def test_unrepeated_non_alert_rejected_and_gap_not_bridged():
     times=[1.,2.,3.,4.]
     hits=[classify(scores("hud"),t,REGIONS[2]) for t in (1.,3.)]
     assert proposals(hits,times,0,5)==()
+
+
+def test_sparse_observations_do_not_claim_continuous_overlay():
+    times=[1.,5.,9.]
+    hits=[classify(scores("hud"),t,REGIONS[2]) for t in times]
+    assert proposals(hits,times,0,10)==()
+    alerts=[classify(scores("alert"),5.,REGIONS[-1])]
+    zone=proposals(alerts,times,0,10)[0]
+    assert (zone.start,zone.end)==(3.75,6.25)
+
+
+def test_duplicate_overlay_proposals_do_not_count_as_independent_zones():
+    times=[1.,2.,3.]
+    a=(0.,0.,.25,.30)
+    b=(0.,0.,.24,.29)
+    hits=[classify(scores("facecam",value),t,region)
+          for t in times for region,value in ((a,.7),(b,.6))]
+    zones=proposals(hits,times,0,4)
+    assert len(zones)==1 and zones[0].region==a
+    assert not zones[0].enabled
