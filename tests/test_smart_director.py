@@ -162,3 +162,32 @@ def test_real_caption_safe_zone_and_preview_parity(tmp_path):
     assert sum(v>160 for v in a[:320*120])>50
     assert sum(v>160 for v in a[320*120:])==0
     assert sum(abs(x-y) for x,y in zip(a,b))/len(a)<3
+
+
+def test_multiscene_preview_keeps_audio_even_before_later_audio_layer(tmp_path):
+    from streamclipper.editor_project import initial_project,add_item
+    source=tmp_path/"silent.mp4"
+    audio=tmp_path/"music.wav"
+    run("-f","lavfi","-i","color=red:s=160x120:r=25:d=4",
+        "-c:v","libx264","-pix_fmt","yuv420p",source)
+    run("-f","lavfi","-i","sine=frequency=880:sample_rate=48000:duration=2",
+        "-c:a","pcm_s16le",audio)
+    video=probe_video(source)
+    project=add_item(initial_project(video),"music",0,2,2,"Music",media_path=str(audio))
+    plan=initial_selection(0,4).split(0,2).edit(0,mode="fixed").edit(1,mode="fixed")
+    request=RenderRequest(video,0,4,"crop",width=160,height=120,project=project,scene_plan=plan)
+    excerpt=request.preview_excerpt(1)
+    assert excerpt.preview_composition and excerpt.preview_audio
+    assert len(excerpt.scene_plan.output_scenes)==1
+    full=render_request(request,tmp_path/"full.mp4")
+    short=render_request(excerpt,tmp_path/"short.mp4")
+    assert probe_video(full).has_audio and probe_video(short).has_audio
+    assert max(abs(a-b) for a,b in zip(rgb(full,.5),rgb(short,.5)))<=15
+    import array
+    def pcm(path,start):
+        data=run("-ss",start,"-i",path,"-t",.3,"-vn","-ac",1,"-ar",8000,"-f","s16le","pipe:1")
+        samples=array.array("h");samples.frombytes(data)
+        assert len(samples)>1000
+        return max(abs(x) for x in samples)
+    assert pcm(full,.4)<300 and pcm(short,.4)<300
+    assert pcm(full,2.5)>1000
