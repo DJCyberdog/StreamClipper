@@ -16,6 +16,7 @@ from typing import Callable
 
 from .models import VideoInfo, TranscriptSegment
 from .render_graph import AudioLayer, VisualLayer, MAX_VISUAL_LAYERS
+from .encoders import ENCODERS, encoder_options, resolve_encoder
 
 Progress = Callable[[int], None]
 Cancelled = Callable[[], bool]
@@ -192,7 +193,8 @@ def build_export_command(video: VideoInfo, start: float, end: float, destination
                          ffmpeg_executable: str = "ffmpeg", *,
                          motion_points=None, burned_captions: bool = False,
                          audio_layers: tuple[AudioLayer, ...] = (),
-                         visual_layers: tuple[VisualLayer, ...] = ()) -> list[str]:
+                         visual_layers: tuple[VisualLayer, ...] = (),
+                         encoder: str = "cpu_h264") -> list[str]:
     """Construct command without a shell. Optional captions use a local ASS file.
 
     If burned_captions, the caller must write `captions.ass` in the FFmpeg cwd.
@@ -327,7 +329,7 @@ def build_export_command(video: VideoInfo, start: float, end: float, destination
     return inputs + [
             "-t", f"{end-start:.3f}",
             "-filter_complex", chain, "-map", "[v]", "-map", audio_map,
-            "-c:v", "libx264", "-preset", "veryfast", "-crf", "22", "-pix_fmt", "yuv420p",
+            *encoder_options(encoder),
             "-c:a", "aac", "-b:a", "160k", "-movflags", "+faststart",
             str(destination)]
 
@@ -394,7 +396,9 @@ def export_clip(video: VideoInfo, start: float, end: float, destination: str | P
                 burn_subtitles: bool = False,
                 subtitle_offset: float = 0.0,
                 audio_layers: tuple[AudioLayer, ...] = (),
-                visual_layers: tuple[VisualLayer, ...] = ()) -> Path:
+                visual_layers: tuple[VisualLayer, ...] = (),
+                encoder: str = "cpu_h264",
+                encoder_notice: Callable[[str], None] | None = None) -> Path:
     """Encode with cancellable progress and publish only validated, complete MP4s.
 
     The temporary file is on the destination filesystem for atomic publication.
@@ -409,9 +413,15 @@ def export_clip(video: VideoInfo, start: float, end: float, destination: str | P
     duration = end - start
     # Validate parameters before allocating temp files or starting FFmpeg.
     width, height = video_dimensions(mode, width, height)
+    if encoder not in ENCODERS:
+        raise ValueError("Unbekanntes Encoderprofil")
+    # Validate the graph without GPU calls; actual NVENC probing happens
+    # inside this export worker only after source preflight.
+    validation_encoder = "cpu_hevc" if encoder.endswith("hevc") else "cpu_h264"
     build_export_command(
         video, start, end, output, mode, width, height,
-        audio_layers=audio_layers, visual_layers=visual_layers)
+        audio_layers=audio_layers, visual_layers=visual_layers,
+        encoder=validation_encoder)
     for layer in visual_layers:
         if cancelled and cancelled():
             raise CancelledError("Export abgebrochen")
@@ -444,69 +454,104 @@ def export_clip(video: VideoInfo, start: float, end: float, destination: str | P
                 render_ass(transcript or [], start, end, width=width, height=height,
                            offset_seconds=subtitle_offset),
                 encoding="utf-8-sig", newline="\n")
-        cmd = build_export_command(video, start, end, partial, mode, width, height,
-                                   tool_path("ffmpeg"), motion_points=motion_points,
-                                   burned_captions=burn_subtitles,
-                                   audio_layers=audio_layers,
-                                   visual_layers=visual_layers)
-        cmd[1:1] = ["-progress", "pipe:1", "-stats_period", "0.25"]
-        with tempfile.TemporaryFile(mode="w+b") as stderr_log:
-            proc = subprocess.Popen(
-                cmd, stdout=subprocess.PIPE, stderr=stderr_log,
-                text=True, encoding="utf-8", errors="replace", cwd=workdir,
-            )
-            updates: queue.Queue[float] = queue.Queue()
+        if cancelled and cancelled():
+            raise CancelledError("Export abgebrochen")
+        ffmpeg_exe = tool_path("ffmpeg")
+        plan = resolve_encoder(encoder, ffmpeg_exe)
+        if encoder_notice:
+            if plan.probe_failed:
+                encoder_notice(
+                    "NVENC-Test fehlgeschlagen; CPU-Encoding (" +
+                    ("HEVC" if encoder.endswith("hevc") else "H.264") +
+                    ") wird verwendet.")
+            else:
+                encoder_notice("Encoder: " + plan.primary.replace("_", " "))
+        candidates = (plan.primary,) + (
+            (plan.fallback,) if plan.fallback else ())
+        for attempt, profile in enumerate(candidates):
+            if cancelled and cancelled():
+                raise CancelledError("Export abgebrochen")
+            # Every retry starts with a clean partial, never appends to an
+            # incomplete GPU output. Final MP4 publication happens once.
+            partial.unlink(missing_ok=True)
+            cmd = build_export_command(
+                video, start, end, partial, mode, width, height,
+                ffmpeg_exe, motion_points=motion_points,
+                burned_captions=burn_subtitles,
+                audio_layers=audio_layers, visual_layers=visual_layers,
+                encoder=profile)
+            cmd[1:1] = ["-progress", "pipe:1", "-stats_period", "0.25"]
+            with tempfile.TemporaryFile(mode="w+b") as stderr_log:
+                proc = subprocess.Popen(
+                    cmd, stdout=subprocess.PIPE, stderr=stderr_log,
+                    text=True, encoding="utf-8", errors="replace",
+                    cwd=workdir)
+                updates: queue.Queue[float] = queue.Queue()
 
-            def read_progress() -> None:
-                assert proc.stdout is not None
-                for line in proc.stdout:
-                    key, separator, value = line.strip().partition("=")
-                    if separator:
-                        seconds = _progress_seconds(key, value)
-                        if seconds is not None:
-                            updates.put(seconds)
+                def read_progress() -> None:
+                    assert proc.stdout is not None
+                    for line in proc.stdout:
+                        key, separator, value = line.strip().partition("=")
+                        if separator:
+                            seconds = _progress_seconds(key, value)
+                            if seconds is not None:
+                                updates.put(seconds)
 
-            reader = threading.Thread(target=read_progress, daemon=True,
-                                      name="streamclipper-ffmpeg-progress")
-            reader.start()
-            last_progress = -1
-            try:
-                while proc.poll() is None or reader.is_alive() or not updates.empty():
+                reader = threading.Thread(
+                    target=read_progress, daemon=True,
+                    name="streamclipper-ffmpeg-progress")
+                reader.start()
+                last_progress = -1
+                try:
+                    while (proc.poll() is None or reader.is_alive()
+                           or not updates.empty()):
+                        if cancelled and cancelled():
+                            raise CancelledError("Export abgebrochen")
+                        try:
+                            seconds = updates.get(timeout=0.10)
+                        except queue.Empty:
+                            continue
+                        value = max(0, min(99, int(seconds / duration * 100)))
+                        if progress and value > last_progress:
+                            progress(value)
+                            last_progress = value
+                    proc.wait()
                     if cancelled and cancelled():
                         raise CancelledError("Export abgebrochen")
-                    try:
-                        seconds = updates.get(timeout=0.10)
-                    except queue.Empty:
-                        continue
-                    value = max(0, min(99, int(seconds / duration * 100)))
-                    if progress and value > last_progress:
-                        progress(value)
-                        last_progress = value
-
-                proc.wait()
-                if cancelled and cancelled():
-                    raise CancelledError("Export abgebrochen")
-                if proc.returncode != 0:
-                    stderr_log.flush()
-                    stderr_log.seek(0, os.SEEK_END)
-                    stderr_log.seek(max(0, stderr_log.tell() - 2000))
-                    error_details = stderr_log.read().decode("utf-8", errors="replace")
-                    raise RuntimeError(f"FFmpeg-Export fehlgeschlagen: {error_details}")
-                if not partial.is_file() or partial.stat().st_size == 0:
-                    raise RuntimeError("FFmpeg hat keine fertige MP4-Datei erzeugt.")
-                # Verify the container before making it visible as a final clip.
-                probe_video(partial)
-                if cancelled and cancelled():
-                    raise CancelledError("Export abgebrochen")
-                published = _publish_without_overwrite(partial, output)
-                if progress:
-                    progress(100)
-                return published
-            finally:
-                _stop_process(proc)
-                reader.join(timeout=2)
-                if proc.stdout:
-                    proc.stdout.close()
+                    if proc.returncode != 0:
+                        stderr_log.flush()
+                        stderr_log.seek(0, os.SEEK_END)
+                        stderr_log.seek(max(0, stderr_log.tell() - 2000))
+                        details = stderr_log.read().decode(
+                            "utf-8", errors="replace")
+                        if attempt == 0 and plan.fallback:
+                            if encoder_notice:
+                                encoder_notice(
+                                    "NVENC-Encoding fehlgeschlagen; "
+                                    "unvollständiges Ergebnis verworfen, "
+                                    "CPU-Encoding wird neu gestartet.")
+                            if progress:
+                                progress(0)
+                            continue
+                        raise RuntimeError(
+                            f"FFmpeg-Export ({profile}) fehlgeschlagen: {details}")
+                    if not partial.is_file() or partial.stat().st_size == 0:
+                        raise RuntimeError(
+                            "FFmpeg hat keine fertige MP4-Datei erzeugt.")
+                    # Check video container *before* publishing it.
+                    probe_video(partial)
+                    if cancelled and cancelled():
+                        raise CancelledError("Export abgebrochen")
+                    published = _publish_without_overwrite(partial, output)
+                    if progress:
+                        progress(100)
+                    return published
+                finally:
+                    _stop_process(proc)
+                    reader.join(timeout=2)
+                    if proc.stdout:
+                        proc.stdout.close()
+        raise RuntimeError("Alle Encoder-Versuche sind fehlgeschlagen.")
 
 
 def sampled_jpeg_frames(video: VideoInfo, *, max_frames: int = 180,
