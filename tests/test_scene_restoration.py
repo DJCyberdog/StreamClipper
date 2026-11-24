@@ -154,3 +154,48 @@ def test_multiwindow_cancel_removes_temp_files(tmp_path):
         sr.restore_scene_video(video,0,4,director,target,restore=fake,cancelled=lambda:stopped)
     assert not target.exists()
     assert not list(tmp_path.glob(".restore-*"))
+
+
+def test_vfr_nonzero_scene_mask_audio_and_preview(tmp_path,monkeypatch):
+    """Variable source timestamps; defined CFR output, not native VFR preservation."""
+    source=tmp_path/"vfr.mp4"
+    run("-f","lavfi","-i","color=red:s=160x128:r=20:d=4",
+        "-f","lavfi","-i","sine=frequency=880:sample_rate=48000:duration=4",
+        "-vf","select='if(lt(t,2),not(mod(n,2)),1)'",
+        "-fps_mode","vfr","-c:v","libx264","-pix_fmt","yuv420p",
+        "-c:a","aac",source)
+    timestamps=json.loads(subprocess.run(
+        ["ffprobe","-v","error","-select_streams","v:0","-show_entries",
+         "frame=best_effort_timestamp_time","-of","json",str(source)],
+        capture_output=True,check=True,timeout=30).stdout)["frames"]
+    stamps=[float(f["best_effort_timestamp_time"]) for f in timestamps]
+    assert len({round(b-a,3) for a,b in zip(stamps,stamps[1:])})>=2
+    video=probe_video(source)
+    model=tmp_path/"model";model.mkdir()
+    (model/"model_index.json").write_text(json.dumps({"_class_name":"WanVACEPipeline"}))
+    d=Director(zones=(OverlayZone("alert",(0,0,.5,1),1.5,2.5,mask=True),),
+               removal_enabled=True,inpaint_model=str(model))
+    start,end=.5,3.5
+    plan=initial_selection(start,end).edit(0,mode="fixed",director=d)
+    request=RenderRequest(video,start,end,"crop",width=160,height=128,scene_plan=plan)
+    actual=sr.restore_scene_video
+    def fake(frames,masks,path,**kwargs):
+        return [Image.new("RGB",f.size,(0,0,255)) for f in frames]
+    monkeypatch.setattr(sr,"restore_scene_video",
+                        lambda *a,**kw:actual(*a,**kw,restore=fake))
+    full=render_request(request,tmp_path/"full.mp4")
+    short=render_request(request.preview_excerpt(2.5),tmp_path/"short.mp4")
+    for path in (full,short):
+        assert probe_video(path).has_audio
+        assert rgb(path,.4,20,64)[0]>150
+        assert rgb(path,1.4,20,64)[2]>150
+        assert rgb(path,2.3,20,64)[0]>150
+        assert rgb(path,1.4,140,64)[0]>150
+    assert abs(probe_video(full).duration-3)<.15
+    assert abs(probe_video(short).duration-2.5)<.15
+    from streamclipper.export_qa import read_report
+    for path in (full,short):
+        report=read_report(path)
+        assert abs(report.video_start)<.1
+        assert report.audio_start is not None and abs(report.audio_start)<.1
+        assert report.audio_end_delta is not None and abs(report.audio_end_delta)<.15
