@@ -12,6 +12,7 @@ import uuid
 
 from .models import VideoInfo
 from .portable import installation_directory
+from .smart_director import Director, director_from_dict
 
 MODES = ("manual", "automatic", "fixed")
 MAX_SCENES = 500
@@ -30,6 +31,7 @@ class SelectionScene:
     included: bool = True
     mode: str = "automatic"
     region: tuple[float, float, float, float] = (0., 0., 1., 1.)
+    director: Director = Director()
 
     def validate(self, start, end):
         if not isinstance(self.id, str) or not self.id or len(self.id) > 64:
@@ -40,6 +42,9 @@ class SelectionScene:
             raise ValueError("Ungültiger Einschluss oder Kameramodus")
         if not isinstance(self.region, tuple) or len(self.region) != 4 or not all(_number(v) for v in self.region):
             raise ValueError("Ungültige Bildregion")
+        self.director.validate()
+        if any(not start <= k.at <= end for k in (*self.director.manual,*self.director.tracked)):
+            raise ValueError("Kamerazeiten außerhalb des Highlights")
         x, y, w, h = self.region
         if not (0 <= x < 1 and 0 <= y < 1 and .01 <= w <= 1 and .01 <= h <= 1
                 and x+w <= 1.000000001 and y+h <= 1.000000001):
@@ -147,7 +152,8 @@ def load_selection(video: VideoInfo, start, end, *, root=None):
         doc = json.loads(path.read_text(encoding="utf-8"))
         if doc["version"] != VERSION or doc["identity"] != identity:
             raise ValueError("Szenenplan gehört nicht zu diesem Highlight")
-        scenes = tuple(SelectionScene(**{**s, "region": tuple(s["region"])}) for s in doc["scenes"])
+        scenes = tuple(SelectionScene(**{**s, "region": tuple(s["region"]),
+                                           "director": director_from_dict(s.get("director"))}) for s in doc["scenes"])
         return SceneSelection(start, end, scenes).validate()
     except (KeyError, TypeError, AttributeError, ValueError) as exc:
         raise ValueError("Ungültiger Szenenplan") from exc
@@ -165,7 +171,8 @@ def selection_from_dict(doc):
     if not isinstance(doc, dict):
         raise ValueError("Ungültiger Szenenplan")
     try:
-        scenes = tuple(SelectionScene(**{**s, "region": tuple(s["region"])})
+        scenes = tuple(SelectionScene(**{**s, "region": tuple(s["region"]),
+                                           "director": director_from_dict(s.get("director"))})
                        for s in doc["scenes"])
         return SceneSelection(doc["start"], doc["end"], scenes).validate()
     except (KeyError, TypeError, AttributeError, ValueError) as exc:
