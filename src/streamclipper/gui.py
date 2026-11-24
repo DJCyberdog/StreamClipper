@@ -1235,6 +1235,7 @@ class MainWindow(QMainWindow):
         self.queue_table.setEditTriggers(
             QTableWidget.EditTrigger.NoEditTriggers)
         self.queue_table.horizontalHeader().setStretchLastSection(True)
+        self.queue_table.itemSelectionChanged.connect(self._refresh_queue)
         export_page_layout.addWidget(self.queue_table)
         queue_controls = QHBoxLayout()
         self.queue_selected_button = QPushButton("Auswahl einreihen")
