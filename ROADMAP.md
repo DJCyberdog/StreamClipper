@@ -429,6 +429,39 @@ bis auf lokaler Windows-11-Hardware ausgeführt.
 - NVENC (H.264/HEVC), sichere CPU-Fallbacks, stapelbare Renderjobs und Exportqualitätsprüfung (**#06–#08**).
 - Die Vorschau darf nicht nur „ungefähr“ stimmen: Kamerafahrt- und Untertiteltests werden in **M13/M14** gegen denselben Rendervertrag erweitert.
 
+**M12d + M12e (gemeinsamer Draft): Exportqualitätsabnahme und
+persistente Renderqueue.** Vor dem atomaren MP4-Publish prüft M12d
+FFprobe-Codec/Container/Dimensionen/Streamzeitstempel,
+drei wirklich decodierte Frames und begrenzte EBU-R128-Audio-
+Samples (Anfang/Mitte, höchstens 16 Sekunden); harte Codec/
+Decoding-/A/V-Synchronitätsverstöße verhindern den Publish.
+Sample-LUFS und True-Peak sind **nur Messwerte des geprüften
+Abschnitts**, nicht der integrierte Lautheitswert eines 6h-VODs.
+Eine atomare `.mp4.qa.json` mit Version, Evidenz, Warnungen,
+Dateihash und Timestamp dokumentiert jeden bestandenen Export.
+
+M12e speichert unveränderliche RenderRequest-Snapshots mit
+stabilen Job-IDs atomar lokal und startet niemals automatisch.
+Ein OS-Dateilock und nur ein aktiver QThread verhindern doppelte
+parallele Queues. Statuswechsel sind nachvollziehbar; nach
+Absturz RUNNING→INTERRUPTED, und nur manuelles Resume ist
+zulässig. Ein jobgebundener `.mp4.scjob.json`-Beleg prüft
+Job-ID, Request-SHA und QA-Dateihash. Vorhandene, nicht
+belegbare Ausgaben werden **BLOCKED**, niemals überschrieben
+oder automatisch erneut erzeugt; ein bestätigter, bereits
+abgeschlossener Export wird nach Neustart erkannt. Stop/Cancel/
+Retry/Discard erhalten Originaldateien und QA-Berichte.
+Ein Render-Neustart beginnt den einzelnen Job wieder **bei
+Frame 0** und ist kein Container-Resume ab dem letzten Frame.
+
+**Gate:** reale H264-/HEVC-FFmpeg- und korrupten-Output-Tests,
+Unterbrechung beim Publizieren, Receipt-Hit/No-Receipt/Hash-
+Mismatch, v1-Queue-Migration, Lock zwei Prozesse, alle bisherigen
+M11/M12-Tests, Windows GUI + portable ZIP am identischen Head.
+**Offen:** reale 6h-OBS-VFR-/RTX-5060-Ti-Benchmarks,
+End-to-End-Loudness des gesamten Programms, Uploadplattform-
+Zertifizierung. Keine Cloud- oder Autopublish-Funktion.
+
 ### 5.4 M13 – Manuelle Szenen, Smart Director und **vollständiges** A-11
 
 **M13a – Szenenauswahl:** Highlight in mehrere Szenen aufteilen; In/Out, Reihenfolge und Einschluss editieren. Bildregion pro Szene manuell markieren; Modus *Manuell/Automatisch/Fester Crop*. **Manuell vor KI.**
