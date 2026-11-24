@@ -82,17 +82,17 @@ def main(argv: list[str] | None = None) -> None:
         if args.burn_subtitles:
             if not args.transcript_json:
                 parser.error("Für --burn-subtitles wird --transcript-json aus Whisper-Analyse benötigt.")
-            data = json.loads(args.transcript_json.read_text(encoding="utf-8"))
-            if Path(data.get("video", {}).get("path", "")).resolve() != Path(args.video).resolve():
-                parser.error("Transkript gehört nicht zum angegebenen Video.")
-            transcript = [TranscriptSegment(
-                float(x["start"]), float(x["end"]), str(x["text"]),
-                tuple(TranscriptWord(**word) for word in x.get("words", [])))
-                for x in data.get("transcript", [])]
-            if not transcript:
+            from .transcript_editor import load_analysis_report
+            from .subtitle_translation import export_transcript
+            try:
+                analysis=load_analysis_report(args.transcript_json,args.video)
+                transcript=list(export_transcript(analysis,[(args.start,args.end)],offset=args.subtitle_offset))
+            except (OSError,ValueError) as exc:
+                parser.error(str(exc))
+            if not analysis.transcript:
                 parser.error("Keine Transkript-Abschnitte im JSON-Bericht gefunden.")
         path = export_clip(video, args.start, args.end, args.output, args.mode,
-                           transcript=transcript, burn_subtitles=args.burn_subtitles,
+                           transcript=transcript, burn_subtitles=args.burn_subtitles and bool(transcript),
                            subtitle_offset=args.subtitle_offset)
         print(f"Export fertig: {path}")
 
