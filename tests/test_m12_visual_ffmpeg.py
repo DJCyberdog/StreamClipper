@@ -31,10 +31,10 @@ def write_png(path: Path, color=(0, 0, 255), width=100, height=60):
     def chunk(code, value):
         return (struct.pack(">I", len(value)) + code + value
                 + struct.pack(">I", binascii.crc32(code+value)&0xffffffff))
-    pixels = b"".join(b"\\x00" + bytes((*color, 255)) * width
+    pixels = b"".join(b"\x00" + bytes((*color, 255)) * width
                       for _ in range(height))
     path.write_bytes(
-        b"\\x89PNG\\r\\n\\x1a\\n"
+        b"\x89PNG\r\n\x1a\n"
         + chunk(b"IHDR", struct.pack(">IIBBBBB",
                 width,height,8,6,0,0,0))
         + chunk(b"IDAT", zlib.compress(pixels))
