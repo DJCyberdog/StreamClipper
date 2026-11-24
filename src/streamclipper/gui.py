@@ -56,7 +56,7 @@ from .highlight_lexicon_dialog import HighlightLexiconDialog
 from .editor_project import (EditorProject, initial_project,
     add_track, remove_track, rename_track, move_track, toggle_track,
     add_item, edit_item, remove_item, load_project, save_project, Track,
-    set_scene_plan, scene_plan_for, set_caption_style)
+    set_scene_plan, scene_plan_for, set_caption_style, update_callout)
 from .track_canvas import TrackCanvas
 from .editor_theme import EDITOR_STYLESHEET
 from .workspace_layout import (WORKSPACE_NAMES, WorkspaceLayout,
@@ -1428,6 +1428,8 @@ class MainWindow(QMainWindow):
         branding = self.menuBar().addMenu("Branding")
         branding.addAction("Untertitel gestalten …", self._edit_caption_style)
         branding.addAction("Untertitel übersetzen …", self._edit_translations)
+        branding.addAction("Text / Callout hinzufügen …", self._add_callout)
+        branding.addAction("Ausgewählten Callout bearbeiten …", self._edit_callout)
         menu = self.menuBar().addMenu("Ansicht && Arbeitsbereiche")
         for name in WORKSPACE_NAMES:
             action = menu.addAction(name)
@@ -1463,6 +1465,45 @@ class MainWindow(QMainWindow):
             self._register_edit(before)
             self.statusBar().showMessage("Export-Sprache: "+(self.analysis.caption_language or "Original")+
                                          " · Quellplayer zeigt Original · Projekt speichern")
+
+    def _callout_dialog(self,item=None):
+        if not self.editor_project or self._history_blocked:
+            return
+        from .callout_dialog import CalloutDialog
+        from .media import video_dimensions
+        track=next((t for t in self.editor_project.tracks
+                    if t.id==(item.track_id if item else self._selected_track_id())
+                    and t.kind=="overlay" and not t.locked),None)
+        if track is None and item is None:
+            track=next((t for t in self.editor_project.tracks if t.kind=="overlay" and not t.locked),None)
+        if track is None:
+            QMessageBox.warning(self,"Callout","Eine entsperrte Grafikspur wird benötigt.");return
+        clip=self.selected_candidate() if self.analysis else None
+        a,b=(clip.start,clip.end) if clip else (self.timeline.in_point,self.timeline.out_point)
+        dialog=CalloutDialog(a,b,self.editor_project.source.duration,
+                             video_dimensions(str(self.mode.currentData()),1080,1920),item,self)
+        if dialog.exec()!=QDialog.DialogCode.Accepted:return
+        values=dict(dialog.geometry_values)
+        if item:
+            ok=self._apply_project_edit(update_callout,item.id,dialog.spec,**values)
+        else:
+            duration=values.pop("source_end")
+            at=values.pop("timeline_start")
+            ok=self._apply_project_edit(add_item,track.id,0.,duration,at,
+                 (dialog.spec.text or dialog.spec.kind)[:120],callout=dialog.spec,**values)
+        if ok:
+            self.include_track_audio.setChecked(True)
+            self.statusBar().showMessage("Callout gespeichert · Render-Vorschau zeigt die vollständige Komposition.")
+
+    def _add_callout(self):
+        self._callout_dialog()
+
+    def _edit_callout(self):
+        if not self.editor_project:return
+        item=next((i for i in self.editor_project.items if i.id==self._selected_clip_id() and i.callout),None)
+        if item is None:
+            QMessageBox.information(self,"Callout","Bitte einen Callout auf der Grafikspur auswählen.");return
+        self._callout_dialog(item)
 
     def _current_caption_style(self):
         return self.editor_project.caption_style if self.editor_project else CaptionStyle()
@@ -2155,6 +2196,8 @@ class MainWindow(QMainWindow):
                     if kind == "audio":
                         extra = ((Path(item.media_path).name if item.media_path
                                   else "Aufnahme") + f" · {item.gain_db:+.1f} dB")
+                    elif item.callout is not None:
+                        extra = "Callout · " + item.callout.kind
                     elif kind in {"video", "overlay"} and item.media_path:
                         extra = Path(item.media_path).name
                     else:
