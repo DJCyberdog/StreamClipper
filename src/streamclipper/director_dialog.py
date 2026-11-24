@@ -294,7 +294,7 @@ class DirectorDialog(QDialog):
         if not (Path(model)/"model_index.json").is_file():
             QMessageBox.warning(self,"VACE","Kein lokaler Diffusers-Modellordner");return
         if QMessageBox.question(self,"Experimentelles KI-Inpainting",
-            "Nicht abgenommen. Maximal 33 Frames pro Szene, bis Full HD. "
+            "Nicht abgenommen. Maximal 600 Frames pro Szene, bis Full HD. Überlappende KI-Fenster; Übergangsqualität ungeprüft. "
             "Hoher RAM-/VRAM-Bedarf; keine garantierte Rekonstruktion. "
             "Nur für diese Szene ausdrücklich aktivieren?")!=QMessageBox.StandardButton.Yes:
             return
