@@ -23,7 +23,7 @@ def frame_count(video,start,end):
     count=math.ceil((end-start)*video.fps-1e-7)
     if not 1<=count<=max(FRAME_COUNTS):
         raise ValueError("Experimentelles Inpainting: maximal 33 Quellrate-Frames pro Szene")
-    if not 64<=min(video.width,video.height) or max(video.width,video.height)>3840 or video.width*video.height>3840*2160:
+    if not 64<=min(video.width,video.height) or max(video.width,video.height)>1920 or video.width*video.height>1920*1080:
         raise ValueError("Quellauflösung außerhalb der experimentellen Grenze")
     return count
 
@@ -83,7 +83,7 @@ def restore_scene_video(video,start,end,director,target,*,cancelled=None,
     Source-rate sampling is CFR even for VFR input; VFR acceptance is open.
     Downsample only for inference. Recompose original RGB at native size.
     """
-    from PIL import Image, ImageChops
+    from PIL import Image
     count=frame_count(video,start,end)
     masks=frame_masks(video,start,count,director.zones)
     if not any(m.getbbox() for m in masks):
@@ -121,6 +121,8 @@ def restore_scene_video(video,start,end,director,target,*,cancelled=None,
         result.append(Image.composite(prediction.resize(frame.size,Image.Resampling.BICUBIC).convert("RGB"),
                                       frame,mask).tobytes())
     target=Path(target).resolve()
+    if target.exists():
+        raise FileExistsError(target)
     try:
         run_bounded([tool_path("ffmpeg"),"-hide_banner","-nostdin","-loglevel","error","-n",
             "-f","rawvideo","-pixel_format","rgb24","-video_size",f"{video.width}x{video.height}",
