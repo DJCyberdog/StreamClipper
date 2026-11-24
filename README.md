@@ -1252,3 +1252,29 @@ Die Spurkomposition wird beim Hinzufügen explizit aktiviert.
 Tests für zeitliche Aktivierung, Transparenz, Persistenz und
 MP4-Vorschauparität sind hinzugefügt; neue CI und native GUI-Abnahme
 noch offen. Keine automatische 0.8-Freigabe.
+
+
+#### Thumbnail Designer und Branding-Profile (M14)
+
+**Branding → Thumbnail Designer …**: gewähltes Highlight vollständig rendern
+(bis 60 Sekunden; gleiche Kamera, Szenenreihenfolge, aktivierte Spuren und
+Untertitel wie beim MP4-Export). Bildzeit in Sekunden des fertigen Clips
+auswählen und Renderframe laden. Vier Formate, Crop oder Einpassen,
+Titel, Farben und normalisierte Titelbox. Designvorschau und PNG-/JPEG-
+Export nutzen dieselbe Bildfunktion; vorhandene Dateien werden nicht
+überschrieben. Eine neue Bildzeit erfordert momentan einen erneuten Render.
+Keine automatische Veröffentlichung und keine KI-Bilderzeugung.
+Thumbnail-Datei wird als separate fertige Grafik gespeichert; noch kein
+persistenter editierbarer Thumbnail-Projektstand.
+
+**Branding → Branding-Profil speichern …**: aktuellen Untertitelstil und
+optional ausgewählte Grafikspur-Datei als Logo (inkl. Position, Größe,
+Deckkraft) in lokale JSON-Vorlage übernehmen. **Branding-Profil anwenden …**
+setzt nach Bestätigung den Projektstil und fügt das Logo im ausgewählten
+Zeitbereich hinzu. Die Grafik bleibt eine lokale Dateireferenz, keine
+eingebettete Kopie. Identische Anwendung auf denselben Bereich dupliziert
+den Clip nicht. Undo/Redo über den bestehenden Projektverlauf.
+Die Farben des Untertitelstils stehen auch im Thumbnail-Dialog als
+Startwerte zur Verfügung. Callouts und Titel nutzen derzeit Pillow-
+Standardschrift. Neue Regressionen inkl. realer umsortierter MP4-Frames
+vorhanden; neue CI und native GUI-/Modellabnahme offen.
