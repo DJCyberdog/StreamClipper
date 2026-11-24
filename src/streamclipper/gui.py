@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import sys
 import threading
+import subprocess
 import os
 from pathlib import Path
 
@@ -2162,7 +2163,7 @@ class MainWindow(QMainWindow):
             end = min(duration, 86400-at)
             if end < .01:
                 raise ValueError("Kein Platz mehr auf der Timeline")
-        except (OSError, ValueError) as exc:
+        except (OSError, ValueError, subprocess.SubprocessError) as exc:
             QMessageBox.warning(self, "Audiodatei nicht verwendbar", str(exc))
             return
         gain, accepted = QInputDialog.getDouble(
@@ -2205,7 +2206,7 @@ class MainWindow(QMainWindow):
             length = min(duration, self.timeline.out_point-at, 86400-at)
             if length < .05:
                 raise ValueError("Zu kurzer Platz auf der Timeline")
-        except (OSError, ValueError) as exc:
+        except (OSError, ValueError, subprocess.SubprocessError) as exc:
             QMessageBox.warning(self, "Videomedium nicht verwendbar", str(exc))
             return
         self._apply_project_edit(
@@ -2266,7 +2267,7 @@ class MainWindow(QMainWindow):
                     limit = probe_video(item.media_path).duration
                 elif kind == "overlay":
                     limit = 86400
-            except (OSError, ValueError) as exc:
+            except (OSError, ValueError, subprocess.SubprocessError) as exc:
                 QMessageBox.warning(self, "Medienquelle fehlt", str(exc))
                 return
         start, accepted = QInputDialog.getDouble(
