@@ -466,10 +466,13 @@ def export_clip(video: VideoInfo, start: float, end: float, destination: str | P
     validation_encoder = "cpu_hevc" if encoder.endswith("hevc") else "cpu_h264"
     build_export_command(
         video, start, end, output, mode, width, height,
-        audio_layers=audio_layers, visual_layers=visual_layers,
+        audio_layers=audio_layers, visual_layers=tuple(layer for layer in visual_layers if layer.callout is None),
         encoder=validation_encoder, region=region, fit_region=fit_region,
         force_audio=force_audio, director=director)
     for layer in visual_layers:
+        if layer.callout is not None:
+            layer.callout.validate()
+            continue
         if cancelled and cancelled():
             raise CancelledError("Export abgebrochen")
         if layer.kind == "video":
@@ -491,6 +494,18 @@ def export_clip(video: VideoInfo, start: float, end: float, destination: str | P
 
     with tempfile.TemporaryDirectory(prefix=f".{output.stem}-", dir=output.parent) as workdir:
         partial = Path(workdir) / f"{output.stem}.partial.mp4"
+        if any(layer.callout is not None for layer in visual_layers):
+            from dataclasses import replace
+            from .callouts import rasterize
+            materialized=[]
+            for i,layer in enumerate(visual_layers):
+                if cancelled and cancelled():raise CancelledError('Export abgebrochen')
+                if layer.callout is not None:
+                    target=Path(workdir)/f'callout-{i}.png'
+                    rasterize(layer.callout,max(2,round(width*layer.width/2)*2),max(2,round(height*layer.height/2)*2)).save(target)
+                    layer=replace(layer,source_path=str(target.resolve()),callout=None)
+                materialized.append(layer)
+            visual_layers=tuple(materialized)
         restored_video = None
         if director is not None and director.inpaint_model:
             from .scene_restoration import restore_scene_video
