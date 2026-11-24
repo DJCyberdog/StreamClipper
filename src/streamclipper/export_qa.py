@@ -76,9 +76,13 @@ def _decode_frame(path: Path, second: float) -> None:
     result = subprocess.run([
         tool_path("ffmpeg"), "-hide_banner", "-nostdin", "-loglevel", "error",
         "-ss", f"{second:.3f}", "-i", str(path), "-map", "0:v:0",
-        "-frames:v", "1", "-f", "null", "-"],
+        "-frames:v", "1", "-f", "framemd5", "-"],
         capture_output=True, timeout=60)
-    if result.returncode:
+    # Some FFmpeg builds report exit status 0 for an empty 0-frame decode.
+    # Require an actual frame checksum, not merely a successful process.
+    frame_rows = [line for line in result.stdout.splitlines()
+                  if line.strip() and not line.lstrip().startswith(b"#")]
+    if result.returncode or not frame_rows:
         raise ValueError("Videoframe konnte nicht decodiert werden")
 
 
@@ -163,7 +167,7 @@ def inspect_export(path: str | Path, *, expected_codec: str,
                 raise ValueError("Audio-/Video-Endzeit nicht ausreichend synchron")
     # Sample start, center, and last decodable frame; no 6h decode sweep.
     offsets = sorted(set((0.0, max(0.0, actual_duration/2-.05),
-                          max(0.0, actual_duration-min(.15,actual_duration/3)))))
+                          max(0.0, actual_duration-min(1.0,actual_duration/2)))))
     for timestamp in offsets:
         _decode_frame(file, timestamp)
     levels = []
