@@ -538,11 +538,29 @@ def export_clip(video: VideoInfo, start: float, end: float, destination: str | P
                     if not partial.is_file() or partial.stat().st_size == 0:
                         raise RuntimeError(
                             "FFmpeg hat keine fertige MP4-Datei erzeugt.")
-                    # Check video container *before* publishing it.
-                    probe_video(partial)
+                    # M12d: validate actual decode, codec, stream timing and
+                    # bounded audio samples BEFORE exposing the finished MP4.
+                    # No finished result is published if any QA gate fails.
+                    from .export_qa import inspect_export, write_report
+                    expected_codec = (
+                        "hevc" if profile.endswith("hevc") else "h264")
+                    if encoder_notice:
+                        encoder_notice("Render abgeschlossen · MP4-Qualitätsprüfung …")
+                    quality = inspect_export(
+                        partial, expected_codec=expected_codec,
+                        width=width, height=height, duration=duration,
+                        audio_expected=(video.has_audio or bool(audio_layers)))
                     if cancelled and cancelled():
                         raise CancelledError("Export abgebrochen")
                     published = _publish_without_overwrite(partial, output)
+                    # A failure here leaves a verified standalone MP4 but no
+                    # queue receipt. Recovery intentionally BLOCKS this path
+                    # instead of duplicating an already completed file.
+                    write_report(quality, published)
+                    if encoder_notice:
+                        encoder_notice(
+                            "MP4-QA bestanden · " + str(len(quality.warnings))
+                            + " Hinweis(e) · Bericht neben der MP4")
                     if progress:
                         progress(100)
                     return published
