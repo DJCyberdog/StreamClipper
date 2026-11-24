@@ -47,11 +47,22 @@ class TranscriptSegment:
 
 
 @dataclass(frozen=True)
+class SubtitleTranslation:
+    """Separate source-bound translation; no invented target word timestamps."""
+    language: str
+    source_sha256: str
+    text: str
+    origin: str = "manual"
+
+
+@dataclass(frozen=True)
 class AnalysisResult:
     video: VideoInfo
     candidates: list[Candidate]
     method: str = "audio-rms-peaks-v1"
     transcript: list[TranscriptSegment] = field(default_factory=list)
+    translations: tuple[SubtitleTranslation, ...] = ()
+    caption_language: str = ''  # empty = original
 
     def save_json(self, filename: str | Path) -> None:
         destination = Path(filename)
@@ -63,6 +74,10 @@ class AnalysisResult:
         for section in report['transcript']:
             if not section['words']:
                 section.pop('words')
+        if not self.translations:
+            report.pop('translations')
+        if not self.caption_language:
+            report.pop('caption_language')
         payload = json.dumps(report, indent=2, ensure_ascii=False)
         staging: Path | None = None
         try:
