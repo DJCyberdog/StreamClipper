@@ -195,7 +195,8 @@ def build_export_command(video: VideoInfo, start: float, end: float, destination
                          audio_layers: tuple[AudioLayer, ...] = (),
                          visual_layers: tuple[VisualLayer, ...] = (),
                          encoder: str = "cpu_h264", region=None,
-                         fit_region: bool = False, force_audio: bool = False) -> list[str]:
+                         fit_region: bool = False, force_audio: bool = False,
+                         director=None) -> list[str]:
     """Construct command without a shell. Optional captions use a local ASS file.
 
     If burned_captions, the caller must write `captions.ass` in the FFmpeg cwd.
@@ -209,7 +210,12 @@ def build_export_command(video: VideoInfo, start: float, end: float, destination
     if not (0 <= start < end <= video.duration + 0.1):
         raise ValueError("Ungültiges Clip-Zeitfenster")
     final_label = "base" if (burned_captions or visual_layers) else "v"
-    if region is not None:
+    if director is not None:
+        director.validate()
+    if director is not None and director.keys:
+        from .smart_director import camera_filter
+        chain = f"[0:v:0]{camera_filter(director.keys, video, width, height, start)}[{final_label}]"
+    elif region is not None:
         if (len(region) != 4 or not all(math.isfinite(v) for v in region)):
             raise ValueError("Ungültige Bildregion")
         x, y, w, h = region
@@ -250,6 +256,11 @@ def build_export_command(video: VideoInfo, start: float, end: float, destination
             "[back][front]overlay=(W-w)/2:(H-h)/2:shortest=1,"
             f"setsar=1,format=yuv420p[{final_label}]"
         )
+    if director is not None:
+        from .smart_director import mask_filters
+        masks = mask_filters(director, video, start, end)
+        if masks:
+            chain = "[0:v:0]setpts=PTS-STARTPTS," + masks + "[masked];" + chain.replace("[0:v:0]", "[masked]", 1)
     inputs = [ffmpeg_executable, "-hide_banner", "-nostdin", "-loglevel", "error", "-n",
               "-ss", f"{start:.3f}", "-i", video.path]
     if len(visual_layers) > MAX_VISUAL_LAYERS:
@@ -425,7 +436,8 @@ def export_clip(video: VideoInfo, start: float, end: float, destination: str | P
                 visual_layers: tuple[VisualLayer, ...] = (),
                 encoder: str = "cpu_h264",
                 encoder_notice: Callable[[str], None] | None = None,
-                region=None, fit_region: bool = False, force_audio: bool = False) -> Path:
+                region=None, fit_region: bool = False, force_audio: bool = False,
+                director=None) -> Path:
     """Encode with cancellable progress and publish only validated, complete MP4s.
 
     The temporary file is on the destination filesystem for atomic publication.
@@ -449,7 +461,7 @@ def export_clip(video: VideoInfo, start: float, end: float, destination: str | P
         video, start, end, output, mode, width, height,
         audio_layers=audio_layers, visual_layers=visual_layers,
         encoder=validation_encoder, region=region, fit_region=fit_region,
-        force_audio=force_audio)
+        force_audio=force_audio, director=director)
     for layer in visual_layers:
         if cancelled and cancelled():
             raise CancelledError("Export abgebrochen")
@@ -473,14 +485,15 @@ def export_clip(video: VideoInfo, start: float, end: float, destination: str | P
     with tempfile.TemporaryDirectory(prefix=f".{output.stem}-", dir=output.parent) as workdir:
         partial = Path(workdir) / f"{output.stem}.partial.mp4"
         motion_points = None
-        if region is None and mode in {"smart16", "smart9"}:
+        if region is None and not (director and director.keys) and mode in {"smart16", "smart9"}:
             from .reframe import clip_motion_path
             motion_points = clip_motion_path(video, start, end, cancelled=cancelled)
         if burn_subtitles:
             from .captioning import render_ass
             (Path(workdir) / "captions.ass").write_text(
                 render_ass(transcript or [], start, end, width=width, height=height,
-                           offset_seconds=subtitle_offset),
+                           offset_seconds=subtitle_offset,
+                           safe_position=director.caption_safe if director else 'bottom'),
                 encoding="utf-8-sig", newline="\n")
         if cancelled and cancelled():
             raise CancelledError("Export abgebrochen")
@@ -508,7 +521,7 @@ def export_clip(video: VideoInfo, start: float, end: float, destination: str | P
                 burned_captions=burn_subtitles,
                 audio_layers=audio_layers, visual_layers=visual_layers,
                 encoder=profile, region=region, fit_region=fit_region,
-                force_audio=force_audio)
+                force_audio=force_audio, director=director)
             cmd[1:1] = ["-progress", "pipe:1", "-stats_period", "0.25"]
             with tempfile.TemporaryFile(mode="w+b") as stderr_log:
                 proc = subprocess.Popen(
