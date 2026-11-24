@@ -191,3 +191,28 @@ def test_multiscene_preview_keeps_audio_even_before_later_audio_layer(tmp_path):
         return max(abs(x) for x in samples)
     assert pcm(full,.4)<300 and pcm(short,.4)<300
     assert pcm(full,2.5)>1000
+
+
+def test_subject_lock_stops_at_hard_cut_even_if_patch_survives():
+    from streamclipper.director_analysis import probable_cut
+    def frame(background,x,y):
+        data=bytearray([background])*(W*H)
+        for dy in range(-3,4):
+            for dx in range(-3,4):
+                data[(y+dy)*W+x+dx]=60+((dx*53+dy*71)%180)
+        return bytes(data)
+    a,b,c=frame(10,20,20),frame(10,24,21),frame(210,24,21)
+    assert not probable_cut(a,b)
+    assert probable_cut(b,c)
+    keys=follow_patch([(0.,a),(.5,b),(1.,c),(1.5,b)],20/(W-1),20/(H-1))
+    assert [k.at for k in keys]==[0.,.5]
+
+
+def test_subject_lock_does_not_bridge_missing_samples():
+    data=bytearray(W*H)
+    for dy in range(-3,4):
+        for dx in range(-3,4):
+            data[(20+dy)*W+20+dx]=60+((dx*53+dy*71)%180)
+    frame=bytes(data)
+    keys=follow_patch([(0.,frame),(1.1,frame)],20/(W-1),20/(H-1))
+    assert len(keys)==1
