@@ -2766,6 +2766,10 @@ class MainWindow(QMainWindow):
             return
         index = self.table.currentRow()
         previous = self.analysis
+        if 0 <= index < len(previous.candidates):
+            clip = previous.candidates[index]
+            if not self._scene_render_allowed(previous.video, [(clip.start, clip.end)]):
+                return
         try:
             self.analysis = trim_manual_highlight(
                 self.analysis, index, self.timeline.in_point, self.timeline.out_point)
@@ -3530,6 +3534,16 @@ class MainWindow(QMainWindow):
         self.preview_end = None  # manual scrubbing may leave suggested time span
         self._set_preview_position(pos)
 
+    def _scene_render_allowed(self, video, intervals) -> bool:
+        from .scene_selection import require_unplanned_highlight
+        try:
+            for start, end in intervals:
+                require_unplanned_highlight(video, start, end)
+        except (ValueError, OSError) as exc:
+            QMessageBox.warning(self, "Szenenplan – Renderanbindung offen", str(exc))
+            return False
+        return True
+
     def start_render_preview(self) -> None:
         """Render a bounded export-identical MP4 without touching source playback."""
         if self.queue_worker is not None and self.queue_worker.isRunning():
@@ -3552,6 +3566,8 @@ class MainWindow(QMainWindow):
         transcript = (tuple(self.analysis.transcript)
                       if self.analysis and self.analysis.video.path == self.source
                       else ())
+        if not self._scene_render_allowed(self._video_info, [(start, end)]):
+            return
         try:
             request = RenderRequest(
                 video=self._video_info, start=start, end=end,
@@ -3647,6 +3663,8 @@ class MainWindow(QMainWindow):
         items = self.analysis.candidates if all_clips else [self.selected_candidate()]
         items = [item for item in items if item is not None]
         if not items:
+            return
+        if not self._scene_render_allowed(self.analysis.video, [(item.start, item.end) for item in items]):
             return
         directory = QFileDialog.getExistingDirectory(self, "Exportordner wählen")
         if not directory:
@@ -3758,6 +3776,8 @@ class MainWindow(QMainWindow):
         transcript = (tuple(self.analysis.transcript)
                       if self.analysis and self.analysis.video.path == self.source
                       else ())
+        if not self._scene_render_allowed(self._video_info, [(item.start, item.end) for item in clips]):
+            return
         added = 0
         for item in clips:
             try:
