@@ -23,6 +23,7 @@ from .subtitle_translation import validate_translations
 from .portable import installation_directory
 from .scene_selection import selection_from_dict
 from .caption_style import caption_style_from_dict
+from .editor_project import item_from_dict
 from .transcript_editor import validate_segments
 
 FORMAT_VERSION = 1
@@ -149,7 +150,7 @@ def load_checkpoint(video: VideoInfo, checkpoint_id: str, *,
             SCHEMA_VERSION if data["project"]["schema_version"] in
             {SCHEMA_VERSION, AUDIO_SCHEMA_VERSION, LEGACY_SCHEMA_VERSION} else -1,
             source, tuple(Track(**t) for t in data["project"]["tracks"]),
-            tuple(TimelineItem(**item) for item in data["project"]["items"]),
+            tuple(item_from_dict(item) for item in data["project"]["items"]),
             tuple(selection_from_dict(p) for p in data["project"].get("scene_plans", [])),
             caption_style_from_dict(data["project"].get("caption_style")))
         project.validate()
