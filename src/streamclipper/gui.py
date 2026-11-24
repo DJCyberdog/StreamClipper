@@ -109,11 +109,13 @@ class ExportThread(QThread):
     progress_changed = Signal(int)
     done = Signal(object)
     failed = Signal(str)
+    encoder_notice = Signal(str)
 
     def __init__(self, analysis: AnalysisResult, items: list[Candidate], directory: str,
                  mode: str, parent=None, burn_subtitles: bool = False,
                  subtitle_offset: float = 0.0,
-                 project: EditorProject | None = None):
+                 project: EditorProject | None = None,
+                 encoder: str = "cpu_h264"):
         super().__init__(parent)
         self.analysis = analysis
         self.items = items
@@ -122,6 +124,7 @@ class ExportThread(QThread):
         self.burn_subtitles = burn_subtitles
         self.subtitle_offset = subtitle_offset
         self.project = project
+        self.encoder = encoder
         self._cancelled = threading.Event()
 
     def cancel(self) -> None:
@@ -141,12 +144,13 @@ class ExportThread(QThread):
                     burn_subtitles=self.burn_subtitles,
                     subtitle_offset=self.subtitle_offset,
                     transcript=tuple(self.analysis.transcript),
-                    project=self.project)
+                    project=self.project, encoder=self.encoder)
                 actual = render_request(
                     request, target, cancelled=self._cancelled.is_set,
                     progress=lambda value, i=i: self.progress_changed.emit(
                         round(((i - 1) + value / 100) / len(self.items) * 100)
                     ),
+                    encoder_notice=self.encoder_notice.emit,
                 )
                 outputs.append(str(actual))
             self.done.emit(outputs)
@@ -295,6 +299,7 @@ class RenderPreviewThread(QThread):
     done = Signal(object)
     failed = Signal(str)
     was_cancelled = Signal()
+    encoder_notice = Signal(str)
 
     def __init__(self, request: RenderRequest, parent=None):
         super().__init__(parent)
@@ -308,7 +313,8 @@ class RenderPreviewThread(QThread):
         try:
             outcome = render_clip_preview(
                 self.request, progress=self.progress_changed.emit,
-                cancelled=self._cancelled.is_set)
+                cancelled=self._cancelled.is_set,
+                encoder_notice=self.encoder_notice.emit)
             self.done.emit(outcome)
         except CancelledError:
             self.was_cancelled.emit()
@@ -1093,6 +1099,31 @@ class MainWindow(QMainWindow):
         self.mode.addItem("9:16 – ganzes Bild / unscharfer Hintergrund", "blur")
         self.mode.addItem("9:16 – fester Mittel-Ausschnitt", "crop")
         actions.addWidget(self.mode)
+        actions.addWidget(QLabel("Video-Encoder · H.264 / HEVC"))
+        self.encoder_mode = QComboBox()
+        self.encoder_mode.setObjectName("streamclipper.encoderMode")
+        self.encoder_mode.addItem(
+            "Automatisch · H.264 NVENC → CPU-Fallback", "auto_h264")
+        self.encoder_mode.addItem(
+            "H.264 · nur CPU (kompatibel)", "cpu_h264")
+        self.encoder_mode.addItem(
+            "H.264 · nur NVIDIA NVENC", "nvenc_h264")
+        self.encoder_mode.addItem(
+            "Automatisch · HEVC NVENC → CPU-Fallback", "auto_hevc")
+        self.encoder_mode.addItem(
+            "HEVC · nur CPU", "cpu_hevc")
+        self.encoder_mode.addItem(
+            "HEVC · nur NVIDIA NVENC", "nvenc_hevc")
+        self.encoder_mode.setToolTip(
+            "NVENC nutzt die GPU als Encoder, nicht als Echtzeit-FX-Engine. "
+            "Auto prüft den Encoder vor dem Start und versucht höchstens "
+            "einmal CPU, falls NVENC während des Exports ausfällt. "
+            "HEVC benötigt einen kompatiblen Player bzw. Plattform-Support.")
+        actions.addWidget(self.encoder_mode)
+        self.encoder_status = QLabel(
+            "H.264 Auto · NVENC-Prüfung erst beim Rendern")
+        self.encoder_status.setWordWrap(True)
+        actions.addWidget(self.encoder_status)
         self.burn_subtitles = QCheckBox("Untertitel direkt ins Video")
         self.burn_subtitles.setChecked(True)
         self.burn_subtitles.setToolTip("Benötigt eine durch Whisper transkribierte Aufnahme.")
@@ -1647,6 +1678,7 @@ class MainWindow(QMainWindow):
         self.cancel_button.setEnabled(busy)
         self.render_preview_button.setEnabled(
             bool(self._video_info) and not busy)
+        self.encoder_mode.setEnabled(not busy)
         ready = self.analysis is not None and not busy
         self.single_export.setEnabled(ready and bool(self.table.selectedItems()))
         self.all_export.setEnabled(ready and bool(self.analysis.candidates if self.analysis else []))
@@ -3421,6 +3453,7 @@ class MainWindow(QMainWindow):
                 transcript=transcript,
                 project=(self.editor_project if self.include_track_audio.isChecked()
                          else None),
+                encoder=str(self.encoder_mode.currentData()),
             ).validate()
         except (ValueError, OSError) as exc:
             QMessageBox.warning(self, "Render-Vorschau nicht möglich", str(exc))
@@ -3430,6 +3463,7 @@ class MainWindow(QMainWindow):
             self._render_preview_dialog = None
         worker = RenderPreviewThread(request, self)
         self.worker = worker
+        worker.encoder_notice.connect(self._encoder_notice)
         worker.progress_changed.connect(
             lambda value, w=worker: self._render_preview_progress(w, value))
         worker.done.connect(
@@ -3442,10 +3476,16 @@ class MainWindow(QMainWindow):
         self.progress.setRange(0, 100)
         self.progress.setValue(0)
         self.progress.setFormat("Render-Vorschau · %p %")
+        self.encoder_status.setText("Encoder wird im Hintergrund geprüft …")
         self._busy(True)
         self.statusBar().showMessage(
             "Render-Vorschau wird mit den MP4-Exportfiltern erstellt …")
         worker.start()
+
+    def _encoder_notice(self, message: str) -> None:
+        """Never hide a GPU fallback behind an apparently successful export."""
+        self.encoder_status.setText(message)
+        self.statusBar().showMessage(message, 8000)
 
     def _render_preview_progress(self, worker: RenderPreviewThread, value: int) -> None:
         if self.worker is worker:
@@ -3507,12 +3547,15 @@ class MainWindow(QMainWindow):
                                    subtitle_offset=self.caption_offset.value(),
                                    project=(self.editor_project
                                             if self.include_track_audio.isChecked()
-                                            else None))
+                                            else None),
+                                   encoder=str(self.encoder_mode.currentData()))
+        self.worker.encoder_notice.connect(self._encoder_notice)
         self.worker.progress_changed.connect(self.progress.setValue)
         self.worker.done.connect(self.export_finished)
         self.worker.failed.connect(self.job_failed)
         self.worker.finished.connect(lambda: self._busy(False))
         self._busy(True)
+        self.encoder_status.setText("Encoder wird im Hintergrund geprüft …")
         self.statusBar().showMessage(f"Exportiere {len(items)} Clip(s) …")
         self.worker.start()
 
