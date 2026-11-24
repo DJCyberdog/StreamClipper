@@ -6,7 +6,7 @@ import pytest
 
 from streamclipper.editor_project import (
     AUDIO_SCHEMA_VERSION, SCHEMA_VERSION, add_item, add_track, edit_item,
-    initial_project, load_project, project_path, save_project, toggle_track)
+    initial_project, load_project, project_path, remove_item, save_project, toggle_track)
 from streamclipper.models import VideoInfo
 from streamclipper.render_graph import (
     MAX_VISUAL_LAYERS, RENDER_GRAPH_VERSION, build_render_graph)
@@ -138,3 +138,18 @@ def test_v2_checkpoint_migrates_without_mutating_archive(tmp_path):
     restored, _ = load_checkpoint(info, saved.id, root=folder)
     assert restored.schema_version == 3
     assert path.read_bytes() == prior
+
+
+def test_delete_only_non_source_unlocked_clip_and_restore(tmp_path):
+    info = video(tmp_path)
+    original = initial_project(info)
+    edited = add_item(original, "graphics", 0, 2, 10, "Logo",
+                      media_path=str(tmp_path / "logo.png"))
+    removed = remove_item(edited, edited.items[-1].id)
+    assert removed == original
+    with pytest.raises(ValueError, match="Basisaufnahme"):
+        remove_item(original, "source")
+    locked = toggle_track(edited, "graphics", "locked")
+    with pytest.raises(ValueError, match="gesperrter"):
+        remove_item(locked, locked.items[-1].id)
+    assert locked.items[-1] == edited.items[-1]
