@@ -105,7 +105,7 @@ def restore_scene_video(video,start,end,director,target,*,cancelled=None,
                         progress=None,restore=restore_window):
     """Decode once to bounded disk storage, restore overlapping windows.
 
-    Blend only the generated region in the shared frames; the source RGB
+    CFR normalization is explicit: output frame i maps to start+i/fps.\n    Blend only the generated region in the shared frames; the source RGB
     context remains byte-exact before encoding. A single local pipeline is
     reused. No claim of temporal model consistency across windows.
     """
@@ -133,9 +133,18 @@ def restore_scene_video(video,start,end,director,target,*,cancelled=None,
         staged=Path(folder)/"restored.mkv"
         run_bounded([tool_path("ffmpeg"),"-hide_banner","-nostdin","-loglevel","error","-n",
             "-ss",f"{start:.3f}","-i",video.path,"-map","0:v:0","-an","-sn",
-            "-vf",f"fps={fps},format=rgb24","-frames:v",str(count),
+            "-vf",f"fps={fps}:start_time=0:round=near,format=rgb24","-frames:v",str(count),
             "-f","rawvideo",str(raw)],cancelled=cancelled,timeout=180)
-        if raw.stat().st_size!=count*stride:
+        observed=raw.stat().st_size
+        # At the actual EOF the FPS filter can round the last sample down.
+        # Only allow one explicit held frame, never conceal a missing interval.
+        if (observed==(count-1)*stride and count>1
+                and abs(video.duration-end)<=1/video.fps):
+            with raw.open("r+b") as stream:
+                stream.seek(-stride,os.SEEK_END)
+                last=stream.read(stride)
+                stream.write(last)
+        elif observed!=count*stride:
             raise ValueError("Inpainting: Quellfenster hat nicht die erwartete Frameanzahl")
         pending=[]
         written=0
