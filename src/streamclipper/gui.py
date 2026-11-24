@@ -1431,6 +1431,9 @@ class MainWindow(QMainWindow):
         branding.addAction("Text / Callout hinzufügen …", self._add_callout)
         branding.addAction("Ausgewählten Callout bearbeiten …", self._edit_callout)
         branding.addAction("Thumbnail Designer …", self._edit_thumbnail)
+        branding.addSeparator()
+        branding.addAction("Branding-Profil speichern …", self._save_branding_profile)
+        branding.addAction("Branding-Profil anwenden …", self._apply_branding_profile)
         menu = self.menuBar().addMenu("Ansicht && Arbeitsbereiche")
         for name in WORKSPACE_NAMES:
             action = menu.addAction(name)
@@ -1528,6 +1531,40 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self,"Thumbnail",str(exc));return
         from .thumbnail_dialog import ThumbnailDialog
         ThumbnailDialog(request,self).exec()
+
+    def _save_branding_profile(self):
+        if not self.editor_project or self._history_blocked:return
+        from .branding_profile import BrandProfile,save_profile
+        name,ok=QInputDialog.getText(self,"Branding-Profil","Name des Profils:")
+        if not ok:return
+        item=next((i for i in self.editor_project.items if i.id==self._selected_clip_id()
+                    and i.media_path and any(t.id==i.track_id and t.kind=="overlay" for t in self.editor_project.tracks)),None)
+        if item and QMessageBox.question(self,"Branding","Ausgewählte Grafik als wiederverwendbares Logo übernehmen?")!=QMessageBox.StandardButton.Yes:
+            item=None
+        profile=BrandProfile(name,self._current_caption_style(),item.media_path,item.x,item.y,item.width,item.height,item.opacity) if item else BrandProfile(name,self._current_caption_style())
+        path,_=QFileDialog.getSaveFileName(self,"Branding-Profil speichern",name+".json","Branding (*.json)")
+        if not path:return
+        try:target=save_profile(profile,path)
+        except (ValueError,OSError) as exc:QMessageBox.warning(self,"Branding",str(exc));return
+        self.statusBar().showMessage("Branding-Profil gespeichert: "+str(target))
+
+    def _apply_branding_profile(self):
+        if not self.editor_project or self._history_blocked:return
+        from .branding_profile import load_profile,apply_profile
+        path,_=QFileDialog.getOpenFileName(self,"Branding-Profil laden","","Branding (*.json)")
+        if not path:return
+        try:profile=load_profile(path)
+        except (ValueError,OSError) as exc:QMessageBox.warning(self,"Branding",str(exc));return
+        clip=self.selected_candidate() if self.analysis else None
+        a,b=(clip.start,clip.end) if clip else (self.timeline.in_point,self.timeline.out_point)
+        track=next((t for t in self.editor_project.tracks if t.id==self._selected_track_id()
+                    and t.kind=="overlay" and not t.locked and not t.muted),None)
+        if track is None:track=next((t for t in self.editor_project.tracks if t.kind=="overlay" and not t.locked and not t.muted),None)
+        if QMessageBox.question(self,"Branding",f"Profil {profile.name} anwenden? Untertitelstil im Projekt ersetzen"
+                + (f" und Logo im gewählten Zeitbereich auf {track.name if track else 'fehlender Grafikspur'} hinzufügen?" if profile.logo else "?"))!=QMessageBox.StandardButton.Yes:return
+        if self._apply_project_edit(apply_profile,profile,a,b,track.id if track else None):
+            if profile.logo:self.include_track_audio.setChecked(True)
+            self.statusBar().showMessage("Branding angewendet · Render-Vorschau zum Prüfen öffnen.")
 
     def _current_caption_style(self):
         return self.editor_project.caption_style if self.editor_project else CaptionStyle()
