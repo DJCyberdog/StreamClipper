@@ -19,6 +19,7 @@ from .render_graph import build_render_graph
 from .encoders import ENCODERS
 from .scene_selection import SceneSelection, excerpt_selection, output_duration
 from .smart_director import crop_for_scene
+from .caption_style import CaptionStyle
 
 PREVIEW_MAX_SECONDS = 20.0
 
@@ -39,8 +40,10 @@ class RenderRequest:
     scene_plan: SceneSelection | None = None
     preview_composition: bool = False
     preview_audio: bool = False
+    caption_style: CaptionStyle = CaptionStyle()
 
     def validate(self) -> "RenderRequest":
+        self.caption_style.validate()
         times = (self.start, self.end, self.video.duration, self.subtitle_offset)
         if not all(math.isfinite(t) for t in times):
             raise ValueError("Renderzeiten und Untertitelversatz müssen endlich sein")
@@ -130,6 +133,7 @@ def render_request(
         transcript=list(request.transcript),
         burn_subtitles=request.burn_subtitles,
         subtitle_offset=request.subtitle_offset,
+        caption_style=request.caption_style,
         progress=progress, cancelled=cancelled,
         encoder=request.encoder, encoder_notice=encoder_notice,
         **options,
@@ -177,6 +181,7 @@ def _render_scenes(request, destination, progress, cancelled, encoder_notice):
                            transcript=list(request.transcript),
                            burn_subtitles=request.burn_subtitles,
                            subtitle_offset=request.subtitle_offset,
+                           caption_style=request.caption_style,
                            encoder=encoder, encoder_notice=encoder_notice,
                            cancelled=cancelled, progress=callback,
                            force_audio=normalize and bool(any_audio), **options)
