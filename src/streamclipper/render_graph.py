@@ -44,6 +44,7 @@ class GraphNode:
     width: float = .28
     height: float = .28
     opacity: float = 1.0
+    callout: Callout | None = None
 
 
 @dataclass(frozen=True)
@@ -161,10 +162,10 @@ def build_render_graph(project: EditorProject, video: VideoInfo,
         left, right = max(item.timeline_start,start), min(end_on_timeline,end)
         nodes.append(GraphNode(
             item.id, item.track_id, track.kind,
-            item.media_path or project.source.path,
+            item.media_path or ('' if item.callout else project.source.path),
             item.source_start, item.source_end, item.timeline_start,
             track.muted, track.locked, track.hidden, item.gain_db,
-            item.x, item.y, item.width, item.height, item.opacity))
+            item.x, item.y, item.width, item.height, item.opacity, item.callout))
         if right <= left:
             continue
         if track.kind == "video" and item.id == "source" and item.track_id == "gameplay":
