@@ -4,6 +4,11 @@
 
 Szenen mit nicht überlappenden Quellzeitbereichen, manuelle und vorgeschlagene Kamerapfade, lineare Positions-/Zoominterpolation und Vorrang manueller Keyframes sind als Qt-unabhängiges Modell implementiert. Ein Adapter erzeugt cliprelative Fokuspfade für den vorhandenen Crop-Filter bei konstantem Zoom. Dynamischer Zoom wird am Adapter ausdrücklich abgelehnt, nicht stillschweigend ignoriert. GUI, Projektpersistenz, RenderRequest-/Queue-Anbindung und szenenübergreifendes Rendern stehen noch aus. M13a ist damit begonnen, nicht abgenommen.
 
+
+### M13a – Szenenauswahl (laufende Implementierung)
+
+Menü **Szenen → Highlight in Szenen bearbeiten**: Split, In/Out, Reihenfolge, Einschluss, Modus und normierte Bildregion. Ein Quellbild kann asynchron am Schnittpunkt geladen werden; die Region lässt sich mit der Maus aufziehen (Letterbox-Korrektur). Mausmarkierung setzt Manuell. Original bleibt unverändert. Der lokale Plan ist noch nicht Teil des gemeinsamen Projekt-/Undo-/Rendervertrags. Für exakt passende gespeicherte Pläne sperrt die GUI neue Exporte/Vorschauen/Queuejobs und Highlight-Trim, damit ein Plan nicht unbemerkt ignoriert wird. Bestehende Queue-Snapshots und CLI bleiben unverändert. M13a nicht abgeschlossen.
+
 ## M12d + M12e – Export-QA und persistente Renderqueue (Draft)
 
 **M12d:** Jeder FFmpeg-Export wird noch **vor** der endgültigen
