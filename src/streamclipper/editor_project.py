@@ -1,8 +1,7 @@
-"""Versioned, offline editor track metadata (M11 and M12b).
+"""Versioned offline editor model for audio/video/graphic layers.
 
-The v2 schema optionally references local audio files for the explicit M12b
-render path. Older v1 plans/checkpoints migrate in memory; never rewrite video
-or audio sources. Qt and ML dependencies are intentionally absent.
+V3 adds explicit bounded overlay geometry to existing v2 local media
+references. V1 and v2 load without changing saved files; no Qt/ML dependency.
 """
 from __future__ import annotations
 
@@ -18,8 +17,11 @@ import tempfile
 from .models import VideoInfo
 from .portable import installation_directory
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 LEGACY_SCHEMA_VERSION = 1
+AUDIO_SCHEMA_VERSION = 2
+_VIDEO_SUFFIXES = frozenset({".mp4", ".mkv", ".mov", ".webm", ".m4v", ".avi"})
+_IMAGE_SUFFIXES = frozenset({".png", ".jpg", ".jpeg", ".webp"})
 _KINDS = frozenset({"video", "audio", "captions", "overlay"})
 _ID = re.compile(r"[a-zA-Z0-9_-]{1,64}\Z")
 _MAX_ITEMS = 5000
@@ -44,8 +46,13 @@ class TimelineItem:
     source_end: float
     timeline_start: float
     label: str = ""
-    media_path: str | None = None  # external local audio, never network URL
-    gain_db: float = 0.0  # per-clip relative level (no side effects on source)
+    media_path: str | None = None  # local media for audio/video/image layers
+    gain_db: float = 0.0  # per-clip relative audio level
+    x: float = .68  # relative to output resolution, not source pixels
+    y: float = .08
+    width: float = .28
+    height: float = .28
+    opacity: float = 1.0
 
 
 @dataclass(frozen=True)
@@ -84,18 +91,38 @@ class EditorProject:
                     or len(item.label) > 120
                     or not isinstance(item.gain_db, (int, float))
                     or not math.isfinite(item.gain_db)
-                    or not -60 <= item.gain_db <= 12):
+                    or not -60 <= item.gain_db <= 12
+                    or not all(isinstance(v, (int, float)) and math.isfinite(v)
+                               for v in (item.x, item.y, item.width,
+                                         item.height, item.opacity))
+                    or not (0 <= item.x <= 1 and 0 <= item.y <= 1
+                            and .05 <= item.width <= 1
+                            and .05 <= item.height <= 1
+                            and item.x + item.width <= 1.000001
+                            and item.y + item.height <= 1.000001
+                            and 0 <= item.opacity <= 1)):
                 raise ValueError("Ungültiger oder doppelter Clip")
             clip_ids.add(item.id)
             a, b, t = item.source_start, item.source_end, item.timeline_start
             track = next(x for x in self.tracks if x.id == item.track_id)
             if item.media_path is not None:
-                if (track.kind != "audio" or not isinstance(item.media_path, str)
+                if (track.kind not in {"audio", "video", "overlay"}
+                        or not isinstance(item.media_path, str)
                         or not item.media_path or len(item.media_path) > 4096
                         or not Path(item.media_path).is_absolute()
                         or any(ord(ch) < 32 for ch in item.media_path)
                         or "://" in item.media_path):
-                    raise ValueError("Externe Audiodatei muss ein absoluter lokaler Pfad sein")
+                    raise ValueError("Externe Audio-/Videodatei muss ein absoluter lokaler Pfad sein")
+                suffix = Path(item.media_path).suffix.lower()
+                if (track.kind == "video" and suffix not in _VIDEO_SUFFIXES
+                        or track.kind == "overlay" and suffix not in _IMAGE_SUFFIXES):
+                    raise ValueError("Unbekanntes Video-/Grafikformat (nur lokale Medien)")
+            # v1/v2 data without explicit external visual assets remain
+            # metadata-only and are rejected by the compositor, not guessed.
+            if track.kind in {"audio", "captions"} and (
+                    item.x != .68 or item.y != .08 or item.width != .28
+                    or item.height != .28 or item.opacity != 1.0):
+                raise ValueError("Audio-/Untertitelspur hat keine Bildposition")
             limit = 24 * 3600 if item.media_path else self.source.duration + .10
             if (not all(isinstance(n, (int, float)) and math.isfinite(n)
                         for n in (a, b, t))
@@ -191,7 +218,10 @@ def edit_item(project: EditorProject, item_id: str, *,
               track_id: str | None = None, source_start: float | None = None,
               source_end: float | None = None,
               timeline_start: float | None = None,
-              gain_db: float | None = None) -> EditorProject:
+              gain_db: float | None = None,
+              x: float | None = None, y: float | None = None,
+              width: float | None = None, height: float | None = None,
+              opacity: float | None = None) -> EditorProject:
     i = _item_index(project, item_id)
     before = project.items[i]
     destination = track_id or before.track_id
@@ -203,7 +233,12 @@ def edit_item(project: EditorProject, item_id: str, *,
         source_start=before.source_start if source_start is None else source_start,
         source_end=before.source_end if source_end is None else source_end,
         timeline_start=before.timeline_start if timeline_start is None else timeline_start,
-        gain_db=before.gain_db if gain_db is None else gain_db)
+        gain_db=before.gain_db if gain_db is None else gain_db,
+        x=before.x if x is None else x,
+        y=before.y if y is None else y,
+        width=before.width if width is None else width,
+        height=before.height if height is None else height,
+        opacity=before.opacity if opacity is None else opacity)
     items = list(project.items)
     items[i] = candidate
     updated = replace(project, items=tuple(items))
@@ -213,7 +248,10 @@ def edit_item(project: EditorProject, item_id: str, *,
 
 def add_item(project: EditorProject, track_id: str, start: float,
              end: float, timeline_start: float, label: str = "",
-             *, media_path: str | None = None, gain_db: float = 0.0) -> EditorProject:
+             *, media_path: str | None = None, gain_db: float = 0.0,
+             x: float = .68, y: float = .08,
+             width: float = .28, height: float = .28,
+             opacity: float = 1.0) -> EditorProject:
     track = next((t for t in project.tracks if t.id == track_id), None)
     if not track or track.locked:
         raise ValueError("Zielspur fehlt oder ist gesperrt")
@@ -225,7 +263,7 @@ def add_item(project: EditorProject, track_id: str, start: float,
         project, items=(*project.items,
                         TimelineItem(f"clip_{index}", track_id, start, end,
                                      timeline_start, label, media_path,
-                                     gain_db)))
+                                     gain_db, x, y, width, height, opacity)))
     updated.validate()
     return updated
 
@@ -309,7 +347,8 @@ def load_project(video: VideoInfo, *, root: Path | None = None) -> EditorProject
     try:
         doc = json.loads(path.read_text(encoding="utf-8"))
         if (not isinstance(doc, dict)
-                or doc.get("schema_version") not in {LEGACY_SCHEMA_VERSION, SCHEMA_VERSION}):
+                or doc.get("schema_version") not in {
+                    LEGACY_SCHEMA_VERSION, AUDIO_SCHEMA_VERSION, SCHEMA_VERSION}):
             raise ValueError("Unbekannte Projektformat-Version")
         project = EditorProject(
             SCHEMA_VERSION, VideoInfo(**doc["source"]),
