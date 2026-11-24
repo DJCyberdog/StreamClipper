@@ -18,6 +18,8 @@ class SceneSelectionDialog(QDialog):
         self.setWindowTitle("Szenenauswahl")
         self.resize(900, 680)
         self.frame_worker = None
+        self.subject_point = None
+        self.frame_at = None
         layout = QVBoxLayout(self)
         layout.addWidget(QLabel("Szenen bearbeiten · Reihenfolge entspricht der geplanten Ausgabe.\n"
                                 "Original bleibt unverändert; Manuell erhält die markierte Region, Fester Crop füllt das Zielformat."))
@@ -31,6 +33,10 @@ class SceneSelectionDialog(QDialog):
         self.frame_status = QLabel("Bildregion mit der Maus aufziehen; Koordinaten bleiben editierbar.")
         layout.addWidget(self.frame_status)
         self.monitor.region_changed.connect(self._region_marked)
+        self.monitor.point_clicked.connect(self._subject_clicked)
+        director_button = QPushButton('Smart Director / Overlays …')
+        director_button.clicked.connect(self._director)
+        layout.addWidget(director_button)
         form = QFormLayout()
         self.start = self._number(start, end, 3)
         self.end = self._number(start, end, 3)
@@ -89,6 +95,8 @@ class SceneSelectionDialog(QDialog):
             return
         scene = self.plan.scenes[index]
         self.monitor.set_frame(b'')
+        self.subject_point = None
+        self.frame_at = None
         self.start.setValue(scene.start)
         self.end.setValue(scene.end)
         self.cut.setValue((scene.start+scene.end)/2)
@@ -97,6 +105,28 @@ class SceneSelectionDialog(QDialog):
         for field, value in zip(self.region, scene.region):
             field.setValue(value)
         self._sync_region()
+
+    def _subject_clicked(self, point):
+        self.subject_point = point
+        self.frame_status.setText("Subject-Punkt gewählt · Smart Director öffnen und Subject Lock starten")
+
+    def _director(self):
+        if self.frame_worker is not None:
+            return
+        from .director_dialog import DirectorDialog
+        index = self.scenes.currentRow()
+        at = self.frame_at if self.frame_at is not None else self.cut.value()
+        region = tuple(field.value() for field in self.region)
+        point = self.subject_point
+        if not self._apply():
+            return
+        scene = self.plan.scenes[index]
+        dialog = DirectorDialog(self.video, scene, at, region, self)
+        if point is not None:
+            dialog.x.setValue(point[0])
+            dialog.y.setValue(point[1])
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            self._change(lambda: self.plan.edit(index, director=dialog.value), index)
 
     def _sync_region(self):
         self.monitor.set_region(tuple(field.value() for field in self.region))
@@ -127,6 +157,7 @@ class SceneSelectionDialog(QDialog):
     def _frame_ready(self, jpeg):
         worker = self.frame_worker
         if worker is not None and not worker.cancelled.is_set() and self.monitor.set_frame(jpeg):
+            self.frame_at = worker.at
             self.frame_status.setText(f"Quellbild bei ca. {worker.at:.3f} s · Region mit Maus aufziehen")
         else:
             self.frame_status.setText("Quellbild konnte nicht angezeigt werden.")
