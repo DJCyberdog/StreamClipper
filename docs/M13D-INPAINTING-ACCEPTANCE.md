@@ -37,4 +37,13 @@ python scripts/benchmark_vace.py --clean D:/Tests/clean-png --model data/models/
 
 Clean-Verzeichnis: 9, 17 oder 33 fortlaufend nummerierte PNG-Frames aus einem sauberen, zusammenhängenden Clip; z. B. 448×256. Der Runner synthetisiert genau eine Overlay-Art (hud/topbar/facecam/chat/alert), schreibt Masken, Overlay- und Schwarzmasken-Baseline, Restaurierung und report.json in ein neues Verzeichnis. Bericht enthält Laufzeit, Peak-VRAM und Referenzmetriken. Erfolg heißt MEASURED_NOT_ACCEPTED, nicht PASS. Mehrere unabhängige Clips, tatsächliche Lizenzkette, RAM-Messung und Übergänge zwischen Fenstern bleiben offen.
 
-Mock-Test bestätigt ausschließlich Adaptervertrag und Kontext-Compositing. Noch kein echter VACE-Lauf, keine GUI-/Exportintegration, keine Aussage zur temporalen Qualität.
+Mock-Test bestätigt ausschließlich Adaptervertrag und Kontext-Compositing. Noch kein echter VACE-Lauf und keine Aussage zur temporalen Qualität. Die nachfolgende experimentelle Renderanbindung ist nicht abgenommen.
+
+
+## Experimentelle Renderintegration (nicht freigegeben)
+
+Szeneneditor → Smart Director → VACE experimentell: explizites Opt-in, lokaler Modellordner, aktive Zone mit Maskierung. Ohne Opt-in bleibt die bisherige Schwarzmaske. Wenn ein sicherer Crop sämtliche aktiven Zonen entfernt, wird keine KI benötigt. Die experimentelle Integration verarbeitet höchstens 33 Frames bei Quellbildrate (z. B. 1,1 s bei 30 FPS), maximal Full HD als Quelle. Inferenzauflösung ist kleiner; unverdeckte Original-RGB-Pixel werden vor Encoding wieder eingesetzt. Bei VFR erfolgt CFR-Normalisierung, nicht als framegenauer Erhalt zu verstehen. Keine fensterübergreifende Rekonstruktion. Kein stiller Fallback bei Modellfehlern.
+
+Gemeinsamer RenderRequest friert Modellordner und Zonen ein; keine Gewichts-Hash-Attestierung. Eine verkürzte Vorschau verwendet dieselbe vollständige Szene für die Inferenz. FFV1-Zwischendatei nur im privaten temporären Renderordner, ausschließlich als Bildinput; Audio und zusätzliche Spuren nutzen unveränderte Originalzeiten. M12-QA und atomare Publikation bleiben erhalten. GPU-Nichtdeterminismus kann trotz gleicher Parameter zu unterschiedlichen Resultaten führen; Preview-/Exportgleichheit mit echtem Modell offen.
+
+Tests: echte FFmpeg-Dateien, aber absichtlich gemockte Modell-Inferenz. Kein Qualitätsnachweis für VACE, keine Empfehlung als produktive Creator-Funktion. CUDA, Modellgewichte und reale Referenzclips fehlen in der aktuellen Testumgebung. Nächster fachlicher Schritt: echte GPU-Messung und vollständige Modell-/Lizenz-/Qualitätsvalidierung, danach mehrfenstrige Verarbeitung und Nahtstellenprüfung.
