@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from io import BytesIO
 import math
 
-from .smart_director import OverlayZone
+from .smart_director import OverlayZone, overlap, valid_rect
 
 LABELS = (
     ("hud", "video game heads-up display, minimap, health bar or ammunition counter over gameplay"),
@@ -28,6 +28,7 @@ REGIONS = (
     (.25,.15,.50,.35),
 )
 POSITIVE = frozenset(k for k,_ in LABELS[:6])
+MAX_EVIDENCE_GAP = 2.5
 
 
 @dataclass(frozen=True)
@@ -39,6 +40,8 @@ class OverlayHit:
 
 
 def classify(scores, at, region):
+    if not math.isfinite(at) or at<0 or not valid_rect(region):
+        return None
     if set(scores) != {k for k,_ in LABELS} or any(
             not math.isfinite(v) or not 0 <= v <= 1 for v in scores.values()):
         return None
@@ -55,6 +58,8 @@ def proposals(hits, timestamps, start, end, *, limit=24):
 
     All proposals are disabled and unmasked until explicitly approved.
     """
+    if type(limit) is not int or not 1<=limit<=24:
+        raise ValueError('Ungültiges Vorschlagslimit')
     stamps=tuple(sorted(set(timestamps)))
     if not stamps:
         return ()
@@ -67,7 +72,8 @@ def proposals(hits, timestamps, start, end, *, limit=24):
     for (kind,region), group in groups.items():
         runs=[]
         for i in sorted(group):
-            if runs and i==runs[-1][-1]+1:
+            if (runs and i==runs[-1][-1]+1
+                    and stamps[i]-stamps[runs[-1][-1]]<=MAX_EVIDENCE_GAP):
                 runs[-1].append(i)
             else:
                 runs.append([i])
@@ -75,16 +81,33 @@ def proposals(hits, timestamps, start, end, *, limit=24):
             if kind!="alert" and len(run)<2:
                 continue
             a,b=run[0],run[-1]
-            static=(kind!="alert" and len(run)==len(stamps))
+            static=(kind!="alert" and len(run)==len(stamps)
+                    and stamps[0]-start<=MAX_EVIDENCE_GAP/2
+                    and end-stamps[-1]<=MAX_EVIDENCE_GAP/2)
             left=None if static else max(start, stamps[a] if a==0 else (stamps[a-1]+stamps[a])/2)
             right=None if static else min(end, end if b==len(stamps)-1 else (stamps[b]+stamps[b+1])/2)
+            if not static:
+                left=max(left,stamps[a]-MAX_EVIDENCE_GAP/2)
+                right=min(right,stamps[b]+MAX_EVIDENCE_GAP/2)
             if not static and right<=left:
                 continue
             zone=OverlayZone(kind,region,left,right,enabled=False,mask=False)
             zone.validate()
             ranked.append((sum(group[i].similarity for i in run)/len(run),len(run),zone))
     ranked.sort(key=lambda v:(-v[0],-v[1],v[2].kind,v[2].region))
-    return tuple(z for _,_,z in ranked[:limit])
+    # Suppress nearly identical same-type proposals only when time supports
+    # the same interval. Nested detections are not independent evidence.
+    accepted=[]
+    for _,_,zone in ranked:
+        if any(zone.kind==prior.kind and (zone.start,zone.end)==(prior.start,prior.end)
+               and overlap(zone.region,prior.region)/
+                   (zone.region[2]*zone.region[3]+prior.region[2]*prior.region[3]
+                    -overlap(zone.region,prior.region))>=.75 for prior in accepted):
+            continue
+        accepted.append(zone)
+        if len(accepted)>=limit:
+            break
+    return tuple(accepted)
 
 
 def recognize_overlays(video, model_directory, start, end, *, cancelled=None):
