@@ -19,10 +19,16 @@ Direktexport und Queue. Eindeutige Einzelwort-Textkorrektur erhält Wortzeiten;
 bei geänderten Grenzen oder nicht eindeutiger Zuordnung keine erfundenen Zeiten.
 Ältere Daten ohne Stil erhalten Standardwerte.
 
+Neu: #23 separate, quellgebundene Übersetzungen, lokaler Marian-Adapter,
+Worker-Dialog mit manueller Korrektur und Sprachwahl; Undo/Redo, Analyse-JSON,
+Autosave, Checkpoint, Render-Vorschau/Direkt/Queue und CLI. Geänderte Originale
+invalidieren die betroffene Übersetzung; fehlende Übersetzungen verhindern
+Sprachmischung. Abschnittszeiten, keine künstlichen Zielwortzeiten.
+Echter Marian-Modelllauf und neue CI noch offen.
+
 Nächste konkrete Schritte:
 - CI dieses Heads und Windows-Prozessende diagnostizieren; neue Tests laufen lassen.
-- Vollständige Wort-/Timingkorrektur, editierbare Übersetzung mit lokalem Modell,
-  Originalfassung behalten, kein erneuter Whisper-Lauf.
+- Wort-/Timingkorrektur und Übersetzung mit tatsächlichem lokalem Modell abnehmen.
 - Branding-Vorlagen/Logos mit bestehender Grafikspur verknüpfen.
 - Text-/Callout-Editor (Pfeile, Sprechblasen, Bildmarkierungen), Thumbnail-Designer
   und gemeinsamen, exportgetreuen Workflow fertigstellen.
