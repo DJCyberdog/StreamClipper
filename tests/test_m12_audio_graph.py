@@ -54,7 +54,7 @@ def test_external_path_and_gain_restrictions(tmp_path):
     ):
         with pytest.raises(ValueError):
             add_item(p, "music", 0, 3, 10, **data)
-    with pytest.raises(ValueError, match="Audiodatei"):
+    with pytest.raises(ValueError, match="Video"):
         add_item(p, "gameplay", 0, 3, 10, media_path=str(tmp_path / "x.wav"))
     assert p.items[0].media_path is None
 
