@@ -356,7 +356,9 @@ durch denselben `RenderRequest` für MP4 und 20-s-Render-Vorschau
 geführt. Externe Bild-/Videodateien vor dem Export per FFprobe prüfen,
 Originaldateien nicht beschreiben. Der Inspector verwaltet Geometrie/
 Deckkraft in einem atomaren Undo-Schritt; Qt bietet Dateiauswahl für
-zweite Videospur und vorhandene Grafiken-Spur. v1-/v2-Projekte und
+zweite Videospur und vorhandene Grafiken-Spur. Mit **Clip entfernen**
+werden nur nicht gesperrte, nicht-Basis-Spurclips gelöscht; Datei und
+Undo/Redo bleiben unversehrt. v1-/v2-Projekte und
 Checkpoints lesend v3 migrieren, gespeicherte Originalstände nicht
 ungefragt überschreiben. Reproduzierbare Frame-/Audio-Golden-Vergleiche,
 Abbruch-/Missing-Source-Gates und Windows-Qt-Offscreen sind Pflicht.
