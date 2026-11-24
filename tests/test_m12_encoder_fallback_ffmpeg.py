@@ -132,3 +132,28 @@ def test_auto_without_gpu_selects_cpu_and_keeps_preview_export_in_sync(
     finally:
         holder.cleanup()
     assert Path(info.path).read_bytes()==original
+
+
+@pytest.mark.skipif(not AVAILABLE, reason="FFmpeg/FFprobe unavailable")
+def test_real_cpu_hevc_mp4_uses_hevc_codec_and_hvc1_tag(tmp_path):
+    """HEVC is not only a command string: verify a decodable output container."""
+    availability = subprocess.run(
+        ["ffmpeg", "-hide_banner", "-loglevel", "error", "-h",
+         "encoder=libx265"], capture_output=True, timeout=20)
+    if availability.returncode:
+        pytest.skip("This FFmpeg build lacks libx265")
+    info, original = make_source(tmp_path)
+    request = RenderRequest(
+        info, 0, .8, "crop", False, 0, (), 320, 180, None, "cpu_hevc")
+    output = render_request(request, tmp_path/"hevc.mp4")
+    result = subprocess.run([
+        "ffprobe", "-v", "error", "-select_streams", "v:0",
+        "-show_entries", "stream=codec_name,codec_tag_string",
+        "-of", "json", str(output)], check=True, capture_output=True,
+        text=True, timeout=30)
+    import json
+    stream = json.loads(result.stdout)["streams"][0]
+    assert stream["codec_name"] == "hevc"
+    assert stream["codec_tag_string"] == "hvc1"
+    assert media.probe_video(output).width == 320
+    assert Path(info.path).read_bytes() == original
