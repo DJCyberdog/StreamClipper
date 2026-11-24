@@ -14,6 +14,7 @@ from .media import (build_export_command, export_clip, video_dimensions)
 from .models import TranscriptSegment, VideoInfo
 from .editor_project import EditorProject
 from .render_graph import build_render_graph
+from .encoders import ENCODERS
 
 PREVIEW_MAX_SECONDS = 20.0
 
@@ -30,6 +31,7 @@ class RenderRequest:
     width: int = 1080
     height: int = 1920
     project: EditorProject | None = None  # opt-in M12b graph snapshot
+    encoder: str = "cpu_h264"  # append-only, old positional API stays stable
 
     def validate(self) -> "RenderRequest":
         times = (self.start, self.end, self.video.duration, self.subtitle_offset)
@@ -39,6 +41,8 @@ class RenderRequest:
             raise ValueError("Ungültiges Renderintervall")
         if not -5 <= self.subtitle_offset <= 5:
             raise ValueError("Untertitelversatz außerhalb -5 bis +5 Sekunden")
+        if self.encoder not in ENCODERS:
+            raise ValueError("Unbekanntes H.264-/HEVC-Encoderprofil")
         width, height = video_dimensions(self.mode, self.width, self.height)
         build_export_command(
             self.video, self.start, self.end, "validation.mp4",
@@ -64,7 +68,8 @@ class RenderRequest:
 def render_request(
         request: RenderRequest, destination: str | Path, *,
         progress: Callable[[int], None] | None = None,
-        cancelled: Callable[[], bool] | None = None) -> Path:
+        cancelled: Callable[[], bool] | None = None,
+        encoder_notice: Callable[[str], None] | None = None) -> Path:
     """One true FFmpeg render boundary for exported and rendered preview clips.
 
     No proxy input or timeline metadata is substituted. Fail closed before
@@ -83,5 +88,7 @@ def render_request(
         transcript=list(request.transcript),
         burn_subtitles=request.burn_subtitles,
         subtitle_offset=request.subtitle_offset,
-        progress=progress, cancelled=cancelled, **options,
+        progress=progress, cancelled=cancelled,
+        encoder=request.encoder, encoder_notice=encoder_notice,
+        **options,
     )
