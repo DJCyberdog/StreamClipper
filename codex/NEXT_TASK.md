@@ -2,12 +2,15 @@
 
 Verbindlich ROADMAP.md §5.4; kein M14 vor Abschluss M13.
 M13a f07739e6: automatisierte Linux-/Windows-Abnahme PASS; native Tests offen.
-PR #50 bdded138: Linux- und Windows-CI PASS.
+PR #50 c2d5b4f9: Linux 362 passed/18 skipped; Windows 146 passed/26 skipped.
+Windows-Workflow verlangt jetzt FFmpeg/FFprobe ausdrücklich; neuer CI-Head offen.
 
 M13b: manuelle Keyframes, dynamische Zoomkurve, angeklickter lokaler Subject-Lock.
 Neu: maximal 15,5 s pro Trackinglauf, Abbruch bei Zeitlücken >1 s.
 Neu: konservativer Schnitt-Veto (räumliche Differenz + Histogramm),
 Regression mit überlebendem HUD-Muster und Zeitlücke.
+Neu: alten Subject-Punkt bei Framewechsel zurücksetzen; Qt-Regression
+für szenenlokale Director-Änderungen und explizites Speichern.
 Offen: repräsentative Verdeckungs-/Schnitttests, längere Szenen, native UI.
 
 M13c: vorhandene statische und dynamische Zonen, Profile, Safe-Crop, Konflikte;
@@ -15,6 +18,8 @@ neu lokale CLIP-Klassifikation für HUD/Topbar/Chat/Facecam/Alert/Graphic mit
 neutralen Kontrollen und zeitlichen Vorschlägen. Vorschläge deaktiviert.
 Neu: keine durchgehenden Zeitintervalle bei Evidenzlücken >2,5 s;
 Begrenzung isolierter Alerts, Deduplizierung nahezu identischer Vorschläge.
+Neu: scripts/benchmark_overlays.py für annotierte unabhängige Szenen,
+1:1-Matching mit räumlicher/zeitlicher IoU und Precision/Recall; Negativkontrollen.
 Offen: echter CLIP-Modelllauf auf Testmaterial, präzise Lokalisierung,
 Facecam-/Safe-Zone-Praxis und Qualitätsmessung; keine garantierte Erkennung.
 
@@ -34,12 +39,15 @@ Neu: verkürzte Mehrszenenvorschau behält Kompositions-/Audionormalisierungspfa
 realer FFmpeg-Test mit später einsetzender zusätzlicher Audiospur geschrieben.
 Neu: explizite CFR-Zeitbasis ab Szenenbeginn und begrenzte EOF-Rundung;
 VFR-Test mit variablen PTS, Nichtnull-Seek, zeitlicher Maske, A/V und Preview.
-Offen: neue CI, umfassende Multitrack-/Mehrszene-/VFR-Parität und
+Neu: kombinierter realer FFmpeg-Test für umsortierte Szenen, Maske, ASS,
+Grafik, PiP, Musik, Originalaudio, direkten Export, persistierte Queue und
+gekürzte Vorschau. Windows-FFmpeg bisher nicht ausdrücklich sichergestellt.
+Offen: neue CI, repräsentative Multitrack-/Mehrszene-/VFR-Parität und
 native Windows/GPU-Abnahme.
 
 Nächste Ausführung: finalen CI-Head prüfen, Fehler korrigieren; echte VACE-
 und CLIP-Läufe auf lokaler GPU mit Referenzmaterial. Aktuelle Umgebung: CPU-Torch,
-kein CUDA. M13d-Integration experimentell, noch nicht abgenommen; erst nach
+kein CUDA, Transformers und lokaler HF-Modellcache fehlen. M13d-Integration experimentell, noch nicht abgenommen; erst nach
 Messungen Fensterübergänge bewerten und produktive Freigabe bearbeiten. Keine Statusschleife.
 Python-Quellcode-Distribution analog M9 als Entwicklungsupdate, .venv/data
 erhalten. PyInstaller separat, kein Ersatz für Source-Update.
