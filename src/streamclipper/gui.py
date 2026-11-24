@@ -51,6 +51,7 @@ from .timeline_widget import TimelineWidget
 from .word_editor import edit_word, effective_words, words_in_clip
 from .captioning import subtitle_text_at_time
 from .caption_style import CaptionStyle
+from .subtitle_translation import export_transcript
 from .highlight_lexicon_dialog import HighlightLexiconDialog
 from .editor_project import (EditorProject, initial_project,
     add_track, remove_track, rename_track, move_track, toggle_track,
@@ -68,6 +69,13 @@ from .project_checkpoints import create_checkpoint, list_checkpoints, load_check
 
 from .edit_history import WorkspaceHistory
 from .autosave import autosave_path, clear_autosave, load_autosave, save_autosave
+
+
+def render_transcript(analysis,start,end,scene_plan,burn,offset):
+    if not burn:
+        return tuple(analysis.transcript)
+    intervals=[(s.start,s.end) for s in scene_plan.output_scenes] if scene_plan else [(start,end)]
+    return export_transcript(analysis,intervals,offset=offset)
 
 
 def display_time(seconds: float) -> str:
@@ -144,16 +152,19 @@ class ExportThread(QThread):
                 if self._cancelled.is_set():
                     raise CancelledError("Export abgebrochen")
                 target = safe_destination(self.directory, f"{stem}_clip_{i:02d}.mp4")
+                scene_plan=next((p for p in self.scene_plans if
+                        (p.start,p.end)==(clip.start,clip.end)),None)
+                transcript=render_transcript(self.analysis,clip.start,clip.end,scene_plan,
+                                              self.burn_subtitles,self.subtitle_offset)
                 request = RenderRequest(
                     video=self.analysis.video,
                     start=clip.start, end=clip.end, mode=self.mode,
-                    burn_subtitles=self.burn_subtitles,
+                    burn_subtitles=self.burn_subtitles and bool(transcript),
                     subtitle_offset=self.subtitle_offset,
-                    transcript=tuple(self.analysis.transcript),
+                    transcript=transcript,
                     project=self.project, encoder=self.encoder,
                     caption_style=self.caption_style,
-                    scene_plan=next((p for p in self.scene_plans if
-                        (p.start,p.end) == (clip.start,clip.end)), None))
+                    scene_plan=scene_plan)
                 actual = render_request(
                     request, target, cancelled=self._cancelled.is_set,
                     progress=lambda value, i=i: self.progress_changed.emit(
@@ -1416,6 +1427,7 @@ class MainWindow(QMainWindow):
         scene_menu.addAction("Highlight in Szenen bearbeiten …", self._edit_scene_selection)
         branding = self.menuBar().addMenu("Branding")
         branding.addAction("Untertitel gestalten …", self._edit_caption_style)
+        branding.addAction("Untertitel übersetzen …", self._edit_translations)
         menu = self.menuBar().addMenu("Ansicht && Arbeitsbereiche")
         for name in WORKSPACE_NAMES:
             action = menu.addAction(name)
@@ -1430,6 +1442,27 @@ class MainWindow(QMainWindow):
         for dock in (self.project_dock, self.timeline_dock, self.inspector_dock):
             menu.addAction(dock.toggleViewAction())
         self.tabs.currentChanged.connect(lambda _index: self._update_inspector())
+
+    def _edit_translations(self):
+        if not self.analysis or not self.analysis.transcript or self._history_blocked:
+            return
+        if not self.apply_word_editor() or not self.apply_transcript_editor():
+            return
+        clip=self.selected_candidate()
+        a,b=(clip.start,clip.end) if clip else (self.timeline.in_point,self.timeline.out_point)
+        rows=[i for i,cue in enumerate(self.analysis.transcript) if cue.end>a and cue.start<b]
+        if not rows:
+            QMessageBox.information(self,"Übersetzung","Keine Untertitel im gewählten Highlight.");return
+        if len(rows)>500:
+            QMessageBox.warning(self,"Übersetzung","Bitte kürzeren Ausschnitt wählen (maximal 500 Abschnitte).");return
+        from .translation_dialog import TranslationDialog
+        dialog=TranslationDialog(self.analysis,rows,self)
+        if dialog.exec()==QDialog.DialogCode.Accepted:
+            before=self.analysis
+            self.analysis=dialog.value
+            self._register_edit(before)
+            self.statusBar().showMessage("Export-Sprache: "+(self.analysis.caption_language or "Original")+
+                                         " · Quellplayer zeigt Original · Projekt speichern")
 
     def _current_caption_style(self):
         return self.editor_project.caption_style if self.editor_project else CaptionStyle()
@@ -3521,7 +3554,7 @@ class MainWindow(QMainWindow):
         if not destination:
             return
         try:
-            target = save_transcript(self.analysis.transcript, destination)
+            target = save_transcript(export_transcript(self.analysis), destination)
         except (FileExistsError, OSError, ValueError) as exc:
             QMessageBox.warning(self, "Transkript konnte nicht gespeichert werden", str(exc))
             return
@@ -3605,6 +3638,9 @@ class MainWindow(QMainWindow):
         if not self._scene_render_allowed(self._video_info, [(start, end)]):
             return
         try:
+            if self.analysis and self.analysis.video.path==self.source:
+                transcript=render_transcript(self.analysis,start,end,scene_plan_for(self.editor_project,start,end),
+                                             self.burn_subtitles.isChecked(),self.caption_offset.value())
             request = RenderRequest(
                 video=self._video_info, start=start, end=end,
                 mode=str(self.mode.currentData()),
@@ -3821,6 +3857,10 @@ class MainWindow(QMainWindow):
         added = 0
         for item in clips:
             try:
+                if self.analysis and self.analysis.video.path==self.source:
+                    transcript=render_transcript(self.analysis,item.start,item.end,
+                        scene_plan_for(self.editor_project,item.start,item.end),
+                        self.burn_subtitles.isChecked(),self.caption_offset.value())
                 request = RenderRequest(
                     video=self._video_info, start=item.start, end=item.end,
                     mode=str(self.mode.currentData()),
