@@ -17,10 +17,10 @@ def info(tmp_path):
     return VideoInfo(str(tmp_path / "game.mkv"), 200.0, 320, 180, 30, True)
 
 
-def test_project_v2_accepts_external_audio_and_migrates_v1(tmp_path):
+def test_project_v3_accepts_external_audio_and_migrates_v1(tmp_path):
     original = info(tmp_path)
     p = initial_project(original)
-    assert SCHEMA_VERSION == 2
+    assert SCHEMA_VERSION == 3
     old = asdict(p)
     old["schema_version"] = 1
     old["items"][0].pop("media_path", None)
@@ -30,7 +30,7 @@ def test_project_v2_accepts_external_audio_and_migrates_v1(tmp_path):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(old))
     migrated = load_project(original, root=folder)
-    assert migrated.schema_version == 2
+    assert migrated.schema_version == 3
     assert migrated.items[0].gain_db == 0
     assert migrated.items[0].media_path is None
     imported = add_item(
@@ -41,7 +41,7 @@ def test_project_v2_accepts_external_audio_and_migrates_v1(tmp_path):
     adjusted = edit_item(imported, imported.items[-1].id, gain_db=-12)
     save_project(adjusted, root=folder)
     assert load_project(original, root=folder) == adjusted
-    assert json.loads(path.read_text())["schema_version"] == 2
+    assert json.loads(path.read_text())["schema_version"] == 3
 
 
 def test_external_path_and_gain_restrictions(tmp_path):
