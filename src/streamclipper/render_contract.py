@@ -150,6 +150,7 @@ def _render_scenes(request, destination, progress, cancelled, encoder_notice):
         if scene.mode != "automatic" and not director.manual:
             director = replace(director, tracked=())
         options["director"] = director
+        options["motion_analysis_end"] = scene.framing_end or scene.end
         return export_clip(request.video, scene.start, scene.end, target,
                            mode=mode, width=width, height=height,
                            transcript=list(request.transcript),
