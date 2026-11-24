@@ -1,5 +1,9 @@
 # StreamClipper 0.4 (experimenteller Export)
 
+## M13a – Szenen- und Kamerakern (Draft)
+
+Szenen mit nicht überlappenden Quellzeitbereichen, manuelle und vorgeschlagene Kamerapfade, lineare Positions-/Zoominterpolation und Vorrang manueller Keyframes sind als Qt-unabhängiges Modell implementiert. Ein Adapter erzeugt cliprelative Fokuspfade für den vorhandenen Crop-Filter bei konstantem Zoom. Dynamischer Zoom wird am Adapter ausdrücklich abgelehnt, nicht stillschweigend ignoriert. GUI, Projektpersistenz, RenderRequest-/Queue-Anbindung und szenenübergreifendes Rendern stehen noch aus. M13a ist damit begonnen, nicht abgenommen.
+
 ## M12d + M12e – Export-QA und persistente Renderqueue (Draft)
 
 **M12d:** Jeder FFmpeg-Export wird noch **vor** der endgültigen
