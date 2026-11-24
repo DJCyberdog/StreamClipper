@@ -16,6 +16,7 @@ import tempfile
 
 from .models import VideoInfo
 from .portable import installation_directory
+from .scene_selection import SceneSelection, selection_from_dict
 
 SCHEMA_VERSION = 3
 LEGACY_SCHEMA_VERSION = 1
@@ -61,6 +62,7 @@ class EditorProject:
     source: VideoInfo
     tracks: tuple[Track, ...]
     items: tuple[TimelineItem, ...]
+    scene_plans: tuple[SceneSelection, ...] = ()
 
     def validate(self) -> None:
         if self.schema_version != SCHEMA_VERSION:
@@ -73,6 +75,15 @@ class EditorProject:
             raise ValueError("Ungültige Videoauflösung")
         if not 1 <= len(self.tracks) <= 100 or len(self.items) > _MAX_ITEMS:
             raise ValueError("Zu viele oder keine Spuren / Clips")
+        if not isinstance(self.scene_plans, tuple) or len(self.scene_plans) > 500:
+            raise ValueError("Zu viele Szenenpläne")
+        intervals = set()
+        for plan in self.scene_plans:
+            plan.validate()
+            interval = (plan.start, plan.end)
+            if interval in intervals or plan.end > self.source.duration + .1:
+                raise ValueError("Doppelter oder ungültiger Szenenplan")
+            intervals.add(interval)
         ids = set()
         for track in self.tracks:
             if (not _ID.fullmatch(track.id) or track.id in ids
@@ -368,7 +379,8 @@ def load_project(video: VideoInfo, *, root: Path | None = None) -> EditorProject
         project = EditorProject(
             SCHEMA_VERSION, VideoInfo(**doc["source"]),
             tuple(Track(**record) for record in doc["tracks"]),
-            tuple(TimelineItem(**record) for record in doc["items"]))
+            tuple(TimelineItem(**record) for record in doc["items"]),
+            tuple(selection_from_dict(p) for p in doc.get("scene_plans", [])))
         project.validate()
         a, b = project.source, video
         if (os.path.normcase(os.path.abspath(a.path))
@@ -379,3 +391,18 @@ def load_project(video: VideoInfo, *, root: Path | None = None) -> EditorProject
         return project
     except (KeyError, TypeError, ValueError, OverflowError) as exc:
         raise ValueError(f"Spurenprojekt ist ungültig: {exc}") from exc
+
+
+def set_scene_plan(project: EditorProject, plan: SceneSelection) -> EditorProject:
+    plans = tuple(p for p in project.scene_plans
+                  if (p.start, p.end) != (plan.start, plan.end))
+    updated = replace(project, scene_plans=(*plans, plan))
+    updated.validate()
+    return updated
+
+
+def scene_plan_for(project, start, end):
+    if project is None:
+        return None
+    return next((p for p in project.scene_plans
+                 if (p.start, p.end) == (start, end)), None)
