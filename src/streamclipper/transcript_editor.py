@@ -79,7 +79,7 @@ def edit_segment(result: AnalysisResult, row: int, column: int, text: str) -> An
         clean = ' '.join(text.split())
         new = replace(old, text=clean)
     cues = list(result.transcript)
-    cues[row] = replace(new, words=() if new != old else old.words)
+    cues[row] = _preserve_word_times(old,new)
     validate_segments(cues, result.video.duration)
     return replace(result, transcript=cues)
 
@@ -127,9 +127,29 @@ def apply_segment_changes(result: AnalysisResult, row: int,
         raise ValueError("Bitte eine gültige Transkriptzeile auswählen")
     clean = " ".join(speech_text.split())
     segment = TranscriptSegment(parse_timestamp(start_text), parse_timestamp(end_text), clean)
+    segment = _preserve_word_times(result.transcript[row],segment)
     if segment == result.transcript[row]:
         return result
     updated = list(result.transcript)
     updated[row] = segment
     validate_segments(updated, result.video.duration)
     return replace(result, transcript=updated)
+
+
+def _preserve_word_times(old,new):
+    """Preserve exact timings for unchanged bounds and unambiguous single-word edits.
+    For a changed token count or changed segment bounds do not invent alignment.
+    """
+    if (old.start,old.end,old.text)==(new.start,new.end,new.text):
+        return old
+    if not old.words or (old.start,old.end)!=(new.start,new.end):
+        return replace(new,words=())
+    tokens=new.text.split()
+    if len(tokens)!=len(old.words) or any(len(w.text.split())!=1 for w in old.words):
+        return replace(new,words=())
+    # Only one positional correction is automatically attributable; multiple
+    # edits may represent reordered words rather than a spelling correction.
+    if sum(t!=w.text for t,w in zip(tokens,old.words))>1:
+        return replace(new,words=())
+    return replace(new,words=tuple(w if t==w.text else replace(w,text=t,origin="manual")
+                                   for t,w in zip(tokens,old.words)))
