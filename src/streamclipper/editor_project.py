@@ -434,6 +434,6 @@ def update_callout(project,item_id,spec,*,timeline_start,source_end,x,y,width,he
     if old.callout is None or next(t for t in project.tracks if t.id==old.track_id).locked:
         raise ValueError("Callout fehlt oder Spur gesperrt")
     items=list(project.items)
-    items[index]=replace(old,callout=spec.validate(),source_start=0,source_end=source_end,
+    items[index]=replace(old,callout=spec.validate(),label=(spec.text or spec.kind)[:120],source_start=0,source_end=source_end,
         timeline_start=timeline_start,x=x,y=y,width=width,height=height,opacity=opacity)
     updated=replace(project,items=tuple(items));updated.validate();return updated
