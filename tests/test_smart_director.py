@@ -123,3 +123,20 @@ def test_real_opt_in_timed_mask(tmp_path):
     off=replace(plan,scenes=(replace(plan.scenes[0],director=replace(d,removal_enabled=False)),))
     unmasked=render_request(replace(request,scene_plan=off),tmp_path/"unmasked.mp4")
     assert rgb(unmasked,1)[0]>150
+
+
+def test_real_timed_mask_preview_and_export_agree(tmp_path):
+    source=tmp_path/"source.mp4"
+    run("-f","lavfi","-i","color=red:s=160x120:r=25:d=4",
+        "-c:v","libx264","-pix_fmt","yuv420p",source)
+    video=probe_video(source)
+    d=Director(zones=(OverlayZone("alert",(0,0,1,1),.5,1.5,mask=True),),
+               removal_enabled=True)
+    plan=initial_selection(0,4).edit(0,mode="fixed",director=d)
+    request=RenderRequest(video,0,4,"crop",width=160,height=120,scene_plan=plan)
+    full=render_request(request,tmp_path/"full.mp4")
+    preview=render_request(request.preview_excerpt(2.5),tmp_path/"preview.mp4")
+    for at in (.2,.8,2.0):
+        assert max(abs(a-b) for a,b in zip(rgb(full,at),rgb(preview,at)))<=15
+    assert max(rgb(preview,.8))<30
+    assert rgb(preview,2)[0]>150
