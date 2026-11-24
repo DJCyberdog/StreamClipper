@@ -28,6 +28,8 @@ from .media import (CancelledError, probe_video, probe_audio_duration,
                     probe_still_image, safe_destination, tool_path,
                     waveform_peaks)
 from .render_contract import RenderRequest, render_request
+from .render_queue import RenderQueue, QueueJob
+from .export_qa import read_report
 from .rendered_preview import RenderedPreview, render_clip_preview
 from .model_checks import validate_clip_model
 from .model_catalog import (DEFAULTS, download_preset, is_installed, preset,
@@ -154,6 +156,35 @@ class ExportThread(QThread):
                 )
                 outputs.append(str(actual))
             self.done.emit(outputs)
+        except Exception as exc:
+            self.failed.emit(str(exc))
+
+
+class QueueRunThread(QThread):
+    """Exactly one persistent queue worker; never touch QWidget from run()."""
+    changed = Signal(object)
+    info = Signal(str)
+    finished_jobs = Signal(object)
+    failed = Signal(str)
+
+    def __init__(self, queue: RenderQueue, parent=None):
+        super().__init__(parent)
+        self.queue = queue
+        self._stop = threading.Event()
+
+    def cancel(self) -> None:
+        self._stop.set()
+        self.queue.cancel()
+
+    def run(self) -> None:
+        try:
+            while not self._stop.is_set():
+                item = self.queue.run_next(
+                    progress=self.changed.emit, notice=self.info.emit)
+                if item is None:
+                    break
+                self.changed.emit(item)
+            self.finished_jobs.emit(self.queue.jobs())
         except Exception as exc:
             self.failed.emit(str(exc))
 
@@ -415,6 +446,8 @@ class MainWindow(QMainWindow):
             | QMainWindow.DockOption.AnimatedDocks)
         self._workspace_name = "Highlights"
         self._default_dock_state: QByteArray | None = None
+        self.render_queue: RenderQueue | None = None
+        self.queue_worker: QueueRunThread | None = None
         self.source: str | None = None
         self.analysis: AnalysisResult | None = None
         self.worker: AnalysisThread | ExportThread | TwitchImportThread | RenderPreviewThread | None = None
@@ -1180,6 +1213,49 @@ class MainWindow(QMainWindow):
         caption_options.addWidget(QLabel("+ = später, − = früher · ohne erneute Transkription"))
         caption_options.addStretch()
         export_page_layout.addLayout(caption_options)
+        queue_title = QLabel("RENDERQUEUE  /  MP4-QUALITÄTSPRÜFUNG")
+        queue_title.setStyleSheet(
+            "color: #91BBDD; font-weight: 700; letter-spacing: 1px;")
+        export_page_layout.addWidget(queue_title)
+        queue_hint = QLabel(
+            "Jobs werden lokal gespeichert; das Rendering beginnt erst mit "
+            "„Queue starten“. Nach einem Absturz nicht automatisch neu rendern. "
+            "Jede fertige MP4 bekommt einen geprüften .qa.json-Bericht.")
+        queue_hint.setWordWrap(True)
+        export_page_layout.addWidget(queue_hint)
+        self.queue_table = QTableWidget(0, 4)
+        self.queue_table.setObjectName("streamclipper.renderQueue")
+        self.queue_table.setHorizontalHeaderLabels(
+            ["Job", "Status", "Fortschritt", "Ergebnis / Hinweise"])
+        self.queue_table.setMinimumHeight(180)
+        self.queue_table.setSelectionBehavior(
+            QTableWidget.SelectionBehavior.SelectRows)
+        self.queue_table.setSelectionMode(
+            QTableWidget.SelectionMode.SingleSelection)
+        self.queue_table.setEditTriggers(
+            QTableWidget.EditTrigger.NoEditTriggers)
+        self.queue_table.horizontalHeader().setStretchLastSection(True)
+        export_page_layout.addWidget(self.queue_table)
+        queue_controls = QHBoxLayout()
+        self.queue_selected_button = QPushButton("Auswahl einreihen")
+        self.queue_selected_button.clicked.connect(
+            lambda: self._queue_enqueue(False))
+        self.queue_all_button = QPushButton("Alle Highlights einreihen")
+        self.queue_all_button.clicked.connect(
+            lambda: self._queue_enqueue(True))
+        self.queue_start_button = QPushButton("▶ Queue starten")
+        self.queue_start_button.clicked.connect(self._queue_start)
+        self.queue_cancel_button = QPushButton("■ Queue anhalten")
+        self.queue_cancel_button.clicked.connect(self._queue_cancel)
+        self.queue_retry_button = QPushButton("Auswahl fortsetzen")
+        self.queue_retry_button.clicked.connect(self._queue_resume)
+        self.queue_remove_button = QPushButton("Job verwerfen")
+        self.queue_remove_button.clicked.connect(self._queue_discard)
+        for control in (self.queue_selected_button, self.queue_all_button,
+                        self.queue_start_button, self.queue_cancel_button,
+                        self.queue_retry_button, self.queue_remove_button):
+            queue_controls.addWidget(control)
+        export_page_layout.addLayout(queue_controls)
         export_page_layout.addStretch()
         self.tabs.addTab(self.export_page, "Export")
 
