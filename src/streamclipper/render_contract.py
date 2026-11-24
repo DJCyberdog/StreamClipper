@@ -37,6 +37,8 @@ class RenderRequest:
     project: EditorProject | None = None  # opt-in M12b graph snapshot
     encoder: str = "cpu_h264"  # append-only, old positional API stays stable
     scene_plan: SceneSelection | None = None
+    preview_composition: bool = False
+    preview_audio: bool = False
 
     def validate(self) -> "RenderRequest":
         times = (self.start, self.end, self.video.duration, self.subtitle_offset)
@@ -55,6 +57,12 @@ class RenderRequest:
             burned_captions=self.burn_subtitles)
         if self.burn_subtitles and not self.transcript:
             raise ValueError("Zum Einbrennen der Untertitel fehlt das Transkript")
+        if type(self.preview_composition) is not bool or type(self.preview_audio) is not bool:
+            raise ValueError('Ungültige Vorschauoptionen')
+        if (self.preview_composition or self.preview_audio) and self.scene_plan is None:
+            raise ValueError('Vorschauoptionen benötigen einen Szenenplan')
+        if self.preview_audio and not self.preview_composition:
+            raise ValueError('Audio-Normalisierung benötigt Szenenkomposition')
         if self.scene_plan is not None:
             self.scene_plan.validate()
             if (self.scene_plan.start, self.scene_plan.end) != (self.start, self.end):
@@ -80,7 +88,12 @@ class RenderRequest:
         if not math.isfinite(maximum) or maximum <= 0 or maximum > 60:
             raise ValueError("Render-Vorschau muss auf maximal 60 Sekunden begrenzt sein")
         if self.scene_plan is not None:
-            return replace(self, scene_plan=excerpt_selection(self.scene_plan, maximum)).validate()
+            compose = self.preview_composition or len(self.scene_plan.output_scenes)>1
+            audio = self.preview_audio or self.video.has_audio or (
+                self.project is not None and any(build_render_graph(self.project,self.video,s.start,s.end).audio_layers
+                    for s in self.scene_plan.output_scenes))
+            return replace(self, scene_plan=excerpt_selection(self.scene_plan, maximum),
+                           preview_composition=compose,preview_audio=bool(compose and audio)).validate()
         return replace(self, end=min(self.end, self.start + maximum)).validate()
 
     @property
@@ -136,7 +149,7 @@ def _render_scenes(request, destination, progress, cancelled, encoder_notice):
     destination.parent.mkdir(parents=True, exist_ok=True)
     graphs = [build_render_graph(request.project, request.video, s.start, s.end)
               if request.project is not None else None for s in scenes]
-    any_audio = request.video.has_audio or any(g and g.audio_layers for g in graphs)
+    any_audio = request.preview_audio or request.video.has_audio or any(g and g.audio_layers for g in graphs)
     def check_cancel():
         if cancelled and cancelled():
             raise CancelledError("Szenenrendering abgebrochen")
@@ -167,7 +180,7 @@ def _render_scenes(request, destination, progress, cancelled, encoder_notice):
                            encoder=encoder, encoder_notice=encoder_notice,
                            cancelled=cancelled, progress=callback,
                            force_audio=normalize and bool(any_audio), **options)
-    if len(scenes) == 1:
+    if len(scenes) == 1 and not request.preview_composition:
         return render_part(scenes[0], graphs[0], destination, request.encoder, progress, False)
     with tempfile.TemporaryDirectory(prefix=".scene-render-", dir=destination.parent) as temp:
         folder = Path(temp)
