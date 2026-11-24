@@ -22,6 +22,11 @@ Byteanzahl, SHA-256-Dateihash und Prüfzeitpunkt. Der QA-Bericht ist
 Anforderungen werden separat in M19 geprüft.
 
 **M12e:** Im Export-Workspace gibt es die lokale **Renderqueue**.
+Mit **„Queue laden“** lassen sich nach einem Neustart gespeicherte
+Jobs und etwaige BLOCKED-/INTERRUPTED-Stände anzeigen, **ohne**
+FFmpeg zu starten. Direkt-Export und Render-Vorschau werden während
+eines Queue-Renders gesperrt, damit nicht zwei große
+Encoder-Jobs unkontrolliert konkurrieren.
 Clips über „Auswahl einreihen“ oder „Alle Highlights einreihen“
 aufnehmen (auf der Timeline ausgewählte Quelle ist ohne Highlight-
 Analyse ebenfalls möglich). Mit „Queue starten“ wird **genau ein**
