@@ -24,7 +24,8 @@ from PySide6.QtWidgets import (
 
 from .analyze import analyze
 from .media import (CancelledError, probe_video, probe_audio_duration,
-                    safe_destination, tool_path, waveform_peaks)
+                    probe_still_image, safe_destination, tool_path,
+                    waveform_peaks)
 from .render_contract import RenderRequest, render_request
 from .rendered_preview import RenderedPreview, render_clip_preview
 from .model_checks import validate_clip_model
@@ -321,7 +322,7 @@ class RenderedClipDialog(QDialog):
     """
     def __init__(self, result: RenderedPreview, temporary, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("M12a – Exportgetreue Clipvorschau")
+        self.setWindowTitle("StreamClipper – exportgetreue Clipvorschau")
         self.resize(800, 610)
         self._temporary = temporary
         self._released = False
@@ -357,7 +358,11 @@ class RenderedClipDialog(QDialog):
         disclaimer = QLabel(
             "Derselbe FFmpeg-Renderpfad wie beim MP4-Export: Crop, dynamische "
             "Kamera und optional eingebrannte Untertitel. "
-            "Noch KEINE Mischspuren, Overlays oder M13-Keyframes.")
+            + ("Mit aktivierten Projektspuren: Mikrofon/Musik, "
+               "PiP-Video und Grafik-Overlays. "
+               if result.request.project is not None else
+               "Ohne Projektspuren; nur die Originalaufnahme. ")
+            + "Timeline-Caption-Clips und Keyframes noch nicht unterstützt.")
         disclaimer.setWordWrap(True)
         main.addWidget(disclaimer)
         close = QPushButton("Vorschau schließen und temporäre Datei entfernen")
@@ -791,9 +796,11 @@ class MainWindow(QMainWindow):
         tracks_layout = QVBoxLayout(tracks_content)
         self.tracks_page.setWidget(tracks_content)
         tracks_intro = QLabel(
-            "Spurplan: Gameplay + optionale Mikrofon-/Musikdateien. "
-            "Zusätzliche Audiospuren wirken nur bei aktiviertem M12b-Spurton "
-            "im Export; Mehrspurvideo/Grafiken folgen später.")
+            "Gameplay bleibt das Basisvideo. Externe Facecam-Videos auf einer "
+            "zusätzlichen Videospur und PNG/JPEG/WebP-Logos auf einer Grafikspur "
+            "werden als zeitlich begrenzte PiP-/Overlay-Ebenen gerendert. "
+            "Originalton und lokale Audio-Spurclips sind separat mischbar. "
+            "Projektspuren im Export ausdrücklich aktivieren.")
         tracks_intro.setWordWrap(True)
         tracks_layout.addWidget(tracks_intro)
         import_row = QHBoxLayout()
@@ -803,7 +810,8 @@ class MainWindow(QMainWindow):
             "Original und Export bleiben unverändert.")
         self.track_import_button.clicked.connect(self._import_analysis_highlights)
         import_row.addWidget(self.track_import_button)
-        import_row.addWidget(QLabel("Audio-Mischung opt-in · keine Videospur-Komposition"), 1)
+        import_row.addWidget(QLabel(
+            "Audio + PiP/Grafiken per gemeinsamer Rendergraph · opt-in"), 1)
         tracks_layout.addLayout(import_row)
         self.track_canvas = TrackCanvas()
         self.track_canvas.trackSelected.connect(self._select_project_track)
@@ -850,7 +858,7 @@ class MainWindow(QMainWindow):
         self.track_clips_table = QTableWidget(0, 6)
         self.track_clips_table.setMinimumHeight(125)
         self.track_clips_table.setHorizontalHeaderLabels(
-            ["Clip", "Spur", "Quelle IN", "Quelle OUT", "Timeline IN", "Audiodatei / Pegel"])
+            ["Clip", "Spur", "Quelle IN", "Quelle OUT", "Timeline IN", "Medium / Pegel"])
         self.track_clips_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.track_clips_table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
         self.track_clips_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
@@ -868,13 +876,22 @@ class MainWindow(QMainWindow):
         self.track_audio_import.setToolTip(
             "Lokale WAV/MP3/FLAC-Datei auf der gewählten Audiospur einfügen.")
         self.track_audio_import.clicked.connect(self._add_audio_file_to_track)
+        self.track_visual_import = QPushButton("🎬 Video / Logo einfügen …")
+        self.track_visual_import.setToolTip(
+            "Externe Videodatei auf zusätzliche Videospur oder "
+            "PNG/JPEG/WebP auf Grafikspur legen. Position/Größe im Inspector.")
+        self.track_visual_import.clicked.connect(self._add_visual_file_to_track)
         self.track_gain_button = QPushButton("Pegel …")
         self.track_gain_button.clicked.connect(self._edit_selected_clip_gain)
         for control in (self.track_clip_add, self.track_clip_move,
-                        self.track_clip_trim, self.track_audio_import,
-                        self.track_gain_button):
+                        self.track_clip_trim):
             row3.addWidget(control)
         tracks_layout.addLayout(row3)
+        row4 = QHBoxLayout()
+        for control in (self.track_audio_import, self.track_visual_import,
+                        self.track_gain_button):
+            row4.addWidget(control)
+        tracks_layout.addLayout(row4)
         history_hint = QLabel(
             "Rückgängig / Wiederholen: Strg+Z / Strg+Umschalt+Z für alle Bearbeitungen.")
         history_hint.setWordWrap(True)
@@ -1074,16 +1091,18 @@ class MainWindow(QMainWindow):
         self.burn_subtitles.setChecked(True)
         self.burn_subtitles.setToolTip("Benötigt eine durch Whisper transkribierte Aufnahme.")
         actions.addWidget(self.burn_subtitles)
-        self.include_track_audio = QCheckBox("Audiospuren mitmischen (M12b, experimentell)")
+        self.include_track_audio = QCheckBox(
+            "Projektspuren rendern · Audio / PiP / Grafiken (M12b Beta)")
         self.include_track_audio.setToolTip(
-            "Mikrofon-/Musik-Spurclips mischen, auch bei überlappenden Clips. "
-            "Das Originalvideo bleibt die einzige Bildquelle. "
-            "Nicht unterstützte Grafik-/Video-Komposition wird abgewiesen.")
+            "Originalaufnahme + ausdrücklich verknüpfte Ton-, Facecam- und "
+            "Logo-Spurclips über denselben FFmpeg-Graphen für Vorschau/MP4. "
+            "Reine Highlight-Metadaten und Timeline-Caption-Clips "
+            "werden beim Rendern abgewiesen.")
         actions.addWidget(self.include_track_audio)
         self.render_preview_button = QPushButton("🎞 Exportgetreue Vorschau (bis 20 s)")
         self.render_preview_button.setToolTip(
-            "Rendert den ausgewählten Highlight- oder Timeline-Bereich mit "
-            "genau dem FFmpeg-Pfad des MP4-Exports. Keine Mischspuren.")
+            "Ausgewählten Bereich mit dem exakt gleichen FFmpeg-Rendergraphen "
+            "wie beim MP4-Export bis maximal 20 Sekunden rendern.")
         self.render_preview_button.clicked.connect(self.start_render_preview)
         self.render_preview_button.setEnabled(False)
         actions.addWidget(self.render_preview_button)
