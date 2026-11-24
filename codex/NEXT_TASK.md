@@ -1,24 +1,30 @@
-# NEXT_TASK – M13a Abnahme
+# NEXT_TASK – M13b–M13e vervollständigen und abnehmen
 
-Verbindlich: /ROADMAP.md §5.4. M13a nicht umdefinieren.
-#49 enthält Szenenauswahl, Region-Monitor, Projekt/Undo/Checkpoint,
-RenderRequest-/Queue-Snapshot, tatsächliche Szenenreihenfolge, Ausschluss
-und Crop-Modi; Vorschau nach Ausgabezeit begrenzt. M13b-Keyframe-Vorarbeit
-ist nicht Teil der M13a-Abnahme.
+Verbindlich ROADMAP.md §5.4; kein M14 vor Abschluss M13.
+M13a f07739e6: automatisierte Linux-/Windows-Abnahme PASS; native Tests offen.
+PR #50 a5260a18: Linux-/Windows-CI PASS vor den aktuellen Änderungen.
 
-1. Finalen Head der Linux-CI (pytest + compileall) und Windows-Portable-
-   CI prüfen. Neue M13a-Tests enthalten reale MP4-Reihenfolge, Crop,
-   Audio, Projekt/Checkpoint/Undo und Queue-Roundtrip. Fehler beheben.
-2. Native Windows-Bedienprobe: Szenen markieren, reordnen, ausschließen,
-   Undo/Redo, Neustart/Checkpoint, Vorschau, Direktexport und Queue.
-3. Zusätzliche reale Tests für mehrspuriges Audio und ASS an Szenennaht,
-   VFR, mehrere Szenen und Abbruch. Sechs-Stunden-VOD und GPU/CPU-
-   Profilwahl dokumentieren. Keine ungeprüfte Qualitätsbehauptung.
-4. Erst nach belegter M13a-Abnahme M13b gemäß ROADMAP.md beginnen.
+M13b: manuelle Keyframes, dynamische Zoomkurve, angeklickter lokaler Subject-Lock.
+Neu: maximal 15,5 s pro Trackinglauf, Abbruch bei Zeitlücken >1 s.
+Offen: Robustheit bei Verdeckung, schnellen Schnitten, längeren Szenen, native UI.
 
-Grenzen: Mehrszenenrender verwendet H264-Zwischenstücke, zusätzlichen
-Encode und temporären Speicher. VFR-/Audio-Nahtstellen und exakte
-Preview-Parität noch nicht abgenommen; M13e bleibt eigener Meilenstein.
-Alte Sidecars werden beim Öffnen/Speichern explizit übernommen, externer
-Highlight-Trim bei Plan gesperrt; ältere App nicht zum Downgrade verwenden.
-Main unverändert. Keine Roadmap-Änderung.
+M13c: vorhandene statische und dynamische Zonen, Profile, Safe-Crop, Konflikte;
+neu lokale CLIP-Klassifikation für HUD/Topbar/Chat/Facecam/Alert/Graphic mit
+neutralen Kontrollen und zeitlichen Vorschlägen. Vorschläge deaktiviert.
+Offen: echter CLIP-Modelllauf auf Testmaterial, präzise Lokalisierung,
+Facecam-/Safe-Zone-Praxis und Qualitätsmessung; keine garantierte Erkennung.
+
+M13d: explizite Schwarzmasken vorhanden. Neu: Referenzmetriken für
+Rekonstruktions-, Kontext- und zeitliche Fehler, Lizenzprüfung unter
+docs/M13D-INPAINTING-ACCEPTANCE.md. KI-Inpainting weiterhin offen:
+gepinnten, lizenzkompatiblen Backend-Kandidaten evaluieren und integrieren.
+
+M13e: gemeinsamer Renderpfad, voller Framing-Horizont, realer MP4-Keyframe-
+Vergleich im bisherigen Stand; neu Test der zeitgesteuerten Maskenparität.
+Offen: tatsächliche ASS-/Multitrack-/Mehrszene-/VFR-Parität, neue CI und
+native Windows/GPU-Abnahme.
+
+Nächste Ausführung: finalen CI-Head prüfen, Fehler korrigieren; lokale
+Modell-/Praxistests und M13d-Backend. Keine bloße Wiederholung des Status.
+Python-Quellcode-Distribution analog M9 als Entwicklungsupdate, .venv/data
+erhalten. PyInstaller separat, kein Ersatz für Source-Update.
