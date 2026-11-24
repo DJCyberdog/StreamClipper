@@ -1244,6 +1244,11 @@ class MainWindow(QMainWindow):
         self.queue_all_button = QPushButton("Alle Highlights einreihen")
         self.queue_all_button.clicked.connect(
             lambda: self._queue_enqueue(True))
+        self.queue_open_button = QPushButton("Queue laden")
+        self.queue_open_button.setToolTip(
+            "Lokale Queue öffnen und unterbrochene Jobs nach Neustart anzeigen, "
+            "ohne Rendering zu starten.")
+        self.queue_open_button.clicked.connect(self._ensure_render_queue)
         self.queue_start_button = QPushButton("▶ Queue starten")
         self.queue_start_button.clicked.connect(self._queue_start)
         self.queue_cancel_button = QPushButton("■ Queue anhalten")
@@ -1253,7 +1258,8 @@ class MainWindow(QMainWindow):
         self.queue_remove_button = QPushButton("Job verwerfen")
         self.queue_remove_button.clicked.connect(self._queue_discard)
         for control in (self.queue_selected_button, self.queue_all_button,
-                        self.queue_start_button, self.queue_cancel_button,
+                        self.queue_open_button, self.queue_start_button,
+                        self.queue_cancel_button,
                         self.queue_retry_button, self.queue_remove_button):
             queue_controls.addWidget(control)
         export_page_layout.addLayout(queue_controls)
@@ -1740,6 +1746,8 @@ class MainWindow(QMainWindow):
             self._proxy_resume_playing = False
 
     def _busy(self, busy: bool) -> None:
+        busy = busy or bool(self.queue_worker is not None
+                            and self.queue_worker.isRunning())
         self._history_blocked = busy
         self.open_button.setEnabled(not busy)
         self.twitch_button.setEnabled(not busy)
@@ -3608,6 +3616,10 @@ class MainWindow(QMainWindow):
         self._busy(False)
 
     def start_export(self, all_clips: bool) -> None:
+        if self.queue_worker is not None and self.queue_worker.isRunning():
+            self.statusBar().showMessage(
+                "Renderqueue läuft; Direkt-Export ist vorübergehend gesperrt", 6000)
+            return
         if not self.analysis or not self.apply_word_editor() or not self.apply_transcript_editor():
             return
         items = self.analysis.candidates if all_clips else [self.selected_candidate()]
@@ -3750,6 +3762,13 @@ class MainWindow(QMainWindow):
             f"{added} Renderjob(s) in die lokale Queue aufgenommen · noch nicht gestartet")
 
     def _queue_start(self) -> None:
+        if (self.worker is not None and self.worker.isRunning()
+                or self.model_worker is not None
+                or self.proxy_worker is not None
+                and self.proxy_worker.isRunning()):
+            self.statusBar().showMessage(
+                "Ein anderer Job läuft; Renderqueue erst danach starten", 6000)
+            return
         if not self._ensure_render_queue():
             return
         if self.queue_worker is not None and self.queue_worker.isRunning():
