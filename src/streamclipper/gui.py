@@ -1197,6 +1197,29 @@ class MainWindow(QMainWindow):
         self.inspector_gain.setRange(-60, 12)
         self.inspector_gain.setToolTip(
             "Pegel pro Audio-Clip; Stummschalten erfolgt weiterhin pro Spur.")
+        self.inspector_visual_area = QWidget()
+        visual_form = QFormLayout(self.inspector_visual_area)
+        visual_form.setContentsMargins(0, 8, 0, 8)
+        self.inspector_x = QDoubleSpinBox()
+        self.inspector_y = QDoubleSpinBox()
+        self.inspector_width = QDoubleSpinBox()
+        self.inspector_height = QDoubleSpinBox()
+        self.inspector_opacity = QDoubleSpinBox()
+        for label, field in (
+                ("Links (0–1)", self.inspector_x),
+                ("Oben (0–1)", self.inspector_y),
+                ("Breite (0–1)", self.inspector_width),
+                ("Höhe (0–1)", self.inspector_height),
+                ("Deckkraft", self.inspector_opacity)):
+            field.setDecimals(3)
+            field.setRange(0, 1)
+            field.setSingleStep(.02)
+            field.setToolTip("Anteil des exportierten Bildes, nicht Originalpixel.")
+            visual_form.addRow(label, field)
+        self.inspector_width.setMinimum(.05)
+        self.inspector_height.setMinimum(.05)
+        self.inspector_visual_area.setVisible(False)
+        property_form.addRow(self.inspector_visual_area)
         self.inspector_apply_button = QPushButton("Änderungen übernehmen")
         self.inspector_apply_button.setProperty("role", "primary")
         self.inspector_apply_button.clicked.connect(self._apply_inspector_clip)
@@ -1377,7 +1400,22 @@ class MainWindow(QMainWindow):
             self.inspector_timeline_start.setValue(clip.timeline_start)
             self.inspector_gain.setValue(clip.gain_db)
             self.inspector_gain.setEnabled(owner.kind == "audio")
+            visual = owner.kind in {"video", "overlay"} and bool(clip.media_path)
+            self.inspector_visual_area.setVisible(visual)
+            if visual:
+                for field, value in (
+                        (self.inspector_x, clip.x),
+                        (self.inspector_y, clip.y),
+                        (self.inspector_width, clip.width),
+                        (self.inspector_height, clip.height),
+                        (self.inspector_opacity, clip.opacity)):
+                    field.setValue(value)
             can_edit = not owner.locked and not self._history_blocked and clip.id != "source"
+            if visual:
+                for field in (self.inspector_x, self.inspector_y,
+                              self.inspector_width, self.inspector_height,
+                              self.inspector_opacity):
+                    field.setEnabled(can_edit)
             self.inspector_edit_area.setVisible(True)
             for field in (self.inspector_source_start, self.inspector_source_end,
                           self.inspector_timeline_start):
@@ -1389,6 +1427,7 @@ class MainWindow(QMainWindow):
                 "" if can_edit else
                 "Basisspur oder gesperrte Spur: Eigenschaften sind schreibgeschützt.")
         else:
+            self.inspector_visual_area.setVisible(False)
             self.inspector_edit_area.setVisible(False)
         self.inspector_edit_button.setEnabled(editable and not self._history_blocked)
 
@@ -1413,6 +1452,12 @@ class MainWindow(QMainWindow):
         }
         if track.kind == "audio":
             payload["gain_db"] = self.inspector_gain.value()
+        elif track.kind in {"video", "overlay"} and item.media_path:
+            payload.update(
+                x=self.inspector_x.value(), y=self.inspector_y.value(),
+                width=self.inspector_width.value(),
+                height=self.inspector_height.value(),
+                opacity=self.inspector_opacity.value())
         if self._apply_project_edit(edit_item, item.id, **payload):
             self._update_inspector()
 
