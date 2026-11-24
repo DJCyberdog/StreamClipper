@@ -50,11 +50,12 @@ from .timeline import caption_at_time
 from .timeline_widget import TimelineWidget
 from .word_editor import edit_word, effective_words, words_in_clip
 from .captioning import subtitle_text_at_time
+from .caption_style import CaptionStyle
 from .highlight_lexicon_dialog import HighlightLexiconDialog
 from .editor_project import (EditorProject, initial_project,
     add_track, remove_track, rename_track, move_track, toggle_track,
     add_item, edit_item, remove_item, load_project, save_project, Track,
-    set_scene_plan, scene_plan_for)
+    set_scene_plan, scene_plan_for, set_caption_style)
 from .track_canvas import TrackCanvas
 from .editor_theme import EDITOR_STYLESHEET
 from .workspace_layout import (WORKSPACE_NAMES, WorkspaceLayout,
@@ -118,9 +119,10 @@ class ExportThread(QThread):
                  mode: str, parent=None, burn_subtitles: bool = False,
                  subtitle_offset: float = 0.0,
                  project: EditorProject | None = None,
-                 encoder: str = "cpu_h264", scene_plans=()):
+                 encoder: str = "cpu_h264", scene_plans=(), caption_style=CaptionStyle()):
         super().__init__(parent)
         self.scene_plans = tuple(scene_plans)
+        self.caption_style = caption_style
         self.analysis = analysis
         self.items = items
         self.directory = directory
@@ -149,6 +151,7 @@ class ExportThread(QThread):
                     subtitle_offset=self.subtitle_offset,
                     transcript=tuple(self.analysis.transcript),
                     project=self.project, encoder=self.encoder,
+                    caption_style=self.caption_style,
                     scene_plan=next((p for p in self.scene_plans if
                         (p.start,p.end) == (clip.start,clip.end)), None))
                 actual = render_request(
@@ -1411,6 +1414,8 @@ class MainWindow(QMainWindow):
     def _install_workspace_controls(self) -> None:
         scene_menu = self.menuBar().addMenu("Szenen")
         scene_menu.addAction("Highlight in Szenen bearbeiten …", self._edit_scene_selection)
+        branding = self.menuBar().addMenu("Branding")
+        branding.addAction("Untertitel gestalten …", self._edit_caption_style)
         menu = self.menuBar().addMenu("Ansicht && Arbeitsbereiche")
         for name in WORKSPACE_NAMES:
             action = menu.addAction(name)
@@ -1425,6 +1430,21 @@ class MainWindow(QMainWindow):
         for dock in (self.project_dock, self.timeline_dock, self.inspector_dock):
             menu.addAction(dock.toggleViewAction())
         self.tabs.currentChanged.connect(lambda _index: self._update_inspector())
+
+    def _current_caption_style(self):
+        return self.editor_project.caption_style if self.editor_project else CaptionStyle()
+
+    def _edit_caption_style(self):
+        if not self.editor_project or self._history_blocked:
+            self.statusBar().showMessage("Bitte zuerst eine Aufnahme öffnen.")
+            return
+        if not self.apply_word_editor() or not self.apply_transcript_editor():
+            return
+        from .caption_style_dialog import CaptionStyleDialog
+        dialog=CaptionStyleDialog(self._current_caption_style(),self)
+        if dialog.exec()==QDialog.DialogCode.Accepted:
+            if self._apply_project_edit(set_caption_style,dialog.value):
+                self.statusBar().showMessage("Untertitelgestaltung gespeichert · Render-Vorschau zum Prüfen öffnen.")
 
     def _activate_workspace(self, name: str) -> None:
         """Switch what is visible, without resetting playback or user dock sizes."""
@@ -3595,6 +3615,7 @@ class MainWindow(QMainWindow):
                          else None),
                 encoder=str(self.encoder_mode.currentData()),
                 scene_plan=scene_plan_for(self.editor_project, start, end),
+                caption_style=self._current_caption_style(),
             ).validate()
         except (ValueError, OSError) as exc:
             QMessageBox.warning(self, "Render-Vorschau nicht möglich", str(exc))
@@ -3696,7 +3717,8 @@ class MainWindow(QMainWindow):
                                             if self.include_track_audio.isChecked()
                                             else None),
                                    encoder=str(self.encoder_mode.currentData()),
-                                   scene_plans=self.editor_project.scene_plans if self.editor_project else ())
+                                   scene_plans=self.editor_project.scene_plans if self.editor_project else (),
+                                   caption_style=self._current_caption_style())
         self.worker.encoder_notice.connect(self._encoder_notice)
         self.worker.progress_changed.connect(self.progress.setValue)
         self.worker.done.connect(self.export_finished)
@@ -3809,7 +3831,8 @@ class MainWindow(QMainWindow):
                     project=(self.editor_project
                              if self.include_track_audio.isChecked() else None),
                     encoder=str(self.encoder_mode.currentData()),
-                    scene_plan=scene_plan_for(self.editor_project, item.start, item.end)).validate()
+                    scene_plan=scene_plan_for(self.editor_project, item.start, item.end),
+                    caption_style=self._current_caption_style()).validate()
                 self.render_queue.enqueue(
                     request, directory,
                     label=f"{display_time(item.start)} – {display_time(item.end)}")
