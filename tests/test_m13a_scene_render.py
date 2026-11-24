@@ -76,7 +76,7 @@ def test_real_mp4_reorder_exclusion_and_audio(tmp_path):
     video = probe_video(src)
     plan = initial_selection(0, 4.5).split(0, 1.5).split(1, 3)
     plan = plan.edit(1, included=False).move(2, -1).move(1, -1)
-    plan = plan.edit(0, mode="fixed").edit(2, mode="fixed")
+    plan = plan.edit(0, mode="fixed").edit(1, mode="fixed")
     # Blue then red, green excluded. Avoid boundary sampling.
     out = render_request(RenderRequest(video, 0, 4.5, "crop", width=160, height=120,
                                        scene_plan=plan), tmp_path / "out.mp4")
