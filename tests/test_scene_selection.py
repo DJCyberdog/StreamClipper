@@ -50,3 +50,13 @@ def test_corrupt_file_not_silently_replaced(tmp_path):
     with pytest.raises(ValueError):
         load_selection(video, 0, 10, root=tmp_path)
     assert path.read_text() == "bad"
+
+
+def test_saved_plan_cannot_be_silently_ignored(tmp_path):
+    from streamclipper.scene_selection import require_unplanned_highlight
+    video = VideoInfo(str(tmp_path/"test.mp4"), 60, 1920, 1080, 30, True)
+    require_unplanned_highlight(video, 0, 10, root=tmp_path)
+    save_selection(video, initial_selection(0, 10), root=tmp_path)
+    with pytest.raises(ValueError, match="Szenenplan"):
+        require_unplanned_highlight(video, 0, 10, root=tmp_path)
+    require_unplanned_highlight(video, 10, 20, root=tmp_path)
