@@ -1,7 +1,7 @@
-"""Shared immutable render request for legacy clips and opt-in M12b audio graph.
+"""Shared immutable render request for M12b deterministic A/V composition.
 
-Both preview and export use the identical FFmpeg boundary. Project snapshots
-are explicit and opt-in: unimplemented video/graphic composition fails closed.
+Preview and final MP4 share exactly one FFmpeg graph and validated
+source/project contract. Unsupported caption timeline clips fail closed.
 """
 from __future__ import annotations
 
@@ -76,6 +76,7 @@ def render_request(
         graph = build_render_graph(
             request.project, request.video, request.start, request.end)
         options["audio_layers"] = graph.audio_layers
+        options["visual_layers"] = graph.visual_layers
     return export_clip(
         request.video, request.start, request.end, destination,
         mode=request.mode, width=request.width, height=request.height,
