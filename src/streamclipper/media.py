@@ -437,7 +437,7 @@ def export_clip(video: VideoInfo, start: float, end: float, destination: str | P
                 encoder: str = "cpu_h264",
                 encoder_notice: Callable[[str], None] | None = None,
                 region=None, fit_region: bool = False, force_audio: bool = False,
-                director=None) -> Path:
+                director=None, motion_analysis_end=None) -> Path:
     """Encode with cancellable progress and publish only validated, complete MP4s.
 
     The temporary file is on the destination filesystem for atomic publication.
@@ -487,7 +487,7 @@ def export_clip(video: VideoInfo, start: float, end: float, destination: str | P
         motion_points = None
         if region is None and not (director and director.keys) and mode in {"smart16", "smart9"}:
             from .reframe import clip_motion_path
-            motion_points = clip_motion_path(video, start, end, cancelled=cancelled)
+            motion_points = clip_motion_path(video, start, motion_analysis_end or end, cancelled=cancelled)
         if burn_subtitles:
             from .captioning import render_ass
             (Path(workdir) / "captions.ass").write_text(
