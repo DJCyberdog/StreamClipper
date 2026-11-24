@@ -48,6 +48,7 @@ class FrameWorker(QThread):
 
 class RegionMonitor(QWidget):
     region_changed = Signal(object)
+    point_clicked = Signal(object)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -111,7 +112,10 @@ class RegionMonitor(QWidget):
         try:
             region = normalized_region(self.image_rect(), self.anchor, event.position())
         except ValueError:
-            pass
+            rect = self.image_rect()
+            if rect.contains(event.position()) and (event.position()-self.anchor).manhattanLength() < 5:
+                self.point_clicked.emit(((event.position().x()-rect.x())/rect.width(),
+                                         (event.position().y()-rect.y())/rect.height()))
         else:
             self.set_region(region)
             self.region_changed.emit(region)
