@@ -32,14 +32,21 @@ Rechteck, Ellipse), zeitliche Platzierung, Farben, Größe, Position und
 Deckkraft. Procedural RGBA aus Metadaten im privaten Renderordner, kein
 externes Asset nötig. GUI-Elementvorschau, gemeinsamer Renderpfad,
 Undo/Redo, Checkpoint und Queue. Tests für echte MP4-Zeitgrenzen und
-Preview-Parität geschrieben, neue CI offen. Font zunächst Pillow-Standard.
+Preview-Parität: Head 4fbefbb1 Linux 45454701651 PASS, Windows 45454701711 PASS.
+Font zunächst Pillow-Standard.
+
+Neu #30: Thumbnail Designer aus vollständigem RenderRequest (bis 60 s),
+Ausgabezeit nach Szenenreihenfolge, Hintergrundframe, Titelbox, vier Formate,
+Crop/Fit, PNG/JPEG ohne Überschreiben; abbrechbarer Qt-Worker.
+Neu A-B2: lokale wiederverwendbare Branding-Profile mit Untertitelstil,
+Logo-Referenz und Geometrie, explizite atomare Anwendung auf Highlight,
+identische Wiederholung ohne doppelte Grafik. Tests eingecheckt; neue CI offen.
 
 Nächste konkrete Schritte:
-- CI dieses Heads und Windows-Prozessende diagnostizieren; neue Tests laufen lassen.
+- CI dieses Heads prüfen; der letzte Windows-Build war erfolgreich, früherer Exit 1 bleibt historisch ungeklärt.
 - Wort-/Timingkorrektur und Übersetzung mit tatsächlichem lokalem Modell abnehmen.
-- Branding-Vorlagen/Logos mit bestehender Grafikspur verknüpfen.
-- #28 CI/GUI-Abnahme; #30 Thumbnail-Designer aus dem tatsächlichen Renderframe
-  und gemeinsamen exportgetreuen Workflow fertigstellen.
+- Branding-/Thumbnail-Designer GUI-Abnahme, Fontauswahl und Workflow-Feinschliff.
+- M14-Gesamtabnahme einschließlich neuer CI, Export/Preview/Queue und Sprachwahl.
 - Abnahme inkl. kombinierter M13/M14-Renderfälle und nativer Bedienprobe.
   Version 0.8 erst nach vollständigem M14, kein voreiliger Release.
 
