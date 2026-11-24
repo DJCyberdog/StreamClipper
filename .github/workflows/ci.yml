@@ -11,8 +11,21 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Install ffmpeg
-        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - name: Verify or install FFmpeg and FFprobe
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Hosted runners may already have both. Avoid the apt mirror
+          # refresh bottleneck in every pull-request test run.
+          if command -v ffmpeg >/dev/null && command -v ffprobe >/dev/null; then
+            echo "Using runner-provided FFmpeg and FFprobe"
+          else
+            echo "Installing missing FFmpeg/FFprobe with bounded apt steps"
+            timeout 150s sudo apt-get -o Acquire::Retries=2 update
+            timeout 150s sudo apt-get -o Acquire::Retries=2 install -y ffmpeg
+          fi
+          ffmpeg -version | head -n 1
+          ffprobe -version | head -n 1
       - name: Install package and test dependencies
         run: python -m pip install -e '.[dev]'
       - name: Run tests
