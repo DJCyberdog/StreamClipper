@@ -4,7 +4,7 @@ from pathlib import Path
 import json
 import math
 import tempfile
-import os
+import subprocess
 
 from .caption_style import CaptionStyle,caption_style_from_dict
 from .editor_project import add_item,set_caption_style
@@ -70,7 +70,10 @@ def apply_profile(project,profile,start,end,track_id=None):
     if not 0<=start<end<=project.source.duration+.001:raise ValueError("Ungültiger Branding-Zeitbereich")
     result=set_caption_style(project,profile.captions)
     if not profile.logo:return result
-    probe_still_image(profile.logo)
+    try:
+        probe_still_image(profile.logo)
+    except subprocess.SubprocessError as exc:
+        raise ValueError('Logo konnte nicht geprüft werden') from exc
     track=next((t for t in project.tracks if t.id==track_id and t.kind=="overlay" and not t.locked and not t.muted),None)
     if track is None:raise ValueError("Entsperrte, aktive Grafikspur für Logo auswählen")
     match=lambda i:(i.track_id==track.id and i.media_path==profile.logo and i.source_start==0
