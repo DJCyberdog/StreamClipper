@@ -151,3 +151,11 @@ def load_selection(video: VideoInfo, start, end, *, root=None):
         return SceneSelection(start, end, scenes).validate()
     except (KeyError, TypeError, AttributeError, ValueError) as exc:
         raise ValueError("Ungültiger Szenenplan") from exc
+
+
+def require_unplanned_highlight(video, start, end, *, root=None):
+    """Temporary fail-closed boundary until the shared renderer accepts plans."""
+    path, _ = _path(video, start, end, root)
+    if path.exists():
+        raise ValueError("Für dieses Highlight ist ein Szenenplan gespeichert. "
+                         "Szenenrendering ist noch nicht verfügbar; der Plan darf nicht ignoriert werden.")
