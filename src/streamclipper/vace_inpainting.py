@@ -1,4 +1,4 @@
-"""Experimental M13d local video inpainting backend. Not enabled in exports.
+"""Experimental M13d local video inpainting backend. Experimental export integration.
 
 One bounded temporal window, explicit binary masks, lossless compositing.
 Only the model-generated pixels inside the mask replace source pixels.
@@ -69,22 +69,8 @@ def restore_window(frames,masks,model_directory,*,seed=42,steps=20,
             from .media import CancelledError
             raise CancelledError("Inpainting abgebrochen")
     check()
-    if pipeline_factory is None:
-        import torch
-        import diffusers
-        if diffusers.__version__ != DIFFUSERS_VERSION:
-            raise RuntimeError("VACE-Test benötigt Diffusers "+DIFFUSERS_VERSION)
-        if not torch.cuda.is_available() or not torch.cuda.is_bf16_supported():
-            raise RuntimeError("VACE-Test benötigt eine BF16-fähige CUDA-GPU")
-        from diffusers import WanVACEPipeline
-        pipe=WanVACEPipeline.from_pretrained(str(folder),local_files_only=True,
-                                            torch_dtype=torch.bfloat16,use_safetensors=True)
-        # Conservative starting point; RAM/VRAM still need real measurement.
-        pipe.enable_model_cpu_offload()
-        pipe.vae.enable_tiling()
-        generator=torch.Generator(device="cpu").manual_seed(seed)
-    else:
-        pipe,generator=pipeline_factory(folder,seed)
+    factory=pipeline_factory or local_pipeline_factory()
+    pipe,generator=factory(folder,seed)
     check()
     def on_step(_pipeline,index,_timestep,kwargs):
         check()
@@ -100,3 +86,28 @@ def restore_window(frames,masks,model_directory,*,seed=42,steps=20,
                 generator=generator,output_type="pil",callback_on_step_end=on_step).frames[0]
     check()
     return mask_composite(frames,output,masks)
+
+
+def local_pipeline_factory():
+    """Reuse one local pipeline within one scene, never globally."""
+    loaded=None
+    location=None
+    def factory(folder,seed):
+        nonlocal loaded,location
+        import torch
+        import diffusers
+        if diffusers.__version__ != DIFFUSERS_VERSION:
+            raise RuntimeError("VACE-Test benötigt Diffusers "+DIFFUSERS_VERSION)
+        if not torch.cuda.is_available() or not torch.cuda.is_bf16_supported():
+            raise RuntimeError("VACE-Test benötigt eine BF16-fähige CUDA-GPU")
+        if loaded is None:
+            from diffusers import WanVACEPipeline
+            loaded=WanVACEPipeline.from_pretrained(str(folder),local_files_only=True,
+                                                torch_dtype=torch.bfloat16,use_safetensors=True)
+            loaded.enable_model_cpu_offload()
+            loaded.vae.enable_tiling()
+            location=folder
+        elif location!=folder:
+            raise ValueError("Modellwechsel innerhalb eines Inpainting-Laufs")
+        return loaded,torch.Generator(device="cpu").manual_seed(seed)
+    return factory
