@@ -1,5 +1,46 @@
 # StreamClipper 0.4 (experimenteller Export)
 
+## M12b Teil 2 – PiP-Videospuren und Grafik-Overlays (Draft)
+
+Im **Spuren**-Reiter eine **zusätzliche Videospur** ("＋ Spur" →
+"Video") oder die vorhandene **Grafiken**-Spur auswählen. Mit
+**„🎬 Video / Logo einfügen …“** ein lokales Video
+(MP4/MKV/MOV/WebM/M4V/AVI) für **Picture-in-Picture/Facecam** oder
+ein statisches PNG/JPEG/WebP für ein **Logo/Grafik-Overlay** referenzieren.
+Die Dateien werden weder hochgeladen noch verändert.
+
+Die Timeline zeigt die Clips auf derselben Zeitachse wie die Aufnahme.
+Im Inspector **Links / Oben / Breite / Höhe** als Anteile des
+**exportierten Bildes** von 0 bis 1 und **Deckkraft** einstellen. Geänderte
+Werte werden mit „Änderungen übernehmen“ als **ein** atomarer Projekt-
+und Undo/Redo-Schritt gespeichert. Gesperrte Spuren und der
+ursprüngliche Gameplay-Basisclip sind vor Änderungen geschützt.
+
+Im Reiter **Export** die ausdrücklich optionale Checkbox
+**„Projektspuren rendern · Audio / PiP / Grafiken (M12b Beta)“**
+aktivieren. Die max. 20-s-Render-Vorschau und der MP4-Export nutzen
+denselben versionierten FFmpeg-Compositor. Jede Bildquelle bekommt
+Quell-IN/OUT und eine unabhängige Timeline-Position; überlagerte
+Medien werden in stabiler Spur-/Clip-Reihenfolge gestapelt, auch bei
+Lücken und überlappenden Bereichen. PiP-Videos bringen **keinen
+automatischen Ton** mit; separate Audio-Clipspuren können parallel
+gemischt werden. Externe Medien werden vor FFmpeg via FFprobe geprüft.
+
+**Kompatibilität:** Projektformat **v3** kann v1/v2-Dateien und
+Checkpoints unverändert einlesen. Eigene Visual-Parameter werden
+erst bei bewusster Speicherung in v3 persistiert; alte Daten werden
+nicht automatisch überschrieben.
+
+**Noch nicht verfügbar:** Kein Austausch-/Ripple-Schnitt des
+Gameplay-Basisvideos, keine freie Vollbild-Mehrquellen-Sequenz,
+keine animierten Text-/Grafik-Keyframes, keine echten Timeline-
+Caption-Clips. Diese nicht implementierten Cliptypen werden beim
+opt-in Projekt-Rendering **abgewiesen**, niemals stillschweigend
+als fertig behandelt. Echte Echtzeit-Mehrspur-WYSIWYG-Wiedergabe
+im Programmmonitor, GPU-Rendering und Export-QA folgen separat.
+Die vollständige Windows-11-/6h-VOD-Abnahme bleibt offen.
+
+
 ## M12-UX Teil 2 – Eine gemeinsame Timeline + editierbarer Inspector (Draft)
 
 Die Wellenform (Highlights, Untertitel/Wortzeiten) und die Grafik für
