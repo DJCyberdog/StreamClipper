@@ -1430,6 +1430,7 @@ class MainWindow(QMainWindow):
         branding.addAction("Untertitel übersetzen …", self._edit_translations)
         branding.addAction("Text / Callout hinzufügen …", self._add_callout)
         branding.addAction("Ausgewählten Callout bearbeiten …", self._edit_callout)
+        branding.addAction("Thumbnail Designer …", self._edit_thumbnail)
         menu = self.menuBar().addMenu("Ansicht && Arbeitsbereiche")
         for name in WORKSPACE_NAMES:
             action = menu.addAction(name)
@@ -1504,6 +1505,29 @@ class MainWindow(QMainWindow):
         if item is None:
             QMessageBox.information(self,"Callout","Bitte einen Callout auf der Grafikspur auswählen.");return
         self._callout_dialog(item)
+
+    def _edit_thumbnail(self):
+        if not self._video_info or self._history_blocked or (self.worker and self.worker.isRunning()) or (self.queue_worker and self.queue_worker.isRunning()):
+            return
+        if not self.apply_word_editor() or not self.apply_transcript_editor():return
+        clip=self.selected_candidate() if self.analysis else None
+        start,end=(clip.start,clip.end) if clip else (self.timeline.in_point,self.timeline.out_point)
+        if not self._scene_render_allowed(self._video_info,[(start,end)]):return
+        plan=scene_plan_for(self.editor_project,start,end)
+        try:
+            transcript=render_transcript(self.analysis,start,end,plan,self.burn_subtitles.isChecked(),
+                       self.caption_offset.value()) if self.analysis and self.analysis.video.path==self.source else ()
+            request=RenderRequest(self._video_info,start,end,str(self.mode.currentData()),
+                burn_subtitles=self.burn_subtitles.isChecked() and bool(transcript),transcript=transcript,
+                subtitle_offset=self.caption_offset.value(),
+                project=self.editor_project if self.include_track_audio.isChecked() else None,
+                encoder=str(self.encoder_mode.currentData()),scene_plan=plan,
+                caption_style=self._current_caption_style()).validate()
+            if request.duration>60:raise ValueError("Thumbnail Designer: Highlight auf maximal 60 Sekunden begrenzen.")
+        except (ValueError,OSError) as exc:
+            QMessageBox.warning(self,"Thumbnail",str(exc));return
+        from .thumbnail_dialog import ThumbnailDialog
+        ThumbnailDialog(request,self).exec()
 
     def _current_caption_style(self):
         return self.editor_project.caption_style if self.editor_project else CaptionStyle()
