@@ -112,5 +112,6 @@ def test_qa_rejects_empty_zero_frame_decode_even_when_ffmpeg_exits_zero(
         return subprocess.CompletedProcess(args,0,stdout=b"# framemd5 file\\n",
                                            stderr=b"")
     monkeypatch.setattr(qa.subprocess,"run",empty)
+    monkeypatch.setattr(qa,"tool_path",lambda name: name)
     with pytest.raises(ValueError,match="Videoframe"):
         qa._decode_frame(tmp_path/"any.mp4",.3)
