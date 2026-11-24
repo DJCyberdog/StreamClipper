@@ -103,3 +103,14 @@ def test_qa_sidecar_does_not_modify_mp4_and_rejects_corrupt_report(tmp_path):
     report.write_text('{"schema_version":9,"status":"PASS"}')
     with pytest.raises(ValueError,match="QA-Bericht"):
         read_report(out)
+
+
+def test_qa_rejects_empty_zero_frame_decode_even_when_ffmpeg_exits_zero(
+        tmp_path,monkeypatch):
+    import streamclipper.export_qa as qa
+    def empty(*args,**kwargs):
+        return subprocess.CompletedProcess(args,0,stdout=b"# framemd5 file\\n",
+                                           stderr=b"")
+    monkeypatch.setattr(qa.subprocess,"run",empty)
+    with pytest.raises(ValueError,match="Videoframe"):
+        qa._decode_frame(tmp_path/"any.mp4",.3)
