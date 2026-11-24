@@ -5,9 +5,15 @@
 Szenen mit nicht überlappenden Quellzeitbereichen, manuelle und vorgeschlagene Kamerapfade, lineare Positions-/Zoominterpolation und Vorrang manueller Keyframes sind als Qt-unabhängiges Modell implementiert. Ein Adapter erzeugt cliprelative Fokuspfade für den vorhandenen Crop-Filter bei konstantem Zoom. Dynamischer Zoom wird am Adapter ausdrücklich abgelehnt, nicht stillschweigend ignoriert. GUI, Projektpersistenz, RenderRequest-/Queue-Anbindung und szenenübergreifendes Rendern stehen noch aus. M13a ist damit begonnen, nicht abgenommen.
 
 
-### M13a – Szenenauswahl (laufende Implementierung)
+### M13a – Szenenauswahl (Draft, Abnahme offen)
 
-Menü **Szenen → Highlight in Szenen bearbeiten**: Split, In/Out, Reihenfolge, Einschluss, Modus und normierte Bildregion. Ein Quellbild kann asynchron am Schnittpunkt geladen werden; die Region lässt sich mit der Maus aufziehen (Letterbox-Korrektur). Mausmarkierung setzt Manuell. Original bleibt unverändert. Der lokale Plan ist noch nicht Teil des gemeinsamen Projekt-/Undo-/Rendervertrags. Für exakt passende gespeicherte Pläne sperrt die GUI neue Exporte/Vorschauen/Queuejobs und Highlight-Trim, damit ein Plan nicht unbemerkt ignoriert wird. Bestehende Queue-Snapshots und CLI bleiben unverändert. M13a nicht abgeschlossen.
+Menü **Szenen → Highlight in Szenen bearbeiten**: Split, In/Out, Reihenfolge, Einschluss, Modus und normierte Bildregion. Quellbild asynchron am Schnittpunkt laden; Region mit der Maus aufziehen (Letterbox-Korrektur). Mausmarkierung setzt Manuell. Manuell erhält die gesamte markierte Region (ggf. Padding), Fester Crop füllt das Zielformat aus der Region, Automatisch nutzt die bestehende Bewegungsheuristik.
+
+Szenenpläne liegen im Editorprojekt, in Undo/Redo und Checkpoints. Ältere Draft-Sidecars bleiben erhalten; beim Öffnen und Speichern im Szeneneditor werden sie ausdrücklich übernommen. Highlight-Trim außerhalb des Szeneneditors bleibt für gespeicherte Pläne gesperrt, damit keine manuelle Auswahl verloren geht. Projektformat V3 wurde append-only erweitert; ältere Versionen nicht zum Bearbeiten neuer Szenenprojekte verwenden.
+
+Vorschau, Direktexport und Renderqueue verwenden einen eingefrorenen Szenenplan unabhängig von der optionalen Projektspurmischung. Ausgabereihenfolge, Ausschluss, Bildregion, Quellzeit-Untertitel und die pro Szene zugeschnittenen A/V-Layer gehen in den gemeinsamen Rendervertrag ein. Mehrere Szenen werden zunächst als normalisierte H264-Zwischensegmente gerendert, lokal zusammengefügt und anschließend mit dem gewählten finalen Encoder und M12-QA ausgegeben. Das kostet zusätzlichen Speicher und einen Encoding-Durchlauf; framegenaue VFR-/Audio-Nahtstellen sowie Kamera-Vorschau-Parität sind nicht abschließend validiert. Kein Cloudzugriff, keine Quellmutation. Alte Queue-Snapshots ändern sich nicht.
+
+M13a-Codeumfang implementiert; neue CI, native Windows-Bedienung und Langzeit-/GPU-Abnahme offen. M13b bleibt der nächste Roadmap-Schritt erst nach M13a-Abnahme.
 
 ## M12d + M12e – Export-QA und persistente Renderqueue (Draft)
 
