@@ -1,59 +1,57 @@
-# NEXT_TASK – M12c NVENC/CPU-Fallback abnehmen; danach M12d Export-QA
+# NEXT_TASK – M12d Export-QA + M12e persistente Renderqueue abnehmen
 
-**Stack (Draft, main unverändert):** M10.5 #31 →
-M11a #34 → M11b #36 → M11c #37/#38/#39/#40 →
-HF UX #41 → M12a #42 → M12b Audio #43 →
-Premium Dock #44 → Unified Timeline #45 →
-M12b2 Facecam/Logo #46 → **M12c Encoder** (aktueller Draft).
+**Stack:** M10.5 #31 → M11a #34 → M11b #36 →
+M11c #37–#40 → HF #41 → M12a #42 →
+M12b Audio #43 → Premium Dock #44 →
+Unified Timeline #45 → M12b2 Video/Grafik #46 →
+M12c NVENC/CPU #47 → **M12d/M12e (aktueller Draft)**.
 
-## Aktuell implementiert (nicht vor CI als vollständig abgenommen melden)
+## Implementierungsumfang
 
-- `encoders.py`: H264/HEVC CPU (`libx264/libx265`) und NVENC
-  (`h264_nvenc/hevc_nvenc`), echte Zwei-Frame-
-  Initialisierungsprobe mit 15s-Timeout statt bloßer
-  `-encoders`-Textsuche; CPU-only prüft niemals NVIDIA.
-- `RenderRequest.encoder` als optionaler append-only Parameter;
-  alte Aufrufpositionen erhalten. Ein FFmpeg-Compositor mit
-  identischer Crop-/PiP-/Logo-/Untertitel-/Audio-Filtergraph-
-  Semantik für Vorschau und MP4.
-- Auto-H264/Auto-HEVC nutzt NVENC nur bei echtem PASS;
-  bei initialem PROBE_FAIL CPU gleicher Codec; bei späterem
-  FFmpeg-GPU-FAIL **genau ein** CPU-Encode nach Löschen des
-  unfertigen temporären MP4. NVENC-only fail-closed, nie
-  transparent umdeuten. Abbruch stoppt vor einem neuen Versuch;
-  veröffentlichte MP4 sind geprüft und nicht überschreibend.
-- GUI Export-Workspace sechs Encoder-Optionen (Default
-  Auto-H264), asynchrone GPU-Probe im Exportworker,
-  Status-Meldungen für gewählten Codec, Fallback, Fehler.
-- Tests realer FFmpeg-Fehler/Fallback/Abbruch, Profile/
-  NVENC-Probe, Qt-Selection und Legacy-Rendervertrag.
+- **M12d** `export_qa.py`:
+  FFprobe von tatsächlichen MP4-Streams, Codec/Format/Pixel-
+  format/Duration/AV-Start-/Endzeit; je Anfang/Mitte/Ende
+  einen Frame decodieren; 2×max. 8s EBU-R128-True-Peak-
+  Samples mit ausdrücklicher Sample-Einschränkung.
+  Harte Fehler verhindern Veröffentlichung, Warnungen zu
+  Cliplautheit und HEVC bleiben transparent.
+  Atomischer `<video>.mp4.qa.json`-Bericht nach bestandener
+  Kontrolle, SHA-256, Bytezahl, UTC-Zeit.
+- **M12e** `render_queue.py`:
+  Atomische Version-1-Queue-Datei mit immutable `RenderRequest`
+  samt Projekt/Spuren/Transkript/Encoder; dedizierte Job-ID/
+  Ausgabedatei; maximal ein Worker. OS-Dateilock schützt
+  gegen parallele Instanzen. Kein automatisches Resume:
+  RUNNING beim Crash→INTERRUPTED; manuelles Resume
+  startet Clip von vorne. `.mp4.scjob.json` bindet Job-ID,
+  Request-Hash und Datei-SHA. Vorhandene/unklare Datei
+  → BLOCKED statt Doppel-Export. COMPLETE wird bei
+  nachweisbar gültigem Beleg wiederhergestellt.
+  Qt-Exporttab mit Einreihen, Start, Stop, Retry,
+  Entfernen. Keine Projekt-/Quelldateimutation.
+- **Tests:** Real-MP4-QA/HEVC, M12c-GPU-Fallback + QA,
+  Crash nach Publish vor Receipt, falscher SHA,
+  falscher Queue-Schema-Stand, Lock,
+  Source-Schutz, GUI-Status/Encoder-Snapshot,
+  Windows-Portabilität.
 
-## Jetzt als Nächstes
+## Als Nächstes exakt abarbeiten
 
-1. Exakten PR-HEAD: vollständige Linux Python + reale
-   FFmpeg-Integration, Windows Qt-Offscreen + portables
-   ZIP. Fehler gezielt beheben; keine neuen Branches zum
-   Verstecken fehlgeschlagener CI.
-2. Echte RTX 5060 Ti auf Windows 11:
-   Nvidia-Driver/FFmpeg-Build und NVENC H264/HEVC
-   **beide tatsächlich** testen; GPU-Auslastung, CPU-Last,
-   Encodezeit und Qualitäts-/Dateigrößenunterschied.
-   Bei nicht verfügbarer User-Hardware sauber als
-   `NOT_RUN` abgrenzen, keine erfundenen Zahlen.
-3. **M12d – Export-QA:** MP4-Golden/Framezeiten und
-   Audio-/Videolippen-Sync, Loudness, Clipping,
-   Container-/Codec-Probes und Exportbericht,
-   H264/HEVC-Upload-Kompatibilität; reale VFR-
-   OBS-Multitrack-/Captions-Tests.
-4. **M12e – Renderqueue:** Resume/Recovery, Job-
-   Persistenz, begrenzte Parallelität, sichere
-   Fortschritts- und GPU-/CPU-Scheduling-Regeln.
-5. M13–M19 UX, Effekte, KI-Highlights und explizit
-   freigegebenes Publishing; keine automatisch
-   veröffentlichten Videos.
-6. Realer 6h-VOD-/Windows-11-E2E-Test und
-   1366×768/1920×1080-Premium-Layout-Abnahme.
+1. Linux Python Full CI + Windows GUI/PyInstaller **auf dem
+   finalen PR-Head** durchführen. Regression gezielt fixen.
+2. End-to-End-Größentest mit >6h-VFR-OBS, Mic/Music,
+   PiP/ASS-Untertiteln auf Windows 11.
+3. Real NVENC H264/HEVC der RTX 5060 Ti,
+   CPU/GPU-Auslastung, Frames/s, Ton-Sync und
+   QA-Bericht – ohne geprüfte Hardware kein PASS.
+4. Im nächsten Draft **M13** Kamera-/Overlay-Keyframes,
+   manuelle Szene und Program-Monitor-Manipulation;
+   M14/15 Subtitle+Audio-Finish; M16–M18 KI/Import.
+5. M19 Publishing nur mit offizieller API,
+   geprüftem Provider-Konto und explizitem
+   Freigabeschritt; keine Auto-Veröffentlichung.
 
-**Grenzen:** NVENC kann Encoding beschleunigen, nicht
-automatisch alle CPU-Filter/Decodes. Keine ungetestete
-Performance- oder Qualitätsgarantie und kein Auto-Publish.
+**Nicht behaupten:** Keine FFmpeg-Frame-Level-Recovery
+bei Crash, keine Voll-VOD-LUFS aus den 16s-Samples,
+keine vollständige GPU-Verifikation durch CI,
+keine Plattform-Veröffentlichungsfreigabe.
