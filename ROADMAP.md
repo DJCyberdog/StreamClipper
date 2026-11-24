@@ -346,7 +346,27 @@ Nicht implementiert: Ripple/Roll-/Multi-Clip-NLE, tatsächlicher
 Mehrspurvideo-/Overlay-Graph und vollständige Live-WYSIWYG-Simulation.
 Reale Windows-/6h-Bedienbarkeit und GPU-Tuning sind Release-Gates.
 
-### 5.3 M12 – Vorschau & gemeinsame Renderpipeline
+**M12b Teil 2 (Draft):** Projektformat **v3** erweitert v2-
+Audiospuren um ausdrücklich referenzierte lokale Videoquellen
+für Picture-in-Picture und statische PNG/JPEG/WebP-Overlays.
+Bounded normalisierte Bildbox (x/y/w/h) und Deckkraft, geordnete
+visuelle Rendergraph-Layer (max. acht), Quell- und Timeline-Zeiten
+sowie aktive/gesperrte/stumme Spuren werden deterministisch
+durch denselben `RenderRequest` für MP4 und 20-s-Render-Vorschau
+geführt. Externe Bild-/Videodateien vor dem Export per FFprobe prüfen,
+Originaldateien nicht beschreiben. Der Inspector verwaltet Geometrie/
+Deckkraft in einem atomaren Undo-Schritt; Qt bietet Dateiauswahl für
+zweite Videospur und vorhandene Grafiken-Spur. v1-/v2-Projekte und
+Checkpoints lesend v3 migrieren, gespeicherte Originalstände nicht
+ungefragt überschreiben. Reproduzierbare Frame-/Audio-Golden-Vergleiche,
+Abbruch-/Missing-Source-Gates und Windows-Qt-Offscreen sind Pflicht.
+**Nicht unterstützt:** Metadaten-only-Highlightclips als PiP,
+Austausch der Basisvideospur, echtes Text-Clip-Compositing,
+Audioübernahme aus PiP, animierte Keyframes, vollständiges
+Live-WYSIWYG, NVENC und lange reale VOD-Akzeptanztests.
+Nicht unterstützte aktive Layer **fail closed**.
+
+
 
 **M12a (Draft):** Gemeinsamer, unveränderlicher `RenderRequest` für
 den bestehenden Single-Source-FFmpeg-Export und die ausdrücklich
