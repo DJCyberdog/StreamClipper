@@ -3514,6 +3514,10 @@ class MainWindow(QMainWindow):
 
     def start_render_preview(self) -> None:
         """Render a bounded export-identical MP4 without touching source playback."""
+        if self.queue_worker is not None and self.queue_worker.isRunning():
+            self.statusBar().showMessage(
+                "Renderqueue läuft; Render-Vorschau ist vorübergehend gesperrt", 6000)
+            return
         if (self.worker is not None and self.worker.isRunning()) or (
                 self.model_worker is not None or self._history_blocked):
             return
