@@ -41,11 +41,19 @@ def _diff(old: Sequence[T], new: Sequence[T]) -> _Splice[T] | None:
 class _Command:
     candidates: _Splice[Candidate] | None
     transcript: _Splice[TranscriptSegment] | None
+    translations: _Splice | None = None
+    language: tuple[str,str] | None = None
 
     def apply(self, current: AnalysisResult, *, reverse: bool = False) -> AnalysisResult:
         clips = self.candidates.apply(current.candidates, reverse=reverse) if self.candidates else current.candidates
         cues = self.transcript.apply(current.transcript, reverse=reverse) if self.transcript else current.transcript
-        return replace(current, candidates=clips, transcript=cues)
+        translations=tuple(self.translations.apply(current.translations,reverse=reverse)) if self.translations else current.translations
+        language=current.caption_language
+        if self.language:
+            expected,updated=self.language[::-1] if reverse else self.language
+            if language!=expected:raise ValueError("Untertitelsprache im Verlauf inkonsistent")
+            language=updated
+        return replace(current, candidates=clips, transcript=cues,translations=translations,caption_language=language)
 
 class EditHistory:
     """Unbounded number of commands; each stores just the changed clip/cue slice."""
@@ -69,9 +77,11 @@ class EditHistory:
         if before.video != after.video or before.method != after.method:
             raise ValueError("Bearbeitungsverlauf darf nicht zwischen Projekten wechseln")
         clips, cues = _diff(before.candidates, after.candidates), _diff(before.transcript, after.transcript)
-        if clips is None and cues is None:
+        translations=_diff(before.translations,after.translations)
+        language=(before.caption_language,after.caption_language) if before.caption_language!=after.caption_language else None
+        if clips is None and cues is None and translations is None and language is None:
             return False
-        self._past.append(_Command(clips, cues))
+        self._past.append(_Command(clips, cues, translations, language))
         self._future.clear()
         return True
 
@@ -155,11 +165,13 @@ class WorkspaceHistory:
             raise ValueError("Bearbeitungsverlauf darf nicht zwischen Quellen wechseln")
         clips = _diff(before.candidates, after.candidates)
         cues = _diff(before.transcript, after.transcript)
-        if clips is None and cues is None:
+        translations=_diff(before.translations,after.translations)
+        language=(before.caption_language,after.caption_language) if before.caption_language!=after.caption_language else None
+        if clips is None and cues is None and translations is None and language is None:
             return False
         self._guard_source(before.video)
         self._past.append(_WorkspaceStep(
-            "analysis", before.video, _Command(clips, cues), before.method))
+            "analysis", before.video, _Command(clips, cues, translations, language), before.method))
         self._future.clear()
         return True
 
