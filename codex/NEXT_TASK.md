@@ -1,22 +1,24 @@
-# NEXT_TASK – M13a Szenenauswahl vollständig abschließen
+# NEXT_TASK – M13a Abnahme
 
-Verbindliche Quelle: /ROADMAP.md §5.4. Keine Umdefinition von M13a–e.
-Basis: M12d/e #48, CI und Windows-Paket erfolgreich; native GPU-/6h-Abnahme offen.
+Verbindlich: /ROADMAP.md §5.4. M13a nicht umdefinieren.
+#49 enthält Szenenauswahl, Region-Monitor, Projekt/Undo/Checkpoint,
+RenderRequest-/Queue-Snapshot, tatsächliche Szenenreihenfolge, Ausschluss
+und Crop-Modi; Vorschau nach Ausgabezeit begrenzt. M13b-Keyframe-Vorarbeit
+ist nicht Teil der M13a-Abnahme.
 
-Vorhanden im Draft #49: Szenen aufteilen, In/Out, Ausgabe-Reihenfolge,
-Ein-/Ausschluss, drei Kameramodi, numerische und visuelle normierte Bildregion (asynchron geladenes Quellbild) und atomare
-lokale Speicherung pro Highlight; Menü Szenen. Früherer Kamerakeyframe-Kern
-ist M13b-Vorarbeit, nicht M13a-Abnahme.
+1. Finalen Head der Linux-CI (pytest + compileall) und Windows-Portable-
+   CI prüfen. Neue M13a-Tests enthalten reale MP4-Reihenfolge, Crop,
+   Audio, Projekt/Checkpoint/Undo und Queue-Roundtrip. Fehler beheben.
+2. Native Windows-Bedienprobe: Szenen markieren, reordnen, ausschließen,
+   Undo/Redo, Neustart/Checkpoint, Vorschau, Direktexport und Queue.
+3. Zusätzliche reale Tests für mehrspuriges Audio und ASS an Szenennaht,
+   VFR, mehrere Szenen und Abbruch. Sechs-Stunden-VOD und GPU/CPU-
+   Profilwahl dokumentieren. Keine ungeprüfte Qualitätsbehauptung.
+4. Erst nach belegter M13a-Abnahme M13b gemäß ROADMAP.md beginnen.
 
-Noch zwingend für M13a:
-- Visuelle Bildregion im Quellbildmonitor per Maus implementiert; Qt-/native Bedienprobe und Darstellung bei unterschiedlichen Seitenverhältnissen prüfen.
-- Szenenplan in gemeinsamen Projekt-/Undo-/Checkpoint-Vertrag übernehmen;
-  Highlight-Grenzenänderung darf gespeicherte manuelle Szenen nicht verlieren.
-- Gemeinsame Vorschau-/Export-/Queue-Anbindung: tatsächliche Szenenreihenfolge,
-  Ausschluss, In/Out, Crop-Modus, Untertitel und Audio korrekt abbilden.
-  Kein stilles Ignorieren eines Szenenplans.
-- Qt- und echte FFmpeg-Tests, Windows-CI, native Bedienprobe; M13a erst
-  bei belegter Abnahme abschließen, danach M13b gemäß Roadmap.
-
-Aktuelle Begrenzung: Der Dialog speichert nur Metadaten. Rendering unverändert. GUI blockiert für exakt passende gespeicherte Highlight-Szenenpläne Render-Vorschau, Direkt-Export, Neueinreihen und Highlight-Trim bis zur Renderintegration. Bereits eingeplante alte Jobs und CLI sind davon nicht betroffen. Kein Abschluss ohne gemeinsame Renderanbindung.
-Keine M13b–e-Arbeit vor Abschluss der M13a-Implementierung.
+Grenzen: Mehrszenenrender verwendet H264-Zwischenstücke, zusätzlichen
+Encode und temporären Speicher. VFR-/Audio-Nahtstellen und exakte
+Preview-Parität noch nicht abgenommen; M13e bleibt eigener Meilenstein.
+Alte Sidecars werden beim Öffnen/Speichern explizit übernommen, externer
+Highlight-Trim bei Plan gesperrt; ältere App nicht zum Downgrade verwenden.
+Main unverändert. Keine Roadmap-Änderung.
