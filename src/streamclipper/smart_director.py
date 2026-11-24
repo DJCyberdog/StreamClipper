@@ -64,7 +64,7 @@ class Director:
             previous=-1.
             for key in keys:
                 key.validate()
-                if key.at <= previous:
+                if key.at-previous < .001:
                     raise ValueError("Keyframes müssen zeitlich aufsteigend sein")
                 previous=key.at
         if not isinstance(self.zones,tuple) or len(self.zones)>MAX_ZONES:
@@ -121,36 +121,39 @@ def safe_crop(zones, source_width, source_height, output_width, output_height,
         raise ValueError("Ungültige Schutzregion")
     ratio=(output_width/output_height)/(source_width/source_height)
     xs=sorted({0.,1.,*(edge for x,y,w,h in zones for edge in (x,x+w))})
-    ys=sorted({0.,1.,*(edge for x,y,w,h in zones for edge in (y,y+h))})
-    # Enumerate maximal empty rectangles using bounded edge pairs. Fit aspect
-    # at either edge or center, also at protected subject boundaries.
     best=None
     score=-1.
     for i,x in enumerate(xs[:-1]):
         for right in xs[i+1:]:
-            for j,y in enumerate(ys[:-1]):
-                for bottom in ys[j+1:]:
-                    w=min(right-x,(bottom-y)*ratio)
-                    h=w/ratio
-                    if min(w,h)<.01 or w*h<score-1e-12:
-                        continue
-                    # Reject occupied *container* only after testing fitted crop.
-                    ax=[x,right-w,(x+right-w)/2]
-                    ay=[y,bottom-h,(y+bottom-h)/2]
-                    if protected:
-                        ax.append(max(x,min(right-w,protected[0]+protected[2]/2-w/2)))
-                        ay.append(max(y,min(bottom-h,protected[1]+protected[3]/2-h/2)))
-                    for a in ax:
-                        for b in ay:
-                            rect=(a,b,w,h)
-                            if protected and not contains(rect,protected):
-                                continue
-                            if any(overlap(rect,z)>1e-9 for z in zones):
-                                continue
-                            area=w*h
-                            if area>score+1e-12 or (best is not None and abs(area-score)<1e-12
-                                and abs(a+w/2-.5)+abs(b+h/2-.5)<abs(best[0]+best[2]/2-.5)+abs(best[1]+best[3]/2-.5)):
-                                best,score=rect,area
+            blocked=sorted((y,y+h) for u,y,w,h in zones
+                           if min(right,u+w)-max(x,u)>1e-9)
+            gaps=[]
+            cursor=0.
+            for low,high in blocked:
+                if low>cursor:
+                    gaps.append((cursor,low))
+                cursor=max(cursor,high)
+            if cursor<1:
+                gaps.append((cursor,1.))
+            for y,bottom in gaps:
+                w=min(right-x,(bottom-y)*ratio)
+                h=w/ratio
+                if min(w,h)<.01 or w*h<score-1e-12:
+                    continue
+                a=max(x,min(right-w,.5-w/2))
+                b=max(y,min(bottom-h,.5-h/2))
+                if protected:
+                    a=max(x,min(right-w,protected[0]+protected[2]/2-w/2))
+                    b=max(y,min(bottom-h,protected[1]+protected[3]/2-h/2))
+                rect=(a,b,w,h)
+                if protected and not contains(rect,protected):
+                    continue
+                if any(overlap(rect,z)>1e-9 for z in zones):
+                    continue
+                area=w*h
+                if area>score+1e-12 or (best is not None and abs(area-score)<1e-12
+                    and abs(a+w/2-.5)+abs(b+h/2-.5)<abs(best[0]+best[2]/2-.5)+abs(best[1]+best[3]/2-.5)):
+                    best,score=rect,area
     return best
 
 
