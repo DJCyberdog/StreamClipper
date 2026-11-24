@@ -46,7 +46,7 @@ def render_clip_preview(
             raise CancelledError("Render-Vorschau abgebrochen")
         result = RenderedPreview(
             path=output, request=excerpt,
-            excerpt_of_longer_clip=request.end > excerpt.end + 0.0001)
+            excerpt_of_longer_clip=request.duration > excerpt.duration + 0.0001)
         return result, temporary
     except BaseException:
         temporary.cleanup()
