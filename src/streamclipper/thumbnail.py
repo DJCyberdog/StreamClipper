@@ -3,9 +3,7 @@ from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
 import math
-import os
 import tempfile
-import subprocess
 
 from .callouts import Callout,rasterize
 from .media import tool_path,probe_video,CancelledError,_publish_without_overwrite
@@ -65,6 +63,10 @@ def capture_composed_frame(request,at,*,cancelled=None,progress=None,temp_root=N
     """At is in output time, after scene reordering. Render entire bounded clip.
     No shorter request or different camera-analysis horizon is substituted."""
     request.validate()
+    from .media import video_dimensions
+    width,height=video_dimensions(request.mode,request.width,request.height)
+    if max(width,height)>4096 or width*height>12_000_000:
+        raise ValueError('Thumbnail-Quellbild zu groß')
     if request.duration>MAX_SECONDS:
         raise ValueError("Thumbnail Designer: Highlight auf maximal 60 Sekunden begrenzen")
     if not math.isfinite(at) or not 0<=at<request.duration:
