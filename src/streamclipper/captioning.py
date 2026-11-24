@@ -92,17 +92,20 @@ def clip_captions(segments: Sequence[TranscriptSegment], start: float, end: floa
 
 def render_ass(segments: Sequence[TranscriptSegment], start: float, end: float,
                *, width: int = 1920, height: int = 1080,
-               offset_seconds: float = 0.0) -> str:
+               offset_seconds: float = 0.0, safe_position: str = 'bottom') -> str:
     """Create a self-contained subtitle track meant to be burned by libass."""
+    if safe_position not in ('bottom', 'top'):
+        raise ValueError('Ungültige Untertitelposition')
     if width <= 0 or height <= 0:
         raise ValueError("Ungültige Exportauflösung")
     # Scale font with canvas width, while accounting for a narrow portrait view.
     font_size = 53 if width >= height else 46
     side_margin = round(width * .07)
     bottom_margin = round(height * (.11 if width >= height else .17))
+    alignment = 8 if safe_position == 'top' else 2
     style = (
         f"Style: Main,Arial,{font_size},&H00FFFFFF,&H00FFFFFF,&H00000000,&H96000000,"
-        f"-1,0,0,0,100,100,0,0,1,3,1,2,{side_margin},{side_margin},{bottom_margin},1"
+        f"-1,0,0,0,100,100,0,0,1,3,1,{alignment},{side_margin},{side_margin},{bottom_margin},1"
     )
     output = [
         "[Script Info]", "ScriptType: v4.00+", f"PlayResX: {width}",
