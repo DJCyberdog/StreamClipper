@@ -166,7 +166,8 @@ def crop_for_scene(scene, video, width, height):
         keys=d.manual or d.tracked
         # A conservative swept rectangle checks all explicit positions. If
         # the envelope meets an obstacle, require an explicit user decision.
-        rects=[key_crop(k,video,width,height) for k in keys]
+        largest=min(k.zoom for k in keys)
+        rects=[key_crop(replace(k,zoom=largest),video,width,height) for k in keys]
         x=min(r[0] for r in rects); y=min(r[1] for r in rects)
         envelope=(x,y,max(r[0]+r[2] for r in rects)-x,max(r[1]+r[3] for r in rects)-y)
         if any(overlap(envelope,z)>1e-9 for z in zones):
