@@ -118,23 +118,28 @@ class SceneSelectionDialog(QDialog):
         self.frame_status.setText("Quellbild wird geladen …")
         worker = FrameWorker(self.video, at, self)
         self.frame_worker = worker
-        worker.ready.connect(lambda jpeg: self._frame_ready(worker, jpeg, at))
+        worker.ready.connect(self._frame_ready)
         worker.failed.connect(self.frame_status.setText)
-        worker.finished.connect(lambda: self._frame_finished(worker))
+        worker.finished.connect(self._frame_finished)
         worker.start()
 
-    def _frame_ready(self, worker, jpeg, at):
-        if worker is self.frame_worker and self.monitor.set_frame(jpeg):
-            self.frame_status.setText(f"Quellbild bei ca. {at:.3f} s · Region mit Maus aufziehen")
+    def _frame_ready(self, jpeg):
+        worker = self.frame_worker
+        if worker is not None and not worker.cancelled.is_set() and self.monitor.set_frame(jpeg):
+            self.frame_status.setText(f"Quellbild bei ca. {worker.at:.3f} s · Region mit Maus aufziehen")
         else:
             self.frame_status.setText("Quellbild konnte nicht angezeigt werden.")
 
-    def _frame_finished(self, worker):
-        if self.frame_worker is worker:
-            self.frame_worker = None
-            self.frame_button.setEnabled(True)
-            self.scenes.setEnabled(True)
-        worker.deleteLater()
+    def _frame_finished(self):
+        worker = self.frame_worker
+        self.frame_worker = None
+        self.frame_button.setEnabled(True)
+        self.scenes.setEnabled(True)
+        if worker is not None:
+            cancelled = worker.cancelled.is_set()
+            worker.deleteLater()
+            if cancelled:
+                super().reject()
 
     def reject(self):
         if self.frame_worker is not None:
