@@ -1229,3 +1229,26 @@ gewöhnlichen Abschnittsmodus. Undo/Redo, Autosave und Checkpoint erhalten
 beide Sprachfassungen. Regressionen mit manuellen Zieltexten vorhanden;
 echte Marian-Inferenz noch nicht gemessen. Ältere App-Versionen können
 zusätzliche Übersetzungsdaten bei erneutem Speichern verlieren.
+
+
+#### Text- und Callout-Editor (#28, Entwicklungsstand)
+
+Branding → Text / Callout hinzufügen …; vorhandenen Callout auf der
+Grafikspur auswählen und über Branding → Ausgewählten Callout bearbeiten …
+ändern. Text, Sprechblase, Pfeil (vier Richtungen), Rechteck und Ellipse.
+Zeitbereich, normalisierte Ausgabeposition, Größe, Deckkraft, Text-,
+Hintergrund- und Akzentfarbe. Rahmen können ungefüllt sein. Standardfont
+aus Pillow (GUI-Abhängigkeit ab 10.1). Sehr kleine Textboxen werden bei
+nicht passendem Text abgelehnt. Keine freie Fontwahl im Callout-Editor.
+
+Metadaten bleiben editierbar und werden im Projekt/Checkpoint und Queue
+gespeichert; Undo/Redo und vorhandene Timeline-Aktionen gelten. Der
+Renderworker erzeugt die RGBA-Dateien erst im temporären Arbeitsordner
+und nutzt dieselbe Grafikspur-Komposition wie vorhandene Logos/PiP.
+Grafiken werden nach dem Kamera-Crop, vor den eingebrannten Untertiteln
+komponiert. Die Elementvorschau nutzt dieselbe Rasterfunktion, zeigt
+aber nicht den vollständigen Clip; dafür Render-Vorschau öffnen.
+Die Spurkomposition wird beim Hinzufügen explizit aktiviert.
+Tests für zeitliche Aktivierung, Transparenz, Persistenz und
+MP4-Vorschauparität sind hinzugefügt; neue CI und native GUI-Abnahme
+noch offen. Keine automatische 0.8-Freigabe.
