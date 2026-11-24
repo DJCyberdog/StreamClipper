@@ -53,8 +53,11 @@ def test_bad_visual_paths_and_geometry_fail_closed(tmp_path):
             add_item(p, "gameplay", 0, 2, 5, media_path=path)
     with pytest.raises(ValueError):
         add_item(p, "graphics", 0, 2, 5, media_path=str(tmp_path / "logo.svg"))
-    with pytest.raises(ValueError):
-        add_item(p, "mic", 0, 2, 5, media_path=str(tmp_path / "logo.png"))
+    # Audio extensions remain backward-compatible with v2; FFprobe,
+    # not filename guessing, checks whether the source actually has audio.
+    legacy_audio = add_item(
+        p, "mic", 0, 2, 5, media_path=str(tmp_path / "logo.png"))
+    assert legacy_audio.items[-1].track_id == "mic"
     for geometry in (
         {"x": .9, "width": .3},
         {"height": 0},
