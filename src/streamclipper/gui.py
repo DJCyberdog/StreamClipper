@@ -1787,6 +1787,7 @@ class MainWindow(QMainWindow):
         self._update_checkpoint_actions()
         self._update_proxy_controls()
         self._update_inspector()
+        self._refresh_queue()
 
     def _update_history_controls(self, enabled: bool = True) -> None:
         active = enabled and not self._history_blocked
@@ -3641,6 +3642,184 @@ class MainWindow(QMainWindow):
         QMessageBox.information(self, "Export abgeschlossen",
             "Exportiert:\n" + "\n".join(outputs[:10]))
 
+    def _ensure_render_queue(self) -> bool:
+        """Open the protected local queue only on first actual queue action."""
+        if self.render_queue is not None:
+            return True
+        try:
+            self.render_queue = RenderQueue()
+        except (OSError, ValueError, RuntimeError) as exc:
+            QMessageBox.warning(self, "Renderqueue nicht verfügbar", str(exc))
+            return False
+        self._refresh_queue()
+        return True
+
+    def _refresh_queue(self) -> None:
+        if not hasattr(self, "queue_table"):
+            return
+        queue = self.render_queue
+        items = queue.jobs() if queue is not None else ()
+        selected = self._selected_queue_id()
+        self.queue_table.blockSignals(True)
+        try:
+            self.queue_table.setRowCount(len(items))
+            for i, job in enumerate(items):
+                columns = (job.label, job.status, str(job.progress) + " %",
+                           job.result or job.detail or job.destination)
+                for column, value in enumerate(columns):
+                    cell = QTableWidgetItem(value)
+                    cell.setToolTip(job.destination + "\\n" + job.detail)
+                    cell.setData(Qt.ItemDataRole.UserRole, job.id)
+                    self.queue_table.setItem(i, column, cell)
+                if job.id == selected:
+                    self.queue_table.selectRow(i)
+        finally:
+            self.queue_table.blockSignals(False)
+        active = self.queue_worker is not None and self.queue_worker.isRunning()
+        self.queue_start_button.setEnabled(not active and any(
+            j.status == "QUEUED" for j in items))
+        self.queue_cancel_button.setEnabled(active or bool(
+            selected and any(j.id == selected and j.status == "QUEUED"
+                             for j in items)))
+        self.queue_retry_button.setEnabled(not active and bool(
+            selected and any(j.id == selected and j.status in {
+                "INTERRUPTED", "FAILED", "CANCELLED"} for j in items)))
+        self.queue_remove_button.setEnabled(not active and bool(
+            selected and any(j.id == selected and j.status != "RUNNING"
+                             for j in items)))
+        self.queue_selected_button.setEnabled(
+            not active and bool(self._video_info))
+        self.queue_all_button.setEnabled(
+            not active and bool(self.analysis and self.analysis.candidates))
+
+    def _selected_queue_id(self) -> str | None:
+        if not hasattr(self, "queue_table"):
+            return None
+        item = self.queue_table.item(self.queue_table.currentRow(), 0)
+        return item.data(Qt.ItemDataRole.UserRole) if item else None
+
+    def _queue_enqueue(self, all_clips: bool) -> None:
+        if not self._video_info or not self._ensure_render_queue():
+            return
+        if self.queue_worker is not None and self.queue_worker.isRunning():
+            return
+        if not self.apply_word_editor() or not self.apply_transcript_editor():
+            return
+        directory = QFileDialog.getExistingDirectory(
+            self, "Zielordner für Renderqueue")
+        if not directory:
+            return
+        clips = list(self.analysis.candidates) if (
+            all_clips and self.analysis) else []
+        if not clips:
+            selected = self.selected_candidate() if self.analysis else None
+            if selected is not None:
+                clips = [selected]
+            elif not all_clips:
+                a, b = self.timeline.in_point, self.timeline.out_point
+                clips = [Candidate(a, b, 0, "Timeline-Auswahl", a)]
+        if not clips:
+            return
+        transcript = (tuple(self.analysis.transcript)
+                      if self.analysis and self.analysis.video.path == self.source
+                      else ())
+        added = 0
+        for item in clips:
+            try:
+                request = RenderRequest(
+                    video=self._video_info, start=item.start, end=item.end,
+                    mode=str(self.mode.currentData()),
+                    burn_subtitles=(self.burn_subtitles.isChecked()
+                                    and bool(transcript)),
+                    subtitle_offset=self.caption_offset.value(),
+                    transcript=transcript,
+                    project=(self.editor_project
+                             if self.include_track_audio.isChecked() else None),
+                    encoder=str(self.encoder_mode.currentData())).validate()
+                self.render_queue.enqueue(
+                    request, directory,
+                    label=f"{display_time(item.start)} – {display_time(item.end)}")
+                added += 1
+            except (OSError, ValueError, RuntimeError) as exc:
+                QMessageBox.warning(
+                    self, "Renderjob abgelehnt", str(exc))
+                break
+        self._refresh_queue()
+        self.statusBar().showMessage(
+            f"{added} Renderjob(s) in die lokale Queue aufgenommen · noch nicht gestartet")
+
+    def _queue_start(self) -> None:
+        if not self._ensure_render_queue():
+            return
+        if self.queue_worker is not None and self.queue_worker.isRunning():
+            return
+        if not any(j.status == "QUEUED" for j in self.render_queue.jobs()):
+            return
+        worker = QueueRunThread(self.render_queue, self)
+        self.queue_worker = worker
+        worker.changed.connect(lambda _job: self._refresh_queue())
+        worker.info.connect(self._encoder_notice)
+        worker.finished_jobs.connect(self._queue_finished)
+        worker.failed.connect(self._queue_failed)
+        worker.finished.connect(
+            lambda w=worker: self._queue_worker_finished(w))
+        self._busy(True)
+        worker.start()
+        self._refresh_queue()
+
+    def _queue_cancel(self) -> None:
+        if self.queue_worker is not None and self.queue_worker.isRunning():
+            self.queue_worker.cancel()
+            self.statusBar().showMessage("Renderqueue-Abbruch angefordert …")
+            return
+        if self.render_queue is None:
+            return
+        job_id = self._selected_queue_id()
+        if job_id:
+            self.render_queue.cancel(job_id)
+            self._refresh_queue()
+
+    def _queue_resume(self) -> None:
+        if not self._ensure_render_queue():
+            return
+        job_id = self._selected_queue_id()
+        if job_id:
+            try:
+                self.render_queue.resume(job_id)
+            except ValueError as exc:
+                QMessageBox.warning(self, "Fortsetzen nicht möglich", str(exc))
+            self._refresh_queue()
+
+    def _queue_discard(self) -> None:
+        if not self._ensure_render_queue():
+            return
+        job_id = self._selected_queue_id()
+        if job_id:
+            try:
+                self.render_queue.discard(job_id)
+            except ValueError as exc:
+                QMessageBox.warning(self, "Job kann nicht entfernt werden", str(exc))
+            self._refresh_queue()
+
+    def _queue_finished(self, _jobs) -> None:
+        self._refresh_queue()
+        counts = {status: sum(j.status == status for j in self.render_queue.jobs())
+                  for status in ("COMPLETE", "FAILED", "BLOCKED", "CANCELLED")}
+        self.statusBar().showMessage(
+            "Queue abgeschlossen · " + " / ".join(
+                f"{key}: {value}" for key, value in counts.items()), 12000)
+
+    def _queue_failed(self, message: str) -> None:
+        self.statusBar().showMessage("Queue-Systemfehler", 10000)
+        QMessageBox.warning(self, "Renderqueue fehlgeschlagen", message)
+
+    def _queue_worker_finished(self, worker: QueueRunThread) -> None:
+        if self.queue_worker is worker:
+            self.queue_worker = None
+        worker.deleteLater()
+        self._busy(False)
+        self._refresh_queue()
+
     def save_report(self) -> bool:
         if not self.analysis or not self.apply_word_editor() or not self.apply_transcript_editor():
             return False
@@ -3726,6 +3905,12 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage("Abbruch angefordert …")
 
     def closeEvent(self, event) -> None:
+        if self.queue_worker is not None and self.queue_worker.isRunning():
+            QMessageBox.information(
+                self, "Renderqueue läuft",
+                "Bitte die Renderqueue zuerst anhalten und den laufenden Job abschließen.")
+            event.ignore()
+            return
         if self.hf_check_worker is not None:
             QMessageBox.information(self, "Verbindungsprüfung läuft",
                                     "Bitte die laufende Verbindungskontrolle abschließen lassen.")
@@ -3765,6 +3950,14 @@ class MainWindow(QMainWindow):
                 event.ignore()
                 return
         self.player.stop()
+        if self.render_queue is not None:
+            try:
+                self.render_queue.close()
+            except RuntimeError as exc:
+                QMessageBox.warning(self, "Renderqueue nicht beendet", str(exc))
+                event.ignore()
+                return
+            self.render_queue = None
         self._save_workspace_layout(quiet=True)
         event.accept()
 
