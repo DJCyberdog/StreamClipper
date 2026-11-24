@@ -1201,3 +1201,31 @@ Branding-Funktionen bleiben M14-Aufgaben. Keine 0.8-Freigabe.
 M13: lokale Abnahme durch Owner am 24.11.2026 bestätigt. Keine eigenen
 GPU-Messprotokolle; Windows-CI 45452643337 meldet 174 passed, 1 skipped,
 anschließend Exit 1; Build nicht erfolgreich. Linux-CI PASS.
+
+
+#### Lokale Untertitelübersetzung (#23, Entwicklungsstand)
+
+Im **Branding-Menü → Untertitel übersetzen …** wird der ausgewählte
+Highlight-/Timeline-Bereich bearbeitet. Zielsprache (z. B. de/en) laden,
+Übersetzung manuell eingeben oder fehlende Texte mit einem explizit
+ausgewählten lokalen Marian-Modell erzeugen. Optionales Extra:
+`python -m pip install -e ".[translation]"` in der vorhandenen Python-Umgebung
+nach Prüfung der installierten Torch-/Transformers-Versionen.
+Modellordner muss ein vollständiges gerichtetes Marian-Modell mit
+config.json, model.safetensors und Tokenizer-Dateien enthalten. Passendes
+Sprachpaar und Modelllizenz sind vor Nutzung selbst zu prüfen. Kein
+automatischer Download, kein Cloud-Dienst, kein neuer Whisper-Lauf.
+Modellinitialisierung und Übersetzung laufen im Worker; Abbruch zwischen
+Abschnitten, nicht garantiert während eines einzelnen Modellaufrufs.
+
+Speichern aktiviert die Zielsprache für Render-Vorschau, MP4, Queue, CLI und
+Transkriptdatei. Original aktivieren schaltet ohne Verlust der Übersetzungen
+zurück. Quellplayer und Worteditor zeigen weiterhin die Originalfassung.
+Übersetzungen sind quelltext- und zeitgebunden; nach Originalkorrekturen
+fehlende Übersetzung ergänzen oder bewusst Original wählen. Keine gemischte
+Sprache durch stillen Fallback. Zieltext übernimmt Abschnittsgrenzen, keine
+behauptete Wortausrichtung; Word-Caption-Effekte verwenden dort den
+gewöhnlichen Abschnittsmodus. Undo/Redo, Autosave und Checkpoint erhalten
+beide Sprachfassungen. Regressionen mit manuellen Zieltexten vorhanden;
+echte Marian-Inferenz noch nicht gemessen. Ältere App-Versionen können
+zusätzliche Übersetzungsdaten bei erneutem Speichern verlieren.
