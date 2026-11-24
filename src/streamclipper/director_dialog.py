@@ -8,7 +8,7 @@ import time
 from PySide6.QtCore import QThread, Signal, Qt
 from PySide6.QtGui import QImage
 from PySide6.QtWidgets import (QDialog, QDialogButtonBox, QVBoxLayout, QHBoxLayout,
-    QFormLayout, QListWidget, QLabel, QDoubleSpinBox, QComboBox, QCheckBox,
+    QFormLayout, QListWidget, QLabel, QDoubleSpinBox, QComboBox, QCheckBox, QScrollArea, QWidget,
     QPushButton, QMessageBox, QFileDialog)
 from .scene_camera import CameraKeyframe
 from .smart_director import Director, OverlayZone, KINDS, director_from_dict, safe_crop
@@ -60,7 +60,10 @@ class DirectorDialog(QDialog):
         self.worker=None
         self.setWindowTitle("Smart Director · Szene")
         self.resize(730,680)
-        layout=QVBoxLayout(self)
+        outer=QVBoxLayout(self)
+        scroll=QScrollArea();scroll.setWidgetResizable(True)
+        body=QWidget();scroll.setWidget(body);outer.addWidget(scroll,1)
+        layout=QVBoxLayout(body)
         self.info=QLabel("Manuelle Keyframes haben Vorrang. Tracking ist ein begrenzter Bildmuster-Vorschlag.")
         self.info.setWordWrap(True)
         layout.addWidget(self.info)
@@ -119,7 +122,7 @@ class DirectorDialog(QDialog):
         box=QDialogButtonBox(QDialogButtonBox.StandardButton.Save|QDialogButtonBox.StandardButton.Cancel)
         box.accepted.connect(self.finish)
         box.rejected.connect(self.reject)
-        layout.addWidget(box)
+        outer.addWidget(box)
         self.refresh()
 
     def num(self,low,high,value,dec=4):
@@ -257,7 +260,10 @@ class DirectorDialog(QDialog):
         if self.worker:return
         self.value=replace(self.value,avoid_overlays=self.avoid.isChecked(),
                            removal_enabled=self.removal.isChecked(),caption_safe=self.safe.currentText())
-        self.value.validate()
+        try:
+            self.value.validate()
+        except ValueError as exc:
+            QMessageBox.warning(self,'Smart Director',str(exc));return
         self.accept()
 
     def reject(self):
