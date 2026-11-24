@@ -112,10 +112,13 @@ class DirectorDialog(QDialog):
         self.avoid.setChecked(self.value.avoid_overlays)
         self.removal=QCheckBox("Maskierung ausdrücklich aktivieren")
         self.removal.setChecked(self.value.removal_enabled)
+        self.inpaint_model=self.value.inpaint_model
+        self.inpaint_label=QLabel(self.inpaint_model or "Schwarzmaske (Standard)")
+        self.inpaint_label.setWordWrap(True)
         self.safe=QComboBox();self.safe.addItems(["bottom","top"]);self.safe.setCurrentText(self.value.caption_safe)
         for label,field in (("Zeitfenster",self.dynamic),("Start",self.zone_start),("Ende",self.zone_end),
                             ("Zone",self.enabled),("Entfernung",self.mask),("Crop",self.avoid),
-                            ("Opt-in",self.removal),("Untertitel-Safe-Zone",self.safe)):
+                            ("Opt-in",self.removal),("Inpainting-Modell",self.inpaint_label),("Untertitel-Safe-Zone",self.safe)):
             form.addRow(label,field)
         layout.addLayout(form)
         row=QHBoxLayout()
@@ -128,6 +131,8 @@ class DirectorDialog(QDialog):
         self.button(row,"OBS-Profil speichern",self.save_profile)
         self.button(row,"OBS-Profil laden",self.load_profile)
         self.button(row,"Crop-Konflikt prüfen",self.check_crop)
+        self.button(row,"VACE experimentell …",self.choose_inpainting)
+        self.button(row,"Schwarzmaske",self.clear_inpainting)
         layout.addLayout(row)
         self.keys.currentRowChanged.connect(self.select_key)
         self.zones.currentRowChanged.connect(self.select_zone)
@@ -280,10 +285,33 @@ class DirectorDialog(QDialog):
         if self.value.keys or self.scene.mode!="automatic":text.append("Manuelle Kamera wird nicht überschrieben.")
         QMessageBox.information(self,"Overlay-Crop", "\n".join(text))
 
+    def choose_inpainting(self):
+        if self.worker:return
+        from .portable import local_model_directory
+        model=QFileDialog.getExistingDirectory(self,"Lokales VACE-Modell auswählen",
+                                              str(local_model_directory()))
+        if not model:return
+        if not (Path(model)/"model_index.json").is_file():
+            QMessageBox.warning(self,"VACE","Kein lokaler Diffusers-Modellordner");return
+        if QMessageBox.question(self,"Experimentelles KI-Inpainting",
+            "Nicht abgenommen. Maximal 33 Frames pro Szene, bis Full HD. "
+            "Hoher RAM-/VRAM-Bedarf; keine garantierte Rekonstruktion. "
+            "Nur für diese Szene ausdrücklich aktivieren?")!=QMessageBox.StandardButton.Yes:
+            return
+        self.inpaint_model=str(Path(model).resolve())
+        self.inpaint_label.setText(self.inpaint_model)
+        self.removal.setChecked(True)
+
+    def clear_inpainting(self):
+        if self.worker:return
+        self.inpaint_model=""
+        self.inpaint_label.setText("Schwarzmaske (Standard)")
+
     def finish(self):
         if self.worker:return
         self.value=replace(self.value,avoid_overlays=self.avoid.isChecked(),
-                           removal_enabled=self.removal.isChecked(),caption_safe=self.safe.currentText())
+                           removal_enabled=self.removal.isChecked(),caption_safe=self.safe.currentText(),
+                           inpaint_model=self.inpaint_model if self.removal.isChecked() else "")
         try:
             self.value.validate()
         except ValueError as exc:
