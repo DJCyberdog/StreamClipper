@@ -395,6 +395,9 @@ class RenderedClipDialog(QDialog):
         self.scope_label = QLabel(
             f"Render-Vorschau: {scope} · Originalzeit "
             f"{display_time(result.request.start)}–{display_time(result.request.end)}")
+        if result.request.scene_plan is not None:
+            self.scope_label.setText(f"Render-Vorschau: {result.request.duration:.2f} s · "
+                                     f"{len(result.request.scene_plan.output_scenes)} Szenen in Ausgabereihenfolge")
         self.scope_label.setWordWrap(True)
         main.addWidget(self.scope_label)
         disclaimer = QLabel(
