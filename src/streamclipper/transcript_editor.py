@@ -12,7 +12,8 @@ import os
 from pathlib import Path
 import re
 
-from .models import AnalysisResult, Candidate, TranscriptSegment, TranscriptWord, VideoInfo
+from .models import AnalysisResult, Candidate, TranscriptSegment, TranscriptWord, VideoInfo, SubtitleTranslation
+from .subtitle_translation import validate_translations
 
 _TIME_RE = re.compile(r"(?P<h>\d+):(?P<m>[0-5]\d):(?P<s>[0-5]\d)(?:[.,](?P<ms>\d{1,3}))?")
 
@@ -114,8 +115,9 @@ def load_analysis_report(filename: str | Path, expected_video: str | Path) -> An
             if not (math.isfinite(candidate.start) and math.isfinite(candidate.end)
                     and 0 <= candidate.start < candidate.end <= video.duration + 0.1):
                 raise ValueError('Ungültiger Highlight-Zeitraum im Bericht')
-        return AnalysisResult(video, candidates, method=str(data.get('method', 'loaded-report')),
-                              transcript=transcript)
+        return validate_translations(AnalysisResult(video, candidates, method=str(data.get('method', 'loaded-report')),
+                              transcript=transcript, translations=tuple(SubtitleTranslation(**t) for t in data.get('translations', [])),
+                              caption_language=data.get('caption_language', '')))
     except (KeyError, TypeError, ValueError, json.JSONDecodeError, OverflowError) as exc:
         raise ValueError(f'Analysebericht ist nicht lesbar oder ungültig: {exc}') from exc
 
