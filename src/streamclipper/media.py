@@ -110,8 +110,9 @@ def probe_still_image(path: str | Path) -> tuple[int, int]:
          "-of", "json", str(source)], check=True, stdout=subprocess.PIPE,
         stderr=subprocess.PIPE, text=True, timeout=40)
     data = json.loads(result.stdout)
-    stream = next((x for x in data.get("streams", [])
-                   if x.get("codec_type") == "video"), None)
+    # -select_streams v:0 already filters to the first video decoder.
+    # Some FFprobe releases omit codec_type in reduced -show_entries output.
+    stream = next(iter(data.get("streams", [])), None)
     if (stream is None or not 1 <= int(stream.get("width") or 0) <= 16384
             or not 1 <= int(stream.get("height") or 0) <= 16384):
         raise ValueError("Grafikdatei enthält kein gültiges Einzelbild")
