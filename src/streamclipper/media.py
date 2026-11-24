@@ -444,7 +444,7 @@ def export_clip(video: VideoInfo, start: float, end: float, destination: str | P
                 encoder: str = "cpu_h264",
                 encoder_notice: Callable[[str], None] | None = None,
                 region=None, fit_region: bool = False, force_audio: bool = False,
-                director=None, motion_analysis_end=None) -> Path:
+                director=None, motion_analysis_end=None, caption_style=None) -> Path:
     """Encode with cancellable progress and publish only validated, complete MP4s.
 
     The temporary file is on the destination filesystem for atomic publication.
@@ -505,10 +505,12 @@ def export_clip(video: VideoInfo, start: float, end: float, destination: str | P
             motion_points = clip_motion_path(video, start, motion_analysis_end or end, cancelled=cancelled)
         if burn_subtitles:
             from .captioning import render_ass
+            from .caption_style import CaptionStyle
             (Path(workdir) / "captions.ass").write_text(
                 render_ass(transcript or [], start, end, width=width, height=height,
                            offset_seconds=subtitle_offset,
-                           safe_position=director.caption_safe if director else 'bottom'),
+                           safe_position=director.caption_safe if director else 'bottom',
+                           caption_style=caption_style or CaptionStyle()),
                 encoding="utf-8-sig", newline="\n")
         if cancelled and cancelled():
             raise CancelledError("Export abgebrochen")
