@@ -86,7 +86,8 @@ def test_nvenc_probe_runs_two_real_frames_without_user_media(monkeypatch):
     assert command[command.index("-c:v")+1] == "h264_nvenc"
     assert command[command.index("-frames:v")+1] == "2"
     assert "lavfi" in command and "null" in command
-    assert "-i" in command and "color=c=black" in command
+    assert "-i" in command
+    assert any(str(arg).startswith("color=c=black:") for arg in command)
     assert opts["timeout"] == 15
     assert opts["stderr"] == subprocess.PIPE
     assert opts["check"] is False
