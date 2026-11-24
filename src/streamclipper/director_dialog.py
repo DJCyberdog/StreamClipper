@@ -20,16 +20,24 @@ class AnalysisWorker(QThread):
     result=Signal(object)
     failure=Signal(str)
 
-    def __init__(self,video,scene,at,x,y,mode,parent=None):
+    def __init__(self,video,scene,at,x,y,mode,parent=None,*,model_directory=None):
         super().__init__(parent)
         self.video,self.scene,self.at,self.x,self.y,self.mode=video,scene,at,x,y,mode
         self.stop=threading.Event()
+        self.model_directory=model_directory
 
     def run(self):
-        deadline=time.monotonic()+60
+        deadline=time.monotonic()+(180 if self.mode=='clip' else 60)
         def cancelled():
             return self.stop.is_set() or time.monotonic()>deadline
         try:
+            if self.mode=="clip":
+                from .overlay_recognition import recognize_overlays
+                result=recognize_overlays(self.video,self.model_directory,self.scene.start,
+                                          self.scene.end,cancelled=cancelled)
+                if not cancelled():
+                    self.result.emit((self.mode,result))
+                return
             start=self.at if self.mode=="track" else self.scene.start
             end=min(self.scene.end,self.video.duration)-.001
             if end<=start:
@@ -109,7 +117,8 @@ class DirectorDialog(QDialog):
         layout.addLayout(form)
         row=QHBoxLayout()
         for name,action in (("Zone hinzufügen",self.add_zone),("Zone ändern",self.edit_zone),
-                            ("Zone löschen",self.del_zone),("Overlay-Kandidaten",lambda:self.analyze("overlay"))):
+                            ("Zone löschen",self.del_zone),("Randkandidaten",lambda:self.analyze("overlay")),
+                            ("CLIP-Overlay-Analyse",lambda:self.analyze("clip"))):
             self.button(row,name,action)
         layout.addLayout(row)
         row=QHBoxLayout()
@@ -141,7 +150,7 @@ class DirectorDialog(QDialog):
             self.zones.addItem(f"{z.kind} · {z.region} · {'aktiv' if z.enabled else 'aus'}"
                                + (" · Maske" if z.mask else "") + (" · temporär" if z.start is not None else ""))
         self.info.setText(f"{len(self.value.manual)} manuelle Keyframes · {len(self.value.tracked)} Trackingpunkte. "
-                          "Tracking endet bei unsicherer Zuordnung; Overlay-Vorschläge sind keine semantische Erkennung.")
+                          "Tracking endet bei unsicherer Zuordnung; Overlay-Vorschläge sind unbestätigt und bleiben bis zur Freigabe deaktiviert.")
 
     def update_value(self,**kw):
         if self.worker is not None:
@@ -199,8 +208,15 @@ class DirectorDialog(QDialog):
 
     def analyze(self,mode):
         if self.worker is not None:return
+        model_directory=None
+        if mode=="clip":
+            from .portable import local_model_directory
+            model_directory=QFileDialog.getExistingDirectory(self,"Installierten CLIP-Modellordner wählen",
+                                                             str(local_model_directory()))
+            if not model_directory:return
         self.info.setText("Lokale Bildanalyse läuft …")
-        self.worker=AnalysisWorker(self.video,self.scene,self.at.value(),self.x.value(),self.y.value(),mode,self)
+        self.worker=AnalysisWorker(self.video,self.scene,self.at.value(),self.x.value(),self.y.value(),mode,self,
+                                   model_directory=model_directory)
         self.worker.result.connect(self.analysis_ready)
         self.worker.failure.connect(self.info.setText)
         self.worker.finished.connect(self.analysis_done)
@@ -210,6 +226,8 @@ class DirectorDialog(QDialog):
         mode,value=result
         if mode=="track":
             self.pending=replace(self.value,tracked=value)
+        elif mode=="clip":
+            self.pending=replace(self.value,zones=(*self.value.zones,*value[:max(0,24-len(self.value.zones))]))
         else:
             # Disabled until explicitly selected and confirmed.
             self.pending=replace(self.value,zones=(*self.value.zones,
