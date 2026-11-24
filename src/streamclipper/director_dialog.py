@@ -2,6 +2,7 @@
 from dataclasses import asdict, replace
 from pathlib import Path
 import json
+import math
 import threading
 import time
 
@@ -42,7 +43,9 @@ class AnalysisWorker(QThread):
             end=min(self.scene.end,self.video.duration)-.001
             if end<=start:
                 raise ValueError("Zu wenig Quellzeit für Analyse")
-            count=min(32,max(3,int((end-start)*2)+1))
+            if self.mode=='track':
+                end=min(end,start+15.5)  # bounded half-second tracking cadence
+            count=min(32,max(3,math.ceil((end-start)*2)+1))
             times=sorted(set(round(start+(end-start)*i/(count-1),3) for i in range(count)))
             times=[t for t in times if t<self.video.duration]
             frames=[]
