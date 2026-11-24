@@ -53,7 +53,8 @@ from .captioning import subtitle_text_at_time
 from .highlight_lexicon_dialog import HighlightLexiconDialog
 from .editor_project import (EditorProject, initial_project,
     add_track, remove_track, rename_track, move_track, toggle_track,
-    add_item, edit_item, remove_item, load_project, save_project, Track)
+    add_item, edit_item, remove_item, load_project, save_project, Track,
+    set_scene_plan, scene_plan_for)
 from .track_canvas import TrackCanvas
 from .editor_theme import EDITOR_STYLESHEET
 from .workspace_layout import (WORKSPACE_NAMES, WorkspaceLayout,
@@ -117,8 +118,9 @@ class ExportThread(QThread):
                  mode: str, parent=None, burn_subtitles: bool = False,
                  subtitle_offset: float = 0.0,
                  project: EditorProject | None = None,
-                 encoder: str = "cpu_h264"):
+                 encoder: str = "cpu_h264", scene_plans=()):
         super().__init__(parent)
+        self.scene_plans = tuple(scene_plans)
         self.analysis = analysis
         self.items = items
         self.directory = directory
@@ -146,7 +148,9 @@ class ExportThread(QThread):
                     burn_subtitles=self.burn_subtitles,
                     subtitle_offset=self.subtitle_offset,
                     transcript=tuple(self.analysis.transcript),
-                    project=self.project, encoder=self.encoder)
+                    project=self.project, encoder=self.encoder,
+                    scene_plan=next((p for p in self.scene_plans if
+                        (p.start,p.end) == (clip.start,clip.end)), None))
                 actual = render_request(
                     request, target, cancelled=self._cancelled.is_set,
                     progress=lambda value, i=i: self.progress_changed.emit(
@@ -1384,18 +1388,22 @@ class MainWindow(QMainWindow):
     def _edit_scene_selection(self) -> None:
         from .scene_selection_dialog import SceneSelectionDialog
         clip = self.selected_candidate()
+        if self._history_blocked or not self.editor_project:
+            return
         if not clip or not self._video_info:
             QMessageBox.information(self, "Szenenauswahl", "Bitte zuerst ein Highlight auswählen.")
             return
         if not self.apply_word_editor() or not self.apply_transcript_editor():
             return
         try:
-            dialog = SceneSelectionDialog(self._video_info, clip.start, clip.end, self)
+            dialog = SceneSelectionDialog(self._video_info, clip.start, clip.end, self,
+                plan=scene_plan_for(self.editor_project, clip.start, clip.end),
+                commit=lambda plan: self._apply_project_edit(set_scene_plan, plan))
         except (OSError, ValueError) as exc:
             QMessageBox.warning(self, "Szenenplan nicht geladen", str(exc))
             return
         if dialog.exec() == QDialog.DialogCode.Accepted:
-            self.statusBar().showMessage("Szenenplan gespeichert · Renderanbindung noch offen")
+            self.statusBar().showMessage("Szenenplan im Projekt gespeichert · Undo/Redo verfügbar")
 
     def _install_workspace_controls(self) -> None:
         scene_menu = self.menuBar().addMenu("Szenen")
@@ -2768,7 +2776,11 @@ class MainWindow(QMainWindow):
         previous = self.analysis
         if 0 <= index < len(previous.candidates):
             clip = previous.candidates[index]
-            if not self._scene_render_allowed(previous.video, [(clip.start, clip.end)]):
+            from .scene_selection import saved_selection_exists
+            if (scene_plan_for(self.editor_project, clip.start, clip.end) is not None
+                    or saved_selection_exists(previous.video, clip.start, clip.end)):
+                QMessageBox.warning(self, "Szenenplan erhalten",
+                    "Bitte In/Out innerhalb des Szeneneditors ändern; der Highlight-Rahmen bleibt erhalten.")
                 return
         try:
             self.analysis = trim_manual_highlight(
@@ -3538,9 +3550,10 @@ class MainWindow(QMainWindow):
         from .scene_selection import require_unplanned_highlight
         try:
             for start, end in intervals:
-                require_unplanned_highlight(video, start, end)
+                if scene_plan_for(self.editor_project, start, end) is None:
+                    require_unplanned_highlight(video, start, end)
         except (ValueError, OSError) as exc:
-            QMessageBox.warning(self, "Szenenplan – Renderanbindung offen", str(exc))
+            QMessageBox.warning(self, "Szenenplan – bitte im Projekt übernehmen", str(exc))
             return False
         return True
 
@@ -3578,6 +3591,7 @@ class MainWindow(QMainWindow):
                 project=(self.editor_project if self.include_track_audio.isChecked()
                          else None),
                 encoder=str(self.encoder_mode.currentData()),
+                scene_plan=scene_plan_for(self.editor_project, start, end),
             ).validate()
         except (ValueError, OSError) as exc:
             QMessageBox.warning(self, "Render-Vorschau nicht möglich", str(exc))
@@ -3678,7 +3692,8 @@ class MainWindow(QMainWindow):
                                    project=(self.editor_project
                                             if self.include_track_audio.isChecked()
                                             else None),
-                                   encoder=str(self.encoder_mode.currentData()))
+                                   encoder=str(self.encoder_mode.currentData()),
+                                   scene_plans=self.editor_project.scene_plans if self.editor_project else ())
         self.worker.encoder_notice.connect(self._encoder_notice)
         self.worker.progress_changed.connect(self.progress.setValue)
         self.worker.done.connect(self.export_finished)
@@ -3790,7 +3805,8 @@ class MainWindow(QMainWindow):
                     transcript=transcript,
                     project=(self.editor_project
                              if self.include_track_audio.isChecked() else None),
-                    encoder=str(self.encoder_mode.currentData())).validate()
+                    encoder=str(self.encoder_mode.currentData()),
+                    scene_plan=scene_plan_for(self.editor_project, item.start, item.end)).validate()
                 self.render_queue.enqueue(
                     request, directory,
                     label=f"{display_time(item.start)} – {display_time(item.end)}")
