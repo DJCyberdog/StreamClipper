@@ -1899,12 +1899,15 @@ class MainWindow(QMainWindow):
                         self.tracks_table.setItem(row, col, QTableWidgetItem(value))
                 for row, item in enumerate(project.items):
                     names = {track.id: track.name for track in project.tracks}
-                    extra = ((Path(item.media_path).name if item.media_path
-                              else "Aufnahme") + f" · {item.gain_db:+.1f} dB"
-                             if names[item.track_id] and
-                             next(t for t in project.tracks
-                                  if t.id == item.track_id).kind == "audio"
-                             else "—")
+                    kind = next(t.kind for t in project.tracks
+                                if t.id == item.track_id)
+                    if kind == "audio":
+                        extra = ((Path(item.media_path).name if item.media_path
+                                  else "Aufnahme") + f" · {item.gain_db:+.1f} dB")
+                    elif kind in {"video", "overlay"} and item.media_path:
+                        extra = Path(item.media_path).name
+                    else:
+                        extra = "—"
                     values = (item.label or item.id, names[item.track_id],
                               format_timestamp(item.source_start),
                               format_timestamp(item.source_end),
@@ -1979,17 +1982,21 @@ class MainWindow(QMainWindow):
         self.track_clip_trim.setEnabled(bool(clip))
         self.track_audio_import.setEnabled(
             bool(track and track.kind == "audio" and not track.locked))
+        self.track_visual_import.setEnabled(
+            bool(track and (track.kind == "overlay" or
+                            (track.kind == "video" and track.id != "gameplay"))
+                 and not track.locked))
         self.track_gain_button.setEnabled(
             bool(clip_obj and clip_track and clip_track.kind == "audio"
                  and not clip_track.locked))
         if hasattr(self, "include_track_audio"):
-            has_audio = bool(self.editor_project and any(
-                t.kind == "audio" and any(i.track_id == t.id
-                                          for i in self.editor_project.items)
-                for t in self.editor_project.tracks))
-            # Busy state disables changes but must NOT clear user opt-in.
-            self.include_track_audio.setEnabled(has_audio and ready)
-            if not has_audio:
+            has_layers = bool(self.editor_project and any(
+                i.id != "source" for i in self.editor_project.items))
+            # Busy disables changes but must NOT clear the opt-in choice.
+            # Unsupported legacy metadata-only clips remain fail-closed if
+            # the user deliberately enables project rendering.
+            self.include_track_audio.setEnabled(has_layers and ready)
+            if not has_layers:
                 self.include_track_audio.setChecked(False)
         self.track_import_button.setEnabled(
             ready and self.analysis is not None and bool(self.analysis.candidates))
@@ -2121,6 +2128,48 @@ class MainWindow(QMainWindow):
                 audio_source.stem[:120], media_path=str(audio_source),
                 gain_db=gain)
 
+    def _add_visual_file_to_track(self) -> None:
+        """Add a genuine, local PiP video or image, never copy/modify media."""
+        track_id = self._selected_track_id()
+        if self.editor_project is None or self._history_blocked or not track_id:
+            return
+        track = next((t for t in self.editor_project.tracks if t.id == track_id),
+                     None)
+        if (not track or track.locked
+                or track.kind not in {"video", "overlay"}
+                or track.id == "gameplay"):
+            return
+        picker = ("Video (*.mp4 *.mkv *.mov *.webm *.m4v *.avi)"
+                  if track.kind == "video" else
+                  "Grafiken (*.png *.jpg *.jpeg *.webp)")
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Lokale Video-/Grafikdatei auswählen", "",
+            picker + ";;Alle Dateien (*)")
+        if not path:
+            return
+        try:
+            media = Path(path).resolve(strict=True)
+            if track.kind == "video":
+                duration = probe_video(media).duration
+            else:
+                probe_still_image(media)
+                duration = self.timeline.out_point - self.timeline.in_point
+            if not 0 < duration <= 86400:
+                raise ValueError("Datei besitzt keine gültige Dauer")
+            at = self.timeline.in_point
+            length = min(duration, self.timeline.out_point-at, 86400-at)
+            if length < .05:
+                raise ValueError("Zu kurzer Platz auf der Timeline")
+        except (OSError, ValueError) as exc:
+            QMessageBox.warning(self, "Videomedium nicht verwendbar", str(exc))
+            return
+        self._apply_project_edit(
+            add_item, track.id, 0.0, length, at,
+            media.stem[:120], media_path=str(media))
+        self.statusBar().showMessage(
+            "Video-/Grafik-Layer lokal referenziert. "
+            "Bildposition und Größe im Inspector bearbeiten.", 6500)
+
     def _edit_selected_clip_gain(self) -> None:
         if not self.editor_project or self._history_blocked:
             return
@@ -2164,9 +2213,16 @@ class MainWindow(QMainWindow):
         limit = self.editor_project.source.duration
         if item.media_path is not None:
             try:
-                limit = probe_audio_duration(item.media_path)
+                kind = next(t.kind for t in self.editor_project.tracks
+                            if t.id == item.track_id)
+                if kind == "audio":
+                    limit = probe_audio_duration(item.media_path)
+                elif kind == "video":
+                    limit = probe_video(item.media_path).duration
+                elif kind == "overlay":
+                    limit = 86400
             except (OSError, ValueError) as exc:
-                QMessageBox.warning(self, "Audioquelle fehlt", str(exc))
+                QMessageBox.warning(self, "Medienquelle fehlt", str(exc))
                 return
         start, accepted = QInputDialog.getDouble(
             self, "Clip trimmen", "Quellbeginn (Sekunden)",
