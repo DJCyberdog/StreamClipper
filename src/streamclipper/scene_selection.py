@@ -32,6 +32,7 @@ class SelectionScene:
     mode: str = "automatic"
     region: tuple[float, float, float, float] = (0., 0., 1., 1.)
     director: Director = Director()
+    framing_end: float | None = None  # preview keeps original analysis horizon
 
     def validate(self, start, end):
         if not isinstance(self.id, str) or not self.id or len(self.id) > 64:
@@ -42,6 +43,8 @@ class SelectionScene:
             raise ValueError("Ungültiger Einschluss oder Kameramodus")
         if not isinstance(self.region, tuple) or len(self.region) != 4 or not all(_number(v) for v in self.region):
             raise ValueError("Ungültige Bildregion")
+        if self.framing_end is not None and (not _number(self.framing_end) or not self.end <= self.framing_end <= end):
+            raise ValueError('Ungültiger Vorschau-Analysebereich')
         self.director.validate()
         if any(not start <= k.at <= end for k in (*self.director.manual,*self.director.tracked)):
             raise ValueError("Kamerazeiten außerhalb des Highlights")
@@ -190,7 +193,8 @@ def excerpt_selection(plan, maximum):
         if remaining <= 0:
             break
         length = min(scene.end-scene.start, remaining)
-        scenes.append(replace(scene, end=scene.start+length))
+        scenes.append(replace(scene, end=scene.start+length,
+                              framing_end=scene.framing_end or scene.end))
         remaining -= length
     if not scenes:
         raise ValueError("Keine eingeschlossene Szene")
