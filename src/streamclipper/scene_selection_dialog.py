@@ -10,16 +10,17 @@ from .scene_region_monitor import RegionMonitor, FrameWorker
 
 
 class SceneSelectionDialog(QDialog):
-    def __init__(self, video, start, end, parent=None):
+    def __init__(self, video, start, end, parent=None, *, plan=None, commit=None):
         super().__init__(parent)
         self.video = video
-        self.plan = load_selection(video, start, end)
+        self.plan = plan if plan is not None else load_selection(video, start, end)
+        self.commit = commit
         self.setWindowTitle("Szenenauswahl")
         self.resize(900, 680)
         self.frame_worker = None
         layout = QVBoxLayout(self)
         layout.addWidget(QLabel("Szenen bearbeiten · Reihenfolge entspricht der geplanten Ausgabe.\n"
-                                "Noch keine Anwendung im Renderer; Original bleibt unverändert."))
+                                "Original bleibt unverändert; Manuell erhält die markierte Region, Fester Crop füllt das Zielformat."))
         self.scenes = QListWidget()
         layout.addWidget(self.scenes)
         self.monitor = RegionMonitor()
@@ -181,7 +182,11 @@ class SceneSelectionDialog(QDialog):
         if self.frame_worker is not None or not self._apply():
             return
         try:
-            save_selection(self.video, self.plan)
+            if self.commit is not None:
+                if not self.commit(self.plan):
+                    return
+            else:
+                save_selection(self.video, self.plan)
         except (OSError, ValueError) as exc:
             QMessageBox.warning(self, "Szenenplan nicht gespeichert", str(exc))
             return
