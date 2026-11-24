@@ -534,7 +534,7 @@ def export_clip(video: VideoInfo, start: float, end: float, destination: str | P
                                 progress(0)
                             continue
                         raise RuntimeError(
-                            f"FFmpeg-Export ({profile}) fehlgeschlagen: {details}")
+                            f"FFmpeg-Export fehlgeschlagen ({profile}): {details}")
                     if not partial.is_file() or partial.stat().st_size == 0:
                         raise RuntimeError(
                             "FFmpeg hat keine fertige MP4-Datei erzeugt.")
