@@ -159,16 +159,35 @@ def safe_crop(zones, source_width, source_height, output_width, output_height,
 
 def crop_for_scene(scene, video, width, height):
     d=scene.director
-    zones=tuple(z.region for z in d.zones if z.active(scene.start,scene.end))
+    zones=tuple(z.region for z in d.zones if z.active(scene.start,scene.framing_end or scene.end))
     if not d.avoid_overlays or not zones:
         return None
-    if d.keys or scene.mode != "automatic":
-        # Explicit user camera wins; do not silently replace it with a crop.
-        raise ValueError("Overlay-Konflikt: manuelle Kamera hat Vorrang. Sperrzonen anpassen oder Crop deaktivieren.")
-    result=safe_crop(zones,video.width,video.height,width,height)
+    if d.manual or (d.tracked and scene.mode=="automatic"):
+        keys=d.manual or d.tracked
+        # A conservative swept rectangle checks all explicit positions. If
+        # the envelope meets an obstacle, require an explicit user decision.
+        rects=[key_crop(k,video,width,height) for k in keys]
+        x=min(r[0] for r in rects); y=min(r[1] for r in rects)
+        envelope=(x,y,max(r[0]+r[2] for r in rects)-x,max(r[1]+r[3] for r in rects)-y)
+        if any(overlap(envelope,z)>1e-9 for z in zones):
+            raise ValueError("Overlay-Konflikt: Kamerafahrt hat Vorrang; Sperrzonen prüfen.")
+        return None
+    if scene.mode != "automatic":
+        if any(overlap(scene.region,z)>1e-9 for z in zones):
+            raise ValueError("Overlay-Konflikt: manuelle Region hat Vorrang; Sperrzonen prüfen.")
+        return None
+    protected=scene.region if scene.region != (0.,0.,1.,1.) else None
+    result=safe_crop(zones,video.width,video.height,width,height,protected=protected)
     if result is None:
         raise ValueError("Kein overlayfreier Crop im Zielformat möglich")
     return result
+
+
+def key_crop(key,video,width,height):
+    ratio=(width/height)/(video.width/video.height)
+    w=min(1.,ratio)/key.zoom
+    h=w/ratio
+    return (max(0.,min(1-w,key.x-w/2)),max(0.,min(1-h,key.y-h/2)),w,h)
 
 
 def _curve(keys, attr, start):
