@@ -194,7 +194,8 @@ def build_export_command(video: VideoInfo, start: float, end: float, destination
                          motion_points=None, burned_captions: bool = False,
                          audio_layers: tuple[AudioLayer, ...] = (),
                          visual_layers: tuple[VisualLayer, ...] = (),
-                         encoder: str = "cpu_h264") -> list[str]:
+                         encoder: str = "cpu_h264", region=None,
+                         fit_region: bool = False, force_audio: bool = False) -> list[str]:
     """Construct command without a shell. Optional captions use a local ASS file.
 
     If burned_captions, the caller must write `captions.ass` in the FFmpeg cwd.
@@ -208,7 +209,27 @@ def build_export_command(video: VideoInfo, start: float, end: float, destination
     if not (0 <= start < end <= video.duration + 0.1):
         raise ValueError("Ungültiges Clip-Zeitfenster")
     final_label = "base" if (burned_captions or visual_layers) else "v"
-    if mode in {"smart16", "smart9"}:
+    if region is not None:
+        if (len(region) != 4 or not all(math.isfinite(v) for v in region)):
+            raise ValueError("Ungültige Bildregion")
+        x, y, w, h = region
+        if not (0 <= x < 1 and 0 <= y < 1 and .01 <= w <= 1 and .01 <= h <= 1
+                and x+w <= 1.000000001 and y+h <= 1.000000001):
+            raise ValueError("Ungültige Bildregion")
+        # Explicit normalized source rectangle; even edges for 4:2:0.
+        left = min(video.width-2, max(0, int(x*video.width)//2*2))
+        top = min(video.height-2, max(0, int(y*video.height)//2*2))
+        cw = min((video.width-left)//2*2, max(2, int(w*video.width)//2*2))
+        ch = min((video.height-top)//2*2, max(2, int(h*video.height)//2*2))
+        if min(cw,ch) < 2:
+            raise ValueError("Bildregion zu klein")
+        framing = (f"scale={width}:{height}:force_original_aspect_ratio=decrease:force_divisible_by=2,"
+                   f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2" if fit_region else
+                   f"scale={width}:{height}:force_original_aspect_ratio=increase,"
+                   f"crop={width}:{height}")
+        chain = (f"[0:v:0]crop={cw}:{ch}:{left}:{top},{framing},"
+                 f"setsar=1,format=yuv420p[{final_label}]")
+    elif mode in {"smart16", "smart9"}:
         from .reframe import FocusPoint, smart_crop_filter
         if not motion_points:
             motion_points = [FocusPoint(0., .5, .5)]
@@ -326,11 +347,16 @@ def build_export_command(video: VideoInfo, start: float, end: float, destination
               "normalize=0:dropout_transition=0,"
             + f"atrim=duration={duration:.6f}[audio_out]")
         audio_map = "[audio_out]"
+    if force_audio and not (video.has_audio or audio_layers):
+        chain += f";anullsrc=r=48000:cl=stereo,atrim=duration={duration:.6f}[scene_silence]"
+        audio_map = "[scene_silence]"
     return inputs + [
             "-t", f"{end-start:.3f}",
             "-filter_complex", chain, "-map", "[v]", "-map", audio_map,
             *encoder_options(encoder),
-            "-c:a", "aac", "-b:a", "160k", "-movflags", "+faststart",
+            "-c:a", "aac", "-b:a", "160k",
+            *(["-ar", "48000", "-ac", "2"] if force_audio else []),
+            "-movflags", "+faststart",
             str(destination)]
 
 
@@ -398,7 +424,8 @@ def export_clip(video: VideoInfo, start: float, end: float, destination: str | P
                 audio_layers: tuple[AudioLayer, ...] = (),
                 visual_layers: tuple[VisualLayer, ...] = (),
                 encoder: str = "cpu_h264",
-                encoder_notice: Callable[[str], None] | None = None) -> Path:
+                encoder_notice: Callable[[str], None] | None = None,
+                region=None, fit_region: bool = False, force_audio: bool = False) -> Path:
     """Encode with cancellable progress and publish only validated, complete MP4s.
 
     The temporary file is on the destination filesystem for atomic publication.
@@ -421,7 +448,8 @@ def export_clip(video: VideoInfo, start: float, end: float, destination: str | P
     build_export_command(
         video, start, end, output, mode, width, height,
         audio_layers=audio_layers, visual_layers=visual_layers,
-        encoder=validation_encoder)
+        encoder=validation_encoder, region=region, fit_region=fit_region,
+        force_audio=force_audio)
     for layer in visual_layers:
         if cancelled and cancelled():
             raise CancelledError("Export abgebrochen")
@@ -445,7 +473,7 @@ def export_clip(video: VideoInfo, start: float, end: float, destination: str | P
     with tempfile.TemporaryDirectory(prefix=f".{output.stem}-", dir=output.parent) as workdir:
         partial = Path(workdir) / f"{output.stem}.partial.mp4"
         motion_points = None
-        if mode in {"smart16", "smart9"}:
+        if region is None and mode in {"smart16", "smart9"}:
             from .reframe import clip_motion_path
             motion_points = clip_motion_path(video, start, end, cancelled=cancelled)
         if burn_subtitles:
@@ -479,7 +507,8 @@ def export_clip(video: VideoInfo, start: float, end: float, destination: str | P
                 ffmpeg_exe, motion_points=motion_points,
                 burned_captions=burn_subtitles,
                 audio_layers=audio_layers, visual_layers=visual_layers,
-                encoder=profile)
+                encoder=profile, region=region, fit_region=fit_region,
+                force_audio=force_audio)
             cmd[1:1] = ["-progress", "pipe:1", "-stats_period", "0.25"]
             with tempfile.TemporaryFile(mode="w+b") as stderr_log:
                 proc = subprocess.Popen(
@@ -549,7 +578,7 @@ def export_clip(video: VideoInfo, start: float, end: float, destination: str | P
                     quality = inspect_export(
                         partial, expected_codec=expected_codec,
                         width=width, height=height, duration=duration,
-                        audio_expected=(video.has_audio or bool(audio_layers)))
+                        audio_expected=(video.has_audio or bool(audio_layers) or force_audio))
                     if cancelled and cancelled():
                         raise CancelledError("Export abgebrochen")
                     published = _publish_without_overwrite(partial, output)
@@ -786,3 +815,38 @@ def encode_preview_proxy(
             reader.join(timeout=2)
             if proc.stdout:
                 proc.stdout.close()
+
+
+def concatenate_scene_parts(parts: list[Path], destination: Path, *, cancelled=None) -> None:
+    """Join only internally generated, same-format scene segments.
+    No original path enters the concat manifest or shell. Final QA is separate.
+    """
+    if not parts or any(p.parent != destination.parent for p in parts):
+        raise ValueError("Ungültige Szenendateien")
+    manifest = destination.parent / "scenes.ffconcat"
+    for part in parts:
+        if not part.name.startswith("part-") or not part.name.endswith(".mp4") or not part.is_file():
+            raise ValueError("Ungültige temporäre Szenendatei")
+    manifest.write_text("ffconcat version 1.0\n" + "".join(
+        f"file '{p.name}'\n" for p in parts), encoding="ascii")
+    with tempfile.TemporaryFile(mode="w+b") as errors:
+        proc = subprocess.Popen([
+            tool_path("ffmpeg"), "-hide_banner", "-nostdin", "-loglevel", "error",
+            "-n", "-f", "concat", "-safe", "1", "-i", manifest.name,
+            "-map", "0:v:0", "-map", "0:a:0?", "-c", "copy", destination.name
+        ], cwd=destination.parent, stdout=subprocess.DEVNULL, stderr=errors)
+        try:
+            while proc.poll() is None:
+                if cancelled and cancelled():
+                    raise CancelledError("Szenenkomposition abgebrochen")
+                try:
+                    proc.wait(timeout=.2)
+                except subprocess.TimeoutExpired:
+                    pass
+            if proc.returncode:
+                errors.seek(0, os.SEEK_END)
+                errors.seek(max(0, errors.tell()-2000))
+                raise RuntimeError("Szenenkomposition fehlgeschlagen: " +
+                                   errors.read().decode("utf-8", "replace"))
+        finally:
+            _stop_process(proc)
