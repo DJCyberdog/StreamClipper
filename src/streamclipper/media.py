@@ -223,10 +223,11 @@ def build_export_command(video: VideoInfo, start: float, end: float, destination
                 and x+w <= 1.000000001 and y+h <= 1.000000001):
             raise ValueError("Ungültige Bildregion")
         # Explicit normalized source rectangle; even edges for 4:2:0.
-        left = min(video.width-2, max(0, int(x*video.width)//2*2))
-        top = min(video.height-2, max(0, int(y*video.height)//2*2))
-        cw = min((video.width-left)//2*2, max(2, int(w*video.width)//2*2))
-        ch = min((video.height-top)//2*2, max(2, int(h*video.height)//2*2))
+        left = max(0, math.ceil((x*video.width-1e-8)/2)*2)
+        top = max(0, math.ceil((y*video.height-1e-8)/2)*2)
+        right = min(video.width, math.floor(((x+w)*video.width+1e-8)/2)*2)
+        bottom = min(video.height, math.floor(((y+h)*video.height+1e-8)/2)*2)
+        cw, ch = right-left, bottom-top
         if min(cw,ch) < 2:
             raise ValueError("Bildregion zu klein")
         framing = (f"scale={width}:{height}:force_original_aspect_ratio=decrease:force_divisible_by=2,"
