@@ -159,3 +159,40 @@ def require_unplanned_highlight(video, start, end, *, root=None):
     if path.exists():
         raise ValueError("Für dieses Highlight ist ein Szenenplan gespeichert. "
                          "Szenenrendering ist noch nicht verfügbar; der Plan darf nicht ignoriert werden.")
+
+
+def selection_from_dict(doc):
+    if not isinstance(doc, dict):
+        raise ValueError("Ungültiger Szenenplan")
+    try:
+        scenes = tuple(SelectionScene(**{**s, "region": tuple(s["region"])})
+                       for s in doc["scenes"])
+        return SceneSelection(doc["start"], doc["end"], scenes).validate()
+    except (KeyError, TypeError, AttributeError, ValueError) as exc:
+        raise ValueError("Ungültiger Szenenplan") from exc
+
+
+def excerpt_selection(plan, maximum):
+    """Limit by OUTPUT time, retaining output order and source coordinates."""
+    plan.validate()
+    if not _number(maximum) or maximum <= 0:
+        raise ValueError("Ungültige Vorschaudauer")
+    scenes = []
+    remaining = maximum
+    for scene in plan.output_scenes:
+        if remaining <= 0:
+            break
+        length = min(scene.end-scene.start, remaining)
+        scenes.append(replace(scene, end=scene.start+length))
+        remaining -= length
+    if not scenes:
+        raise ValueError("Keine eingeschlossene Szene")
+    return replace(plan, scenes=tuple(scenes)).validate()
+
+
+def output_duration(plan):
+    return sum(s.end-s.start for s in plan.output_scenes)
+
+
+def saved_selection_exists(video, start, end, *, root=None):
+    return _path(video, start, end, root)[0].exists()
