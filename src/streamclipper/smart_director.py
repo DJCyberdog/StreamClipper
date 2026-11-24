@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 import math
+import os
 from .scene_camera import CameraKeyframe
 
 KINDS = ("hud", "topbar", "chat", "facecam", "alert", "graphic")
@@ -56,6 +57,7 @@ class Director:
     avoid_overlays: bool = False
     caption_safe: str = "bottom"  # bottom / top
     removal_enabled: bool = False
+    inpaint_model: str = ''  # explicit local experiment; empty = black mask
 
     def validate(self):
         for keys in (self.manual,self.tracked):
@@ -74,6 +76,10 @@ class Director:
         if (type(self.avoid_overlays) is not bool or type(self.removal_enabled) is not bool
                 or self.caption_safe not in ("top","bottom")):
             raise ValueError("Ungültige Director-Konfiguration")
+
+        if (not isinstance(self.inpaint_model,str) or len(self.inpaint_model)>4096
+                or (self.inpaint_model and (not self.removal_enabled or not os.path.isabs(self.inpaint_model)))):
+            raise ValueError('Inpainting benötigt ausdrückliches Opt-in und lokalen absoluten Modellpfad')
 
     @property
     def keys(self):
@@ -230,7 +236,7 @@ def camera_filter(keys, video, width, height, start):
 
 def mask_filters(director, video, start, end):
     """Explicit opaque masking in source coordinates, before camera transforms."""
-    if not director.removal_enabled:
+    if not director.removal_enabled or director.inpaint_model:
         return ""
     filters=[]
     for zone in director.zones:
