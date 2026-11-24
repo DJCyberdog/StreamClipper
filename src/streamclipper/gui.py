@@ -51,7 +51,7 @@ from .captioning import subtitle_text_at_time
 from .highlight_lexicon_dialog import HighlightLexiconDialog
 from .editor_project import (EditorProject, initial_project,
     add_track, remove_track, rename_track, move_track, toggle_track,
-    add_item, edit_item, load_project, save_project, Track)
+    add_item, edit_item, remove_item, load_project, save_project, Track)
 from .track_canvas import TrackCanvas
 from .editor_theme import EDITOR_STYLESHEET
 from .workspace_layout import (WORKSPACE_NAMES, WorkspaceLayout,
@@ -873,6 +873,11 @@ class MainWindow(QMainWindow):
         self.track_clip_move.clicked.connect(self._move_selected_track_clip)
         self.track_clip_trim = QPushButton("Clip trimmen")
         self.track_clip_trim.clicked.connect(self._trim_selected_track_clip)
+        self.track_clip_delete = QPushButton("Clip entfernen")
+        self.track_clip_delete.setToolTip(
+            "Entfernt nur den gewählten Timeline-Clip, niemals dessen Mediendatei. "
+            "Mit Strg+Z rückgängig machen.")
+        self.track_clip_delete.clicked.connect(self._remove_selected_track_clip)
         self.track_audio_import = QPushButton("🎵 Audiodatei einfügen …")
         self.track_audio_import.setToolTip(
             "Lokale WAV/MP3/FLAC-Datei auf der gewählten Audiospur einfügen.")
@@ -885,7 +890,7 @@ class MainWindow(QMainWindow):
         self.track_gain_button = QPushButton("Pegel …")
         self.track_gain_button.clicked.connect(self._edit_selected_clip_gain)
         for control in (self.track_clip_add, self.track_clip_move,
-                        self.track_clip_trim):
+                        self.track_clip_trim, self.track_clip_delete):
             row3.addWidget(control)
         tracks_layout.addLayout(row3)
         row4 = QHBoxLayout()
@@ -2026,6 +2031,9 @@ class MainWindow(QMainWindow):
         self.track_clip_add.setEnabled(bool(selected) and self._source_duration > 0)
         self.track_clip_move.setEnabled(bool(clip))
         self.track_clip_trim.setEnabled(bool(clip))
+        self.track_clip_delete.setEnabled(
+            bool(clip_obj and clip_obj.id != "source" and clip_track
+                 and not clip_track.locked))
         self.track_audio_import.setEnabled(
             bool(track and track.kind == "audio" and not track.locked))
         self.track_visual_import.setEnabled(
@@ -2140,6 +2148,12 @@ class MainWindow(QMainWindow):
         a, b = self.timeline.in_point, self.timeline.out_point
         self._apply_project_edit(add_item, track_id, a, b, a,
                                  f"Ausschnitt {format_timestamp(a)}")
+
+    def _remove_selected_track_clip(self) -> None:
+        """Non-destructive timeline deletion through shared undo/history."""
+        item_id = self._selected_clip_id()
+        if item_id and item_id != "source":
+            self._apply_project_edit(remove_item, item_id)
 
     def _add_audio_file_to_track(self) -> None:
         """Explicitly reference a local audio file; never upload or modify it."""
