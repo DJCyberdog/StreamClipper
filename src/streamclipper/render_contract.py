@@ -18,6 +18,7 @@ from .editor_project import EditorProject
 from .render_graph import build_render_graph
 from .encoders import ENCODERS
 from .scene_selection import SceneSelection, excerpt_selection, output_duration
+from .smart_director import crop_for_scene
 
 PREVIEW_MAX_SECONDS = 20.0
 
@@ -60,6 +61,8 @@ class RenderRequest:
                 raise ValueError("Szenenplan gehört zu einem anderen Highlight")
             if not self.scene_plan.output_scenes:
                 raise ValueError("Keine eingeschlossene Szene")
+            for scene in self.scene_plan.output_scenes:
+                crop_for_scene(scene, self.video, width, height)
             if self.project is not None:
                 for scene in self.scene_plan.output_scenes:
                     build_render_graph(self.project, self.video, scene.start, scene.end)
@@ -138,8 +141,12 @@ def _render_scenes(request, destination, progress, cancelled, encoder_notice):
         options = dict(audio_layers=graph.audio_layers, visual_layers=graph.visual_layers) if graph else {}
         # Manual: preserve entire marked rectangle, pad to aspect ratio.
         # Fixed: center-crop the marked rectangle to output aspect ratio.
-        if scene.mode != "automatic":
+        safe_region = crop_for_scene(scene, request.video, width, height)
+        if safe_region is not None:
+            options.update(region=safe_region, fit_region=False)
+        elif scene.mode != "automatic":
             options.update(region=scene.region, fit_region=scene.mode == "manual")
+        options["director"] = scene.director
         return export_clip(request.video, scene.start, scene.end, target,
                            mode=mode, width=width, height=height,
                            transcript=list(request.transcript),
