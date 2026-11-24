@@ -17,6 +17,7 @@ import tempfile
 from .models import VideoInfo
 from .portable import installation_directory
 from .scene_selection import SceneSelection, selection_from_dict
+from .caption_style import CaptionStyle, caption_style_from_dict
 
 SCHEMA_VERSION = 3
 LEGACY_SCHEMA_VERSION = 1
@@ -63,8 +64,10 @@ class EditorProject:
     tracks: tuple[Track, ...]
     items: tuple[TimelineItem, ...]
     scene_plans: tuple[SceneSelection, ...] = ()
+    caption_style: CaptionStyle = CaptionStyle()
 
     def validate(self) -> None:
+        self.caption_style.validate()
         if self.schema_version != SCHEMA_VERSION:
             raise ValueError("Unbekannte Projektformat-Version")
         if not isinstance(self.source.path, str) or not self.source.path:
@@ -380,7 +383,8 @@ def load_project(video: VideoInfo, *, root: Path | None = None) -> EditorProject
             SCHEMA_VERSION, VideoInfo(**doc["source"]),
             tuple(Track(**record) for record in doc["tracks"]),
             tuple(TimelineItem(**record) for record in doc["items"]),
-            tuple(selection_from_dict(p) for p in doc.get("scene_plans", [])))
+            tuple(selection_from_dict(p) for p in doc.get("scene_plans", [])),
+            caption_style_from_dict(doc.get("caption_style")))
         project.validate()
         a, b = project.source, video
         if (os.path.normcase(os.path.abspath(a.path))
@@ -406,3 +410,9 @@ def scene_plan_for(project, start, end):
         return None
     return next((p for p in project.scene_plans
                  if (p.start, p.end) == (start, end)), None)
+
+
+def set_caption_style(project, style):
+    updated=replace(project,caption_style=style.validate())
+    updated.validate()
+    return updated
