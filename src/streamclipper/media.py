@@ -825,7 +825,9 @@ def concatenate_scene_parts(parts: list[Path], destination: Path, *, cancelled=N
         raise ValueError("Ungültige Szenendateien")
     manifest = destination.parent / "scenes.ffconcat"
     for part in parts:
-        if not part.name.startswith("part-") or not part.name.endswith(".mp4") or not part.is_file():
+        if (not part.name.startswith("part-") or not part.name.endswith(".mp4")
+                or not part.name[5:-4].isascii() or not part.name[5:-4].isdigit()
+                or not part.is_file()):
             raise ValueError("Ungültige temporäre Szenendatei")
     manifest.write_text("ffconcat version 1.0\n" + "".join(
         f"file '{p.name}'\n" for p in parts), encoding="ascii")
