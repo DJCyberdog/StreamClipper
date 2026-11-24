@@ -1,5 +1,62 @@
 # StreamClipper 0.4 (experimenteller Export)
 
+## M12d + M12e – Export-QA und persistente Renderqueue (Draft)
+
+**M12d:** Jeder FFmpeg-Export wird noch **vor** der endgültigen
+Dateiveröffentlichung durch eine echte MP4-Abnahme geprüft:
+Container, H.264/HEVC-Codec (bei HEVC `hvc1`), Auflösung, yuv420p,
+Videodauer, Video-/Audiostart, Audioendzeit und AAC, sofern Audio
+erwartet wird. Drei zeitlich verteilte Frames werden tatsächlich
+decodiert. Für Audio wird ein begrenztes EBU-R128-Sample
+(Anfang/Mitte, max. 2×8 Sekunden) einschließlich True-Peak
+ausgewertet. **Sample-LUFS ist ausdrücklich keine gemessene
+Programmlautheit für einen sechsstündigen VOD.** Hinweise zu möglichem
+Clipping/zu niedriger Sample-Lautheit sind Warnungen, keine automatische
+Lautheitskorrektur. Kritische Codec-, Synchronitäts- und Decodierfehler
+verhindern die endgültige MP4-Veröffentlichung.
+
+Jede erfolgreiche MP4 erhält eine eigene `<video>.mp4.qa.json`
+im Exportordner, mit geprüften Streamdaten, Audio-Warnungen,
+Byteanzahl, SHA-256-Dateihash und Prüfzeitpunkt. Der QA-Bericht ist
+**kein Plattform-Uploadzertifikat**; tatsächliche YouTube/TikTok-
+Anforderungen werden separat in M19 geprüft.
+
+**M12e:** Im Export-Workspace gibt es die lokale **Renderqueue**.
+Clips über „Auswahl einreihen“ oder „Alle Highlights einreihen“
+aufnehmen (auf der Timeline ausgewählte Quelle ist ohne Highlight-
+Analyse ebenfalls möglich). Mit „Queue starten“ wird **genau ein**
+Job parallel ausgeführt, inklusive M12c Encoder-Automatik/
+CPU-Fallback und M12d-Abnahme. Queuestart geschieht niemals
+automatisch bei Projektöffnung, Import oder App-Neustart.
+Der bei Einreihung erzeugte unveränderliche `RenderRequest`
+speichert die getroffene Encoderwahl und Spurenansicht; spätere
+UI-Änderungen beeinflussen bereits eingerichtete Jobs nicht.
+
+Lokale Version-1-Queue unter
+`data/queue/render-queue-v1.json` (atomar geschrieben),
+Jobstatus `QUEUED/RUNNING/COMPLETE/FAILED/CANCELLED/INTERRUPTED/BLOCKED`,
+Fortschritt und einzeln prüfbare Job-Ausgaben. Ein plattformnativer
+Dateilock verhindert zwei konkurrierende StreamClipper-Instanzen,
+die dieselbe Queue schreiben. Bei Crash wird ein `RUNNING`-Job
+**INTERRUPTED** und nur **nach ausdrücklicher Bestätigung** neu
+eingereiht. Jede fertige Queue-MP4 hat zusätzlich einen
+`<video>.mp4.scjob.json`-Beleg mit Job-ID, Request-Hash und
+Dateihash. Ist eine MP4 vorhanden, aber der Beleg fehlt oder
+stimmt nicht, wird der Job **BLOCKED**: niemals automatisch
+ein zweites MP4 ausgeben oder eine fremde Datei überschreiben.
+„Job verwerfen“ entfernt **nur die Queue-Metadaten**, niemals das
+Video oder QA-Dateien.
+
+**Grenzen / nicht behaupten:** Das ist sichere **Neustart-
+Wiederaufnahme ab Anfang des einzelnen Jobs**, keine FFmpeg-
+Frame-Level-Fortsetzung einer unvollständigen Datei. Bei sechs
+Stunden dauern H264/HEVC-Full-Exports und Hash-/QA-Prüfungen
+entsprechend lange. GPU-Performance und komplette VFR-/Audio-
+Synchronität auf der echten RTX 5060 Ti sind weiter als Windows-
+E2E-Akzeptanz offen. Projekt-/Datei-Migration wird nicht erzwungen,
+Cloud und Auto-Publishing bleiben aus.
+
+
 ## M12c – NVIDIA NVENC / H.264 / HEVC mit sicherem CPU-Fallback (Draft)
 
 Im **Export**-Workspace stehen sechs gezielte Video-Encoder-Profile:
