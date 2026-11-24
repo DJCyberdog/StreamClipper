@@ -391,6 +391,40 @@ keine durchgehende Live-WYSIWYG-Vorschau. Diese werden bei angeforderter
 Graph-Verarbeitung ausdrücklich abgelehnt statt ignoriert. Echte
 Windows-/6h-VOD-Abnahme noch offen.
 
+**M12c (Draft): NVENC-Hardware-Encoding und automatische CPU-Rettung.**
+Der bisherige FFmpeg-Compositor und `RenderRequest` erhalten ein
+append-only `encoder`-Profil: `auto_h264/cpu_h264/nvenc_h264` bzw.
+`auto_hevc/cpu_hevc/nvenc_hevc`. Im Qt-Export-Workspace sind alle
+sechs Profiltypen explizit wählbar, H.264 Automatik ist die
+Default-Einstellung. Standalone-API-Aufrufe bleiben standardmäßig
+`cpu_h264` und kompatibel zu alten positional `RenderRequest`s.
+NVENC-Verfügbarkeit wird **nicht** über `ffmpeg -encoders` behauptet:
+Jeder Auto-/NVENC-Job kodiert zwei echte 64×64-Testframes mit der
+ausgewählten NVIDIA-Hardware. Läuft die kurze Probe nicht durch,
+fällt Auto **vor dem Render** auf den gleichen CPU-Codec zurück,
+während explizites NVENC fail-closed bleibt.
+
+Falls NVENC nach bestandener Probe beim **realen Encode** ausfällt,
+verwirft Auto die unfertige temporäre MP4 und versucht den
+identischen Rendergraphen **genau einmal** mit `libx264` bzw.
+`libx265` neu, inklusive echter Fortschritts- und Statusanzeige.
+Der Original-Clip und vorhandene fertige Exports dürfen dabei
+nie überschrieben werden; Abbruch wird nicht als GPU-Fehler
+umgedeutet. MP4-Publish erst nach erfolgreicher Containerprüfung.
+HEVC-Ausgaben werden mit `hvc1` geschrieben, bleiben explizit
+eine Kompatibilitätsentscheidung. **Nicht enthalten** sind CUDA-
+Decoding, GPU-Filtergraph, HDR/10-Bit, AV1, frei wählbare
+Bitraten/Rate-Control und technische Echtzeit-Performance-Garantien.
+
+**Abnahme M12c:** Vollsuite mit echten FFmpeg-CPU-Encodes,
+simuliertem NVENC-Ausfall **nach** positiver Probe,
+GPU-only-Negativtest, Abbruch, Preview-/Export-Framegleichheit
+bei gleichem CPU-Profil, Qt-Offscreen-Auswahl plus
+portablem Windows-ZIP. Reale NVENC-Hardwareprüfung der
+RTX 5060 Ti, lange OBS-Aufnahmen, HEVC-Plattformkompatibilität
+und Messung von GPU-Auslastung/Temperaturen bleiben offen,
+bis auf lokaler Windows-11-Hardware ausgeführt.
+
 - Rendergraph/-Parameter für Vorschau und MP4-Export gemeinschaftlich definieren (**#01**).
 - NVENC (H.264/HEVC), sichere CPU-Fallbacks, stapelbare Renderjobs und Exportqualitätsprüfung (**#06–#08**).
 - Die Vorschau darf nicht nur „ungefähr“ stimmen: Kamerafahrt- und Untertiteltests werden in **M13/M14** gegen denselben Rendervertrag erweitert.
