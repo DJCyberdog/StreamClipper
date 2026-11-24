@@ -47,3 +47,30 @@ Szeneneditor → Smart Director → VACE experimentell: explizites Opt-in, lokal
 Gemeinsamer RenderRequest friert Modellordner und Zonen ein; keine Gewichts-Hash-Attestierung. Eine verkürzte Vorschau verwendet dieselbe vollständige Szene für die Inferenz. FFV1-Zwischendatei nur im privaten temporären Renderordner, ausschließlich als Bildinput; Audio und zusätzliche Spuren nutzen unveränderte Originalzeiten. M12-QA und atomare Publikation bleiben erhalten. GPU-Nichtdeterminismus kann trotz gleicher Parameter zu unterschiedlichen Resultaten führen; Preview-/Exportgleichheit mit echtem Modell offen.
 
 Tests: echte FFmpeg-Dateien, aber absichtlich gemockte Modell-Inferenz. Kein Qualitätsnachweis für VACE, keine Empfehlung als produktive Creator-Funktion. CUDA, Modellgewichte und reale Referenzclips fehlen in der aktuellen Testumgebung. Nächster fachlicher Schritt: echte GPU-Messung und vollständige Modell-/Lizenz-/Qualitätsvalidierung, danach mehrfenstrige Verarbeitung und Nahtstellenprüfung.
+
+
+## Mehrfenster-Experiment (aktueller Stand)
+
+Die vorherige 33-Frame-Szenengrenze wurde durch ein hartes Limit von 600
+Quellrate-Frames pro Szene ersetzt (20 s bei 30 FPS, 10 s bei 60 FPS).
+Fenster maximal 33 Frames, 8 Frames Überlappung, 25 Frames Schrittweite.
+Eine einmal lokal geladene VACE-Pipeline wird innerhalb der Szene
+wiederverwendet. Die Überlappung wird ausschließlich innerhalb der
+Originalmaske linear überblendet; außerhalb bleiben Original-RGB-Werte
+vor Encoding exakt erhalten. Keine semantische Kontinuitätsgarantie.
+Keine automatische Schnitterkennung innerhalb einer Szene.
+
+FFmpeg dekodiert einmal CFR in eine begrenzte temporäre Raw-Datei.
+Fensterweise Verarbeitung begrenzt den Bild-RAM; temporärer Plattenbedarf
+wird vorab mit 3 × unkomprimierter Szenengröße plus 64 MiB geprüft.
+Bei 600 Full-HD-RGB-Frames sind das rund 11,3 GB. Das ist eine
+Platzreserve, keine gemessene tatsächliche Belegung. Die finale FFV1-
+Zwischendatei wird ohne Überschreiben publiziert (Hardlink im selben
+Dateisystem; bei nicht unterstütztem Dateisystem Fehler statt Fallback).
+Temporäre Dateien werden bei Fehler und Abbruch entfernt.
+
+Automatisierte Tests mit simulierter Inferenz prüfen Fensterabdeckung,
+Überblendung, Pixel außerhalb der Maske, Framezahl, Abbruch und
+Nichtüberschreiben. Keine Messung echter VACE-Übergänge. GPU-Abnahme,
+Modellidentität und Qualität bleiben offen. Die älteren Abschnitte
+dokumentieren den historischen Einzel-Fenster-Stand.
