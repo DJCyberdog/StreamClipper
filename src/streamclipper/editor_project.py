@@ -214,6 +214,21 @@ def _item_index(project: EditorProject, item_id: str) -> int:
     return idx
 
 
+def remove_item(project: EditorProject, item_id: str) -> EditorProject:
+    """Delete only timeline metadata; never remove or rewrite source media."""
+    index = _item_index(project, item_id)
+    item = project.items[index]
+    if item.id == "source":
+        raise ValueError("Die unveränderte Basisaufnahme darf nicht entfernt werden")
+    track = next(t for t in project.tracks if t.id == item.track_id)
+    if track.locked:
+        raise ValueError("Clip auf gesperrter Spur kann nicht entfernt werden")
+    updated = replace(
+        project, items=tuple(x for x in project.items if x.id != item_id))
+    updated.validate()
+    return updated
+
+
 def edit_item(project: EditorProject, item_id: str, *,
               track_id: str | None = None, source_start: float | None = None,
               source_end: float | None = None,
