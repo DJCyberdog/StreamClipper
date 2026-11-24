@@ -110,7 +110,7 @@ def render_ass(segments: Sequence[TranscriptSegment], start: float, end: float,
     alignment = 8 if safe_position == 'top' else 2
     style = (
         f"Style: Main,{caption_style.font},{font_size},{ass_color(caption_style.text_color)},"
-        f"{ass_color(caption_style.accent_color)},{ass_color(caption_style.outline_color)},&H96000000,"
+        f"{ass_color(caption_style.text_color if caption_style.mode == 'legacy' else caption_style.accent_color)},{ass_color(caption_style.outline_color)},&H96000000,"
         f"-1,0,0,0,100,100,0,0,1,3,1,{alignment},{side_margin},{side_margin},{bottom_margin},1"
     )
     output = [
