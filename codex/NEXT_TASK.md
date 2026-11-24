@@ -24,14 +24,22 @@ Worker-Dialog mit manueller Korrektur und Sprachwahl; Undo/Redo, Analyse-JSON,
 Autosave, Checkpoint, Render-Vorschau/Direkt/Queue und CLI. Geänderte Originale
 invalidieren die betroffene Übersetzung; fehlende Übersetzungen verhindern
 Sprachmischung. Abschnittszeiten, keine künstlichen Zielwortzeiten.
-Echter Marian-Modelllauf und neue CI noch offen.
+Echter Marian-Modelllauf offen. Übersetzungs-Head e27dbfa5: Linux 382 passed,
+19 skipped, compileall PASS; Windows beim Abruf noch laufend.
+
+Neu #28: editierbare Callouts auf Grafikspuren (Text, Sprechblase, Pfeil,
+Rechteck, Ellipse), zeitliche Platzierung, Farben, Größe, Position und
+Deckkraft. Procedural RGBA aus Metadaten im privaten Renderordner, kein
+externes Asset nötig. GUI-Elementvorschau, gemeinsamer Renderpfad,
+Undo/Redo, Checkpoint und Queue. Tests für echte MP4-Zeitgrenzen und
+Preview-Parität geschrieben, neue CI offen. Font zunächst Pillow-Standard.
 
 Nächste konkrete Schritte:
 - CI dieses Heads und Windows-Prozessende diagnostizieren; neue Tests laufen lassen.
 - Wort-/Timingkorrektur und Übersetzung mit tatsächlichem lokalem Modell abnehmen.
 - Branding-Vorlagen/Logos mit bestehender Grafikspur verknüpfen.
-- Text-/Callout-Editor (Pfeile, Sprechblasen, Bildmarkierungen), Thumbnail-Designer
-  und gemeinsamen, exportgetreuen Workflow fertigstellen.
+- #28 CI/GUI-Abnahme; #30 Thumbnail-Designer aus dem tatsächlichen Renderframe
+  und gemeinsamen exportgetreuen Workflow fertigstellen.
 - Abnahme inkl. kombinierter M13/M14-Renderfälle und nativer Bedienprobe.
   Version 0.8 erst nach vollständigem M14, kein voreiliger Release.
 
