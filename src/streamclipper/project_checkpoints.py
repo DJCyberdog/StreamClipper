@@ -16,7 +16,8 @@ import re
 import tempfile
 from uuid import uuid4
 
-from .editor_project import EditorProject, SCHEMA_VERSION, LEGACY_SCHEMA_VERSION, TimelineItem, Track
+from .editor_project import (EditorProject, SCHEMA_VERSION, LEGACY_SCHEMA_VERSION,
+                             AUDIO_SCHEMA_VERSION, TimelineItem, Track)
 from .models import AnalysisResult, Candidate, TranscriptSegment, TranscriptWord, VideoInfo
 from .portable import installation_directory
 from .transcript_editor import validate_segments
@@ -142,7 +143,7 @@ def load_checkpoint(video: VideoInfo, checkpoint_id: str, *,
         source = VideoInfo(**data["project"]["source"])
         project = EditorProject(
             SCHEMA_VERSION if data["project"]["schema_version"] in
-            {SCHEMA_VERSION, LEGACY_SCHEMA_VERSION} else -1,
+            {SCHEMA_VERSION, AUDIO_SCHEMA_VERSION, LEGACY_SCHEMA_VERSION} else -1,
             source, tuple(Track(**t) for t in data["project"]["tracks"]),
             tuple(TimelineItem(**item) for item in data["project"]["items"]))
         project.validate()
