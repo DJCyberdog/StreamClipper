@@ -62,7 +62,12 @@ class RenderRequest:
             if not self.scene_plan.output_scenes:
                 raise ValueError("Keine eingeschlossene Szene")
             for scene in self.scene_plan.output_scenes:
-                crop_for_scene(scene, self.video, width, height)
+                region = crop_for_scene(scene, self.video, width, height)
+                if scene.director.inpaint_model and region is None:
+                    from .scene_restoration import frame_count
+                    frame_count(self.video,scene.start,scene.framing_end or scene.end)
+                    if not (Path(scene.director.inpaint_model)/"model_index.json").is_file():
+                        raise ValueError("Lokales VACE-Modell fehlt")
             if self.project is not None:
                 for scene in self.scene_plan.output_scenes:
                     build_render_graph(self.project, self.video, scene.start, scene.end)
@@ -147,6 +152,9 @@ def _render_scenes(request, destination, progress, cancelled, encoder_notice):
         elif scene.mode != "automatic":
             options.update(region=scene.region, fit_region=scene.mode == "manual")
         director = scene.director
+        if safe_region is not None and director.inpaint_model:
+            # Cropping has removed every active zone; avoid unnecessary AI.
+            director = replace(director,inpaint_model="",removal_enabled=False)
         if scene.mode != "automatic" and not director.manual:
             director = replace(director, tracked=())
         options["director"] = director
