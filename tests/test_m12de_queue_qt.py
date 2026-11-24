@@ -108,3 +108,42 @@ def test_queue_cancel_and_discard_only_metadata(window,tmp_path,monkeypatch):
     win._queue_discard()
     assert not win.render_queue.jobs()
     assert source.read_bytes()==b"original-untouched"
+
+
+def test_queue_load_displays_existing_pending_jobs_without_rendering(
+        window,tmp_path,monkeypatch):
+    app,win,source=window
+    monkeypatch.setattr(QFileDialog,"getExistingDirectory",
+                        lambda *a: str(tmp_path))
+    win._queue_enqueue(False)
+    assert win.queue_table.rowCount()==1
+    before=win.render_queue.jobs()[0]
+    win.render_queue.close()
+    win.render_queue=None
+    assert win._ensure_render_queue()
+    assert win.queue_table.rowCount()==1
+    after=win.render_queue.jobs()[0]
+    assert after.id==before.id and after.status=="QUEUED"
+    assert not Path(after.destination).exists()
+    assert source.read_bytes()==b"original-untouched"
+
+
+def test_queue_worker_blocks_parallel_normal_exports_and_preview(
+        window,tmp_path,monkeypatch):
+    app,win,source=window
+    class RunningQueue:
+        def isRunning(self):
+            return True
+    win.queue_worker=RunningQueue()
+    win._busy(False)
+    assert not win.render_preview_button.isEnabled()
+    assert not win.single_export.isEnabled()
+    assert not win.all_export.isEnabled()
+    called=[]
+    monkeypatch.setattr(QFileDialog,"getExistingDirectory",
+                        lambda *a: called.append(True) or str(tmp_path))
+    win.start_export(False)
+    win.start_render_preview()
+    assert called==[]
+    assert source.read_bytes()==b"original-untouched"
+    win.queue_worker=None
