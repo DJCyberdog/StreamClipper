@@ -196,7 +196,7 @@ def build_export_command(video: VideoInfo, start: float, end: float, destination
                          visual_layers: tuple[VisualLayer, ...] = (),
                          encoder: str = "cpu_h264", region=None,
                          fit_region: bool = False, force_audio: bool = False,
-                         director=None) -> list[str]:
+                         director=None, restored_video=None) -> list[str]:
     """Construct command without a shell. Optional captions use a local ASS file.
 
     If burned_captions, the caller must write `captions.ass` in the FFmpeg cwd.
@@ -362,6 +362,12 @@ def build_export_command(video: VideoInfo, start: float, end: float, destination
     if force_audio and not (video.has_audio or audio_layers):
         chain += f";anullsrc=r=48000:cl=stereo,atrim=duration={duration:.6f}[scene_silence]"
         audio_map = "[scene_silence]"
+    if restored_video is not None:
+        # Append after all existing media inputs so A/V layer indices stay
+        # unchanged. Original audio keeps its original seek and timing.
+        index = 1 + len(visual_layers) + len(audio_layers)
+        inputs += ["-i", str(restored_video)]
+        chain = chain.replace("[0:v:0]", f"[{index}:v:0]")
     return inputs + [
             "-t", f"{end-start:.3f}",
             "-filter_complex", chain, "-map", "[v]", "-map", audio_map,
@@ -485,6 +491,14 @@ def export_clip(video: VideoInfo, start: float, end: float, destination: str | P
 
     with tempfile.TemporaryDirectory(prefix=f".{output.stem}-", dir=output.parent) as workdir:
         partial = Path(workdir) / f"{output.stem}.partial.mp4"
+        restored_video = None
+        if director is not None and director.inpaint_model:
+            from .scene_restoration import restore_scene_video
+            if encoder_notice:
+                encoder_notice("Experimentelles VACE-Inpainting · lokales Modell wird geladen")
+            restored_video = restore_scene_video(video,start,motion_analysis_end or end,
+                director,Path(workdir)/"restored.mkv",cancelled=cancelled,
+                progress=(lambda i,n: encoder_notice(f"VACE {i}/{n}")) if encoder_notice else None)
         motion_points = None
         if region is None and not (director and director.keys) and mode in {"smart16", "smart9"}:
             from .reframe import clip_motion_path
@@ -522,7 +536,7 @@ def export_clip(video: VideoInfo, start: float, end: float, destination: str | P
                 burned_captions=burn_subtitles,
                 audio_layers=audio_layers, visual_layers=visual_layers,
                 encoder=profile, region=region, fit_region=fit_region,
-                force_audio=force_audio, director=director)
+                force_audio=force_audio, director=director, restored_video=restored_video)
             cmd[1:1] = ["-progress", "pipe:1", "-stats_period", "0.25"]
             with tempfile.TemporaryFile(mode="w+b") as stderr_log:
                 proc = subprocess.Popen(
