@@ -12,7 +12,10 @@ def follow_patch(frames, x, y, *, zoom=1.2):
     if not (0<=x<=1 and 0<=y<=1):
         raise ValueError("Ungültiger Subject-Lock-Punkt")
     frames=iter(frames)
-    at,first=next(frames)
+    try:
+        at,first=next(frames)
+    except StopIteration as exc:
+        raise ValueError('Keine Trackingbilder') from exc
     if len(first)!=W*H:
         raise ValueError("Ungültiges Trackingbild")
     cx=max(3,min(W-4,round(x*(W-1))))
@@ -24,6 +27,8 @@ def follow_patch(frames, x, y, *, zoom=1.2):
         raise ValueError("Zu wenig Struktur am gewählten Punkt")
     keys=[CameraKeyframe(at,cx/(W-1),cy/(H-1),zoom)]
     for at,frame in frames:
+        if not math.isfinite(at) or not 0 < at-keys[-1].at <= 1.0:
+            break  # never bridge long unsampled gaps
         if len(frame)!=W*H:
             raise ValueError("Ungültiges Trackingbild")
         scores=[]
