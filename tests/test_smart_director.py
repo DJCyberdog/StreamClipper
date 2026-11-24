@@ -140,3 +140,25 @@ def test_real_timed_mask_preview_and_export_agree(tmp_path):
         assert max(abs(a-b) for a,b in zip(rgb(full,at),rgb(preview,at)))<=15
     assert max(rgb(preview,.8))<30
     assert rgb(preview,2)[0]>150
+
+
+def test_real_caption_safe_zone_and_preview_parity(tmp_path):
+    from streamclipper.models import TranscriptSegment
+    source=tmp_path/"source.mp4"
+    run("-f","lavfi","-i","color=black:s=320x240:r=25:d=4",
+        "-c:v","libx264","-pix_fmt","yuv420p",source)
+    video=probe_video(source)
+    plan=initial_selection(0,4).edit(0,mode="fixed",
+                                    director=Director(caption_safe="top"))
+    request=RenderRequest(video,0,4,"crop",burn_subtitles=True,
+                          transcript=(TranscriptSegment(.2,2.8,"TEST"),),
+                          width=320,height=240,scene_plan=plan)
+    full=render_request(request,tmp_path/"full.mp4")
+    short=render_request(request.preview_excerpt(2),tmp_path/"short.mp4")
+    def frame(path):
+        return run("-ss",1,"-i",path,"-frames:v",1,"-pix_fmt","gray","-f","rawvideo","pipe:1")
+    a,b=frame(full),frame(short)
+    assert len(a)==len(b)==320*240
+    assert sum(v>160 for v in a[:320*120])>50
+    assert sum(v>160 for v in a[320*120:])==0
+    assert sum(abs(x-y) for x,y in zip(a,b))/len(a)<3
