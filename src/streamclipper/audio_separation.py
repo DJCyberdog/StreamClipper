@@ -100,40 +100,70 @@ def separate_stream(selection,folder,*,backend,progress=None,cancelled=None,use_
                 stream.channels,subtype="FLOAT",format=file_format) as residual:
                 if src.frames!=count or src.samplerate!=RATE or src.channels!=stream.channels:
                     raise ValueError("PCM-Zeitbasis ungültig")
-                start=0;written=0;tail=None
-                while start<count:
-                    check()
-                    src.seek(start)
-                    mix=src.read(min(CHUNK,count-start),dtype="float32",always_2d=True)
-                    if not np.isfinite(mix).all():raise ValueError("Nicht endliche PCM-Eingabe")
-                    mono=mix.mean(axis=1,dtype=np.float32)
-                    estimate=cache.load(mono) if cache else None
-                    if estimate is None:
-                        estimate=np.asarray(backend(mono),dtype=np.float32)
-                        computed+=1
-                        if cache and estimate.shape==(len(mix),) and np.isfinite(estimate).all():cache.save(mono,estimate)
-                    else:reused+=1
-                    check()
-                    if estimate.shape!=(len(mix),) or not np.isfinite(estimate).all():
-                        raise ValueError("Modell lieferte ungültige Sample-Anzahl oder Werte")
-                    if tail is not None:
-                        n=len(tail)
-                        if n>len(estimate):raise ValueError("Überlappung ungültig")
-                        fade=np.linspace(0.,1.,n,dtype=np.float32)
-                        estimate=estimate.copy()
-                        estimate[:n]=tail*(1-fade)+estimate[:n]*fade
-                    last=start+len(mix)==count
-                    n=len(mix) if last else len(mix)-OVERLAP
-                    if n<=0:raise ValueError("Chunk zu kurz")
-                    v=np.repeat(estimate[:n,None],stream.channels,axis=1)
-                    rem=mix[:n]-v
-                    if not np.isfinite(rem).all():raise ValueError("Residual ungültig")
-                    voice.write(v);residual.write(rem)
-                    written+=n
-                    if progress:progress(min(99,round(99*written/count)))
-                    if last:break
-                    tail=estimate[n:].copy()
-                    start+=n
+                continuous=callable(getattr(backend,"stream_estimates",None))
+                if continuous:
+                    # A second bounded reader feeds the model while the first
+                    # reads exact source samples for the residual, including
+                    # the model's buffered latency.
+                    def mono_blocks():
+                        with sf.SoundFile(wav) as reader:
+                            while True:
+                                check()
+                                block=reader.read(CHUNK,dtype="float32",always_2d=True)
+                                if not len(block):break
+                                if not np.isfinite(block).all():raise ValueError("Nicht endliche PCM-Eingabe")
+                                yield block.mean(axis=1,dtype=np.float32)
+                    from contextlib import closing
+                    written=0
+                    with closing(mono_blocks()) as blocks, closing(backend.stream_estimates(blocks,count,cancelled=cancelled)) as estimates:
+                        for estimate in estimates:
+                            check()
+                            estimate=np.asarray(estimate,dtype=np.float32)
+                            if estimate.ndim!=1 or not len(estimate) or len(estimate)>CHUNK+RATE or not np.isfinite(estimate).all() or written+len(estimate)>count:
+                                raise ValueError("Ungültige kontinuierliche TSE-Ausgabe")
+                            mix=src.read(len(estimate),dtype="float32",always_2d=True)
+                            if len(mix)!=len(estimate):raise ValueError("TSE-Residual unvollständig")
+                            v=np.repeat(estimate[:,None],stream.channels,axis=1)
+                            rem=mix-v
+                            if not np.isfinite(rem).all():raise ValueError("Residual ungültig")
+                            voice.write(v);residual.write(rem)
+                            written+=len(estimate);computed+=1
+                            if progress:progress(min(99,round(99*written/count)))
+                else:
+                    start=0;written=0;tail=None
+                    while start<count:
+                        check()
+                        src.seek(start)
+                        mix=src.read(min(CHUNK,count-start),dtype="float32",always_2d=True)
+                        if not np.isfinite(mix).all():raise ValueError("Nicht endliche PCM-Eingabe")
+                        mono=mix.mean(axis=1,dtype=np.float32)
+                        estimate=cache.load(mono) if cache else None
+                        if estimate is None:
+                            estimate=np.asarray(backend(mono),dtype=np.float32)
+                            computed+=1
+                            if cache and estimate.shape==(len(mix),) and np.isfinite(estimate).all():cache.save(mono,estimate)
+                        else:reused+=1
+                        check()
+                        if estimate.shape!=(len(mix),) or not np.isfinite(estimate).all():
+                            raise ValueError("Modell lieferte ungültige Sample-Anzahl oder Werte")
+                        if tail is not None:
+                            n=len(tail)
+                            if n>len(estimate):raise ValueError("Überlappung ungültig")
+                            fade=np.linspace(0.,1.,n,dtype=np.float32)
+                            estimate=estimate.copy()
+                            estimate[:n]=tail*(1-fade)+estimate[:n]*fade
+                        last=start+len(mix)==count
+                        n=len(mix) if last else len(mix)-OVERLAP
+                        if n<=0:raise ValueError("Chunk zu kurz")
+                        v=np.repeat(estimate[:n,None],stream.channels,axis=1)
+                        rem=mix[:n]-v
+                        if not np.isfinite(rem).all():raise ValueError("Residual ungültig")
+                        voice.write(v);residual.write(rem)
+                        written+=n
+                        if progress:progress(min(99,round(99*written/count)))
+                        if last:break
+                        tail=estimate[n:].copy()
+                        start+=n
                 if written!=count:raise ValueError("Ausgabezeitbasis stimmt nicht")
         check()
         if inventory(source.source)!=source:raise ValueError("Originalaufnahme während Trennung verändert")
@@ -147,7 +177,7 @@ def separate_stream(selection,folder,*,backend,progress=None,cancelled=None,use_
         manifest={"schema_version":1,"kind":("reconstructed_target_voice_and_residual" if backend.metadata.get("speaker_targeted") is True else "reconstructed_foreground_voice_and_residual"),
             "source":asdict(source),"selected_stream":asdict(stream),"role_user_selected":selection.role,
             "backend":backend.metadata,"sample_rate":RATE,"channels":stream.channels,"samples":count,
-            "timeline_origin":"container_start","container_format":file_format,"chunk_samples":CHUNK,"overlap_samples":OVERLAP,
+            "timeline_origin":"container_start","container_format":file_format,"chunk_samples":CHUNK,"overlap_samples":0 if continuous else OVERLAP,"processing_mode":"continuous" if continuous else "overlap_windows",
             "voice_projection":"mono_equal_channels","residual_definition":"original_pcm_minus_voice_estimate",
             "outputs":outputs,"cache":{"enabled":use_cache,"reused_windows":reused,"computed_windows":computed},"elapsed_seconds":time.monotonic()-began}
         (staging/"provenance.json").write_text(json.dumps(manifest,ensure_ascii=False,indent=2,allow_nan=False),encoding="utf-8")

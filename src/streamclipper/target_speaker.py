@@ -51,7 +51,7 @@ class VoxLockBackend:
         self.metadata={"backend":"voxlock","version":"1.3.0","expected_upstream_revision":REVISION,
             "local_file_sha256":hashes,"publisher_hash_verified":False,"device":"CPU/ONNX",
             "speaker_targeted":True,"reference_explicit":True,"reference_duration_seconds":len(self.reference)/RATE,
-            "model_sample_rate":RATE,"state":"reset_per_overlap_window"}
+            "model_sample_rate":RATE,"state":"continuous_stream"}
         # Do not write reference path, audio, embedding, or its fingerprint to the manifest.
     def __call__(self,mono):
         import numpy as np
@@ -68,3 +68,44 @@ class VoxLockBackend:
         out=soxr.resample(estimate,RATE,48000).astype(np.float32)
         if len(out)!=size:raise ValueError("VoxLock Resampling-Zeitbasis ungültig")
         return out[:n]
+
+
+    def stream_estimates(self,chunks,count,*,cancelled=None):
+        """One enrollment and continuous recurrent state for the entire job.
+        Both resamplers are streaming; flush and trim only final padding.
+        Yields sequential source-aligned mono 48 kHz samples.
+        """
+        import numpy as np
+        import soxr
+        if count<=0:raise ValueError("Leere Zielstimmanalyse")
+        down=soxr.ResampleStream(48000,RATE,1,dtype="float32")
+        up=soxr.ResampleStream(RATE,48000,1,dtype="float32")
+        session=self.model.stream(self.reference)
+        padded_count=max(3*1024,((count+2)//3)*3)
+        seen=0;emitted=0;actual_output=0;low_input=0;low_output=0
+        def check():
+            if cancelled and cancelled():raise CancelledError("Audiotrennung abgebrochen")
+        for block in chunks:
+            check()
+            x=np.asarray(block,dtype=np.float32)
+            if x.ndim!=1 or not len(x) or not np.isfinite(x).all() or seen+len(x)>count:
+                raise ValueError("Ungültiges TSE-Eingabefenster")
+            seen+=len(x);last=seen==count
+            if last:x=np.pad(x,(0,padded_count-count))
+            low=down.resample_chunk(x,last=last)
+            low_input+=len(low)
+            y=np.asarray(session.push(low),dtype=np.float32)
+            if last:y=np.concatenate((y,np.asarray(session.flush(),dtype=np.float32)))
+            if y.ndim!=1 or not np.isfinite(y).all():raise ValueError("Ungültige TSE-Modellausgabe")
+            low_output+=len(y)
+            if low_output>low_input or (last and low_output!=low_input):raise ValueError("TSE-Modellzeitbasis ungültig")
+            out=up.resample_chunk(y,last=last)
+            actual_output+=len(out)
+            if actual_output>padded_count:raise ValueError("TSE-Resampling zu lang")
+            n=min(count-emitted,len(out))
+            if n>0:
+                check()
+                emitted+=n
+                yield out[:n]
+        if seen!=count or emitted!=count or actual_output!=padded_count or low_input!=padded_count//3:
+            raise ValueError("TSE-Stream unvollständig oder Zeitbasis ungültig")

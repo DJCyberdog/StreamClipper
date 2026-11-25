@@ -56,3 +56,33 @@ def test_missing_model_and_cancel(reference,tmp_path):
     for name in FILES:(tmp_path/name).write_bytes(b"x"*2048)
     with pytest.raises(CancelledError):
         VoxLockBackend(tmp_path,reference,consent=True,cancelled=lambda:True)
+
+
+def test_continuous_stream_state_and_flush(reference,tmp_path,monkeypatch):
+    import importlib.metadata
+    root=tmp_path/"models";root.mkdir()
+    for name in FILES:(root/name).write_bytes(b"x"*2048)
+    enroll=[]
+    class Session:
+        def __init__(self):self.tail=np.zeros(0,dtype=np.float32);self.calls=0
+        def push(self,x):
+            self.calls+=1
+            data=np.concatenate([self.tail,x*.5])
+            n=max(0,len(data)-100)
+            self.tail=data[n:].copy()
+            return data[:n]
+        def flush(self):
+            result=self.tail;self.tail=np.zeros(0,dtype=np.float32);return result
+    class Fake:
+        def __init__(self,**kw):pass
+        def stream(self,sample):
+            enroll.append(Session());return enroll[-1]
+    monkeypatch.setattr(importlib.metadata,"version",lambda name:"1.3.0")
+    monkeypatch.setitem(sys.modules,"voxlock",SimpleNamespace(VoxLock=Fake))
+    model=VoxLockBackend(root,reference,consent=True)
+    n=48000*17+731
+    x=(.2*np.sin(2*np.pi*310*np.arange(n)/48000)).astype(np.float32)
+    chunks=[x[i:i+384000] for i in range(0,n,384000)]
+    data=np.concatenate(list(model.stream_estimates(iter(chunks),n)))
+    assert data.shape==x.shape and len(enroll)==1 and enroll[0].calls==3
+    np.testing.assert_allclose(data[500:-500],x[500:-500]*.5,atol=2e-4)
