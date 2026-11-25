@@ -89,3 +89,41 @@ migriert werden.
 Windows-11-GUI, Qt-Multimedia-Codecs, lange OBS-MKV-Dateien, variable FPS,
 Mehrspur-Audio, GPU-/CPU-Last auf echtem Zielsystem, Unterbrechungen im Export,
 Sonderzeichen/Unicode-Pfade. CI auf Windows plus Testdatensatz erforderlich.
+
+## M2 / StreamClipper 0.2: Evidenzbasierte, optionale Gaming-Analyse
+
+```text
+Audio-RMS (bestehendes Basismodul) ---> schwache Audio-Evidenz -----+
+                                                                    |
+Whisper lokal (optional, Sprache) ---> Transkript-Hinweise ----------+--> Event-Fusion
+                                                                    |    | Score/Grund
+FFmpeg sparse seeks -> JPEG -> CLIP lokal (optional) -> Bildhinweise +    v
+                                                                 Clip-Vorschlag
+```
+
+- **`semantic.py`** implementiert lokale, lazy geladene ML-Adapter. Keine
+  Netzwerkanfragen, kein Download während der Analyse. Einstellbare
+  Modellpfade; Gewichte bleiben außerhalb des Git-Repositories.
+- **`media.py`** kapselt die FFmpeg-Seeks. Maximal 180 einzelne, über die
+  Aufnahmedauer verteilte Frame-Anfragen standardmäßig, statt stundenlange
+  Videos vollständig zu dekodieren.
+- **`analyze.py`** verbindet vorhandene Audio-Hinweise mit freiwillig
+  aktivierten Sprach-/Bildhinweisen. Wenn kein KI-Modell konfiguriert ist,
+  bleibt die alte Audio-Pipeline unverändert.
+- **`cli.py` / `gui.py`** zeigen optionale Modellpfade. Qt arbeitet im
+  QThread, speichert weiterhin denselben JSON-Candidate-Vertrag.
+
+CLIP arbeitet auf **statischen Bildern**: die Textkategorien sind relative
+Bildähnlichkeit. Scores und Keywords sind **nicht empirisch kalibriert**.
+Fehlalarme und verpasste Ereignisse werden erwartet. Für Modellevaluation
+fehlt derzeit ein annotierter unabhängiger Gaming-Testdatensatz.
+
+Das Windows-Portable-Paket aus der bestehenden GitHub-CI bleibt ohne ML-Extras
+lauffähig, kann aber die optionalen KI-Adapter nicht eigenständig verwenden.
+Interaktive Windows-Abnahme und ein AI-fähiges Packaging bleiben offen.
+
+## Portable Datenablage
+
+`src/streamclipper/portable.py` berechnet einen Installationsstamm aus `STREAMCLIPPER_HOME`, dem PyInstaller-EXE-Verzeichnis oder der Paketquelle in einem Editable-Install. Die Anwendung setzt vor dem Import optionaler ML-Bibliotheken prozesslokale Cache- und Modellpfade nach `<root>/data`. Das Windows-Setup verwendet dieselben Pfade für `pip` über `portable_env.bat`; Windows-Umgebungsvariablen werden nicht dauerhaft verändert.
+
+Grenze: Betriebssystem-/Treiberdateien, separat installiertes Python und FFmpeg, und vom Benutzer explizit gewählte Exportpfade werden nicht verlagert.

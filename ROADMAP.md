@@ -164,7 +164,7 @@ Vorhandene *experimentelle* Implementierungen umfassen Audio-Highlighting, nicht
 
 ### 5.1 Meilensteinregeln und Abhängigkeiten
 
-1. **M10.5 zuerst:** Bestehende gestapelte Code-PRs integrieren und mit realen Windows-Daten testen. **P1-Bugfix #32 (Modelldownload-Fortschritt) vor M10.5-Abnahme erledigen.** Erst dann neue komplexe Workflows aufbauen.
+1. **M10.5-Baseline und Review:** Bestehende gestapelte Code-PRs integrieren und mit realen Windows-Daten testen. **P1-UX-Wunsch #32** (Modellfortschritt/HF-Token) wird im Entwicklungszweig ergänzt, **ist aber kein technischer oder zeitlicher Blocker für M11/M12**. Seine eigenen Abnahmekriterien bleiben bis zur Release-Freigabe nachvollziehbar.
 2. **M11 (Editor) → M12 (Render-Vertrag) → M13 (Kamera):** Persistente Timeline-/Szenenstruktur und verlässliche Renderpipeline sind Voraussetzung für den Smart Director. M12 stellt die exportgetreue Grundlage bereit; M13 und M14 erweitern und verifizieren sie für ihre jeweiligen Effekte.
 3. **M14 (Captions) und M15 (Audio) → M16 (Intelligence) → M17 (Montage):** Wortkorrekturen und Audiosignale in die zweistufige Erkennung übernehmen, dann die Ereignisfenster in Story-aware Clipgrenzen überführen. Vor dem Ausbau der KI steht immer ein unabhängiger Qualitäts-Benchmark; Qualitätsgewinn wird nicht allein aus Modellgröße abgeleitet.
 4. **M17 (Montage) → M19 (Publishing):** Clips müssen vollständig bearbeitbar und exportierbar sein, bevor sie über Dienste veröffentlicht werden.
@@ -176,7 +176,7 @@ Vorhandene *experimentelle* Implementierungen umfassen Audio-Highlighting, nicht
 
 **Fehlerbild:** Beim explizit gestarteten Download lokaler Whisper-/CLIP-/DETR-Modellgewichte zeigt die Konsole den Fortschritt von `huggingface_hub.snapshot_download`; der **untere Fortschrittsbalken in StreamClipper bleibt bei 0 %**. Das ist eine Regression/fehlende Anbindung des **bestehenden** Modell-Workflows (M9), **kein neues Hauptfeature und kein M12-Renderjob**.
 
-**Verbindliche P1-Abnahme vor Abschluss von M10.5:**
+**P1-UX-Wunsch, zur Prüfung im Draft (kein Blocker für nachfolgende Entwicklung):**
 
 - [ ] `ModelDownloadThread` sendet **thread-sichere Progress-Events** an die GUI; die untere Leiste zeigt den Download **sofort** und nennt das aktuell geladene Modell.
 - [ ] Wenn Bytes und Gesamtgröße tatsächlich bekannt sind: Fortschritt auf Basis **der aufsummierten heruntergeladenen Bytes über alle Dateien**; Nachladungen wie `pytorch_model.bin` korrekt berücksichtigen. **Keine** fiktiven Prozentwerte anhand des Dateizählers.
@@ -194,19 +194,273 @@ Vorhandene *experimentelle* Implementierungen umfassen Audio-Highlighting, nicht
 - [ ] `snapshot_download(..., token=...)` für Haupt- und Gewichts-Fallback-Downloads verwenden; Verbindung, Fehler, Retry und **Downloadfortschritt** im gleichen GUI-Workflow miteinander koordinieren.
 - [ ] Automatisierte Sicherheitstests mit **Fake-Tokens** einschließlich Qt-Offscreen-Test; echter HF-Windows-Test nur mit lokal bereitgestelltem Token, **niemals** Test-Tokens ins Repo committen.
 
-**Priorisierung:** **M10.5, P1 / vor dem Integrationsabschluss**, danach keine separate Aufschiebung in M12. Die Tierlist bleibt **60 Hauptfeatures** mit **58 vorgesehenen Implementierungen und zwei F-Ausschlüssen**.
+**Priorisierung:** **M10.5, P1-Wunsch ohne Entwicklungsblockade**; Implementierung im späteren gestapelten Draft nach M11c, sodass M11-Arbeit nicht neu aufgebaut werden muss. Reale Modell-/Token-Windows-Prüfung bleibt Release-Gate. Die Tierlist bleibt **60 Hauptfeatures** mit **58 vorgesehenen Implementierungen und zwei F-Ausschlüssen**.
 
 ### 5.2 M11 – Editor, Timeline & Projektlebenszyklus
+
+**Umsetzungsstatus (experimentell):** M11a (PR #34) bietet kompaktes Undo/Redo und atomare Recovery für bestehende Clip-/Transkript-Edits. **M11b-Spurplan und GUI-Aufräumung** werden im gestapelten Branch `feat/sc-m11b-tracks-workspace` umgesetzt: versioniertes, lokal gespeichertes Spur-/Clip-Metadatenmodell; scrollbare Seitenregister **Highlights / Untertitel / KI & Modelle / Spuren / Export**, dauerhafte Vorschau + Timeline und einklappbarer Worteditor. **Die Spuren haben derzeit noch keinen Effekt auf Audio-/Video-Rendering**; Mehrspur-Komposition benötigt weitere Entwicklung und den M12-Render-Vertrag. **M11c Teil 4 (Draft):** Optionale 480p-Proxy-Vorschau im bestehenden Preview-Bereich; CPU-FFmpeg-Transcode im Hintergrund mit Fortschritt/Abbruch, quellengebundener Cache unter `data/proxies/`, VFR-PTS-Abstände und zeitbasierte Rückabbildung, Dauer-/Startoffsetprüfung, atomische Cachepublikation und Original-Fallback. Kein Proxy-Rendering in M12 vorgetäuscht; reale Windows-/6h-VOD-Abnahme bleibt offen. **M11c Teil 3 (Draft):** Explizite Übernahme von Analyse-Highlights als source-gebundene Spurplan-Metadaten in eigene oder gewählte Videospur; stabile IDs, Schutz vor Duplikaten, Sperrprüfung, atomische Speicherung und einheitliches Undo. Keine automatische Migration bei jeder Analyse; weder Sync zurück zur Analyse noch Rendering. Tests/CI und Windows-End-to-End sind separate Abnahme-Gates. **M11c Teil 2 (Draft):** Ein gemeinsamer, chronologisch geordneter Undo-/Redo-Verlauf ersetzt die getrennten History-Stapel für Spurplan und Analyse; globale Strg+Z/Strg+Umschalt+Z behandeln aktive Texteingaben gesondert, doppelte Spur-Undo-Buttons entfallen. Kompakte Transkript-Deltas bleiben erhalten; fehlgeschlagene Spur-Speicherung darf den Verlaufszeiger nicht verschieben. CI/Qt-Offscreen sind Review-Gates, reale Windows-Ergonomie und lange VOD-Tests weiterhin offen. **M11c Teil 1 (Draft):** Benannte, versionierte Projektstände für Spurplan und optionale Analyse werden lokal atomisch gespeichert, mit Quellbindung, Integritätsprüfung, begrenzter Aufbewahrung und Wiederherstellung über das Menü **Datei & Projekt** (ohne zusätzlichen Reiter). Core- und Qt-Offscreen-Tests sind vorgesehen; reale Windows-Abnahme bleibt offen. **M11 insgesamt NICHT abgenommen:** vollständige Checkpoints, Proxy-Medien, gemeinsame Undo-/Shortcut-Verwaltung, tatsächliche Mehrspur-Wiedergabe/-Export und Windows-/6h-Abnahme sind offen.
 
 - Eine Timeline mit mehreren Spuren, zuverlässigem Undo/Redo, Proxy-Medien und nutzbaren Shortcuts.
 - Autosave/Crash Recovery (**#04**) und vollwertige Projektverwaltung mit Analyse-Checkpoints (**D-B1**) als **getrennte** Leistungsmerkmale im gleichen Editor-Datenmodell.
 - Lange Aufnahmen navigieren und Clipgrenzen editieren, ohne Videos erneut zu transkribieren; Datei- und Projektzustand nichtdestruktiv speichern.
 
-### 5.3 M12 – Vorschau & gemeinsame Renderpipeline
+#### 5.2.1 M11-UX – Navigation und Editor-Informationsarchitektur
+
+**Ausdrückliche Owner-Anforderung (22.11.2026):** Die GUI muss mit jedem
+Meilenstein übersichtlicher statt überladener werden. Der **M11b-Prototyp**
+strukturiert die bisher auf einer Seite verteilten Werkzeuge als Seitenregister
+**Highlights / Untertitel / KI & Modelle / Spuren / Export**. Videovorschau und
+Haupt-Timeline bleiben unabhängig vom aktiven Register sichtbar. Die
+umfangreichen Modell-/Exportoptionen sind scrollbar, der detaillierte
+Worteditor einklappbar und bei Wortauswahl automatisch erreichbar.
+
+Die Spurenübersicht erhält **grafische Clip-Zeitblöcke je Spur** mit
+Klick-Auswahl und Dragging der Timeline-Position; daneben bleiben
+präzise Tabellen-/Dialogeingaben nutzbar. Ein editierbarer Spurplan darf
+**nicht** als bereits exportgetreue Mehrspur-Vorschau bezeichnet werden.
+
+**M11-UX-Abnahmekriterien vor 1.0:**
+
+- [ ] Hauptfunktionen bei **1366×768 und 1920×1080** ohne abgeschnittene
+      essenzielle Buttons bedienbar; kurze Wege für Öffnen → Prüfen →
+      Schneiden → Untertitel → Export. Seitenregisternavigation und
+      Tastaturbedienung getestet.
+- [ ] Vorschau und Timeline bleiben beim Wechsel von Modell-/Spuren-/
+      Untertitel-/Exportregistern sichtbar. Lange Einstellungsbereiche
+      bekommen Scrollflächen statt unbegrenzter Fensterbreite/-höhe.
+- [ ] Einsteiger:innen sehen nicht gleichzeitig alle KI-Parameter,
+      Wortzeitfelder, Exportoptionen und Spurwerkzeuge; Bedienelemente
+      bleiben schnell wiederauffindbar und Zustände nachvollziehbar.
+- [ ] Track-Canvas synchronisiert den angezeigten Timeline-Zeitbereich,
+      ausgewählte Clip-IDs und Drag-Bearbeitungen; Sperrregeln, Undo/Redo
+      und atomische Speichervorgänge greifen auch bei Mausinteraktion.
+- [ ] Keine falsche UI-Zusicherung: bis zur späteren M11/M12-Komposition
+      sind unabhängige Audiospuren und grafische Effekte **Metadaten**,
+      noch keine abgemischten Video-/Audio-Exporte.
+
+#### 5.2.2 Owner-Entscheidung (23.11.2026): Premiere-inspirierte Editor-UI
+
+**Zielbild:** StreamClipper Studio bekommt eine **professionelle,
+panelbasierte, frei anpassbare NLE-Arbeitsfläche**, inspiriert von den
+Bedienprinzipien von Adobe Premiere Pro, jedoch **kein Design-/Markenklon**.
+Die Kernstärke **KI-Highlights → schnelle Überprüfung → gezielter Schnitt
+→ Export** bleibt ein erster, gleichberechtigter Workflow und wird nicht
+hinter tiefen Profi-Menüs versteckt. Die bestehenden fünf Reiter sind eine
+Zwischenlösung, **nicht** die endgültige Informationsarchitektur.
+
+**Zielaufbau:**
+
+- Obere Menü-/Workspace-Leiste: **Highlights**, **Schnitt**, **Audio**,
+  **Untertitel**, **Export**; optional **Einfach-/Expertenansicht**.
+- **Projekt-/Medien-Browser und KI-Highlight-Liste** links, in Panels
+  als Tabs oder per Drag-and-Drop andockbar. Medienimport, Suche,
+  Kandidatenscores, Quellinformationen und Batch-Vorschau.
+- **Programmmonitor** zentral/rechts mit transport-/framegenauem
+  Scrubbing und gut sichtbarer Zeitcodeanzeige; optionaler Quellmonitor.
+  Sichtbarer Modusstatus: Original/Proxy/echte Render-Vorschau.
+- **Mehrspur-Timeline unten als primärer Arbeitsbereich**, frei
+  höhenverstellbar, Video-/Audiolanes, Waveforms, Clipkanten, Zoom,
+  magnetisches Snapping, Playhead, Marker, Lock/Mute/Solo und
+  Tastaturbefehle; keine doppelte Timeline in parallelen Tabs.
+- **Eigenschaften/Effekte/Audiomixer rechts** als Kontextpanel,
+  nur zur aktuellen Auswahl; Worteditor und Modellkonfiguration
+  einklappbar. Exportjobs mit sichtbarer Fortschritts-/Fehlerliste.
+- Panel-Docking/-Undocking, anpassbare Splitter und mehrere
+  **gespeicherte Workspace-Layouts** inklusive „Layout zurücksetzen“;
+  kein Verlust von Timeline-/Projektzuständen durch Layoutwechsel.
+
+**Etappen nach fachlicher Zugehörigkeit statt separater UI-Neubau:**
+
+1. **M12-UX:** Qt-Dock-/Splitter-Shell, Workspace-Presets,
+   Programmmonitor + Projekt/Highlights + Timeline sowie persistierte
+   Layoutzustände auf der bestehenden PySide6-Anwendung; funktionales
+   Behavior aus M11 erhalten, keine neue App/Portierung.
+2. **M13-UX:** Echtzeitnahe Parameter-/Keyframe-/Camera-Controls
+   im Auswahl- und Effektpanel, Drag&Drop/Snapping/Multi-Clip-Editing.
+3. **M14/M15-UX:** Direkt bearbeitbare Untertitelspuren, Audiopegel,
+   Audiomixer, Effekt- und Musik-Panels; einheitliche Preview-/Exportzustände.
+4. **M16–M19:** KI-Hit-Browser, Varianten/Montage, Quellenimport,
+   optionaler Publish-Workflow als zusätzliche Workspaces statt immer
+   längerer Tab-Formulare.
+5. **M20:** Verbindliche End-to-End-UX-Abnahme, Accessibility,
+   Shortcuts, Layoutmigration, Projektkonsistenz und Regression.
+
+**Abnahmekriterien (vor 1.0):**
+
+- [ ] Bei **1366×768** und **1920×1080** sind Timeline,
+      Monitor, Medienbrowser und Hauptaktionen ohne abgeschnittene
+      Bedienelemente erreichbar; auch mit vielen Tracks/Long-VODs.
+- [ ] Panels andocken, verschieben, ein-/ausblenden, Layout
+      speichern/laden/zurücksetzen; Wechsel während Wiedergabe
+      verliert weder Playhead, Selektion noch offene Edits.
+- [ ] Bedienung mit Maus und Tastatur, eindeutiger aktiver Fokus,
+      Undo/Redo und Snapping, kein doppeltes Shortcut-Handling.
+- [ ] **Highlights-first** und **professioneller Mehrspurschnitt**
+      sind gleichwertig nutzbar; neue Nutzer:innen müssen keine
+      Expert:innenkonfiguration öffnen, um einen Clip zu erstellen.
+- [ ] Panelzustände lokal und versionsverträglich speichern,
+      alte M11/M12-Projekte ohne Datenverlust übernehmen; keine
+      erzwungene Cloud-/Adobe-Abhängigkeit.
+- [ ] Keine bloße „Premiere-Optik“ vortäuschen: Monitor/Timeline
+      zeigen die tatsächliche Renderfähigkeit und kennzeichnen
+      noch nicht implementierte Video-/Audio-Funktionen.
+
+**Status M12-UX Teil 1 (Draft):** Die bestehende PySide6-Oberfläche
+wurde in ein dockbares Drei-Panel-/Timeline-Grundlayout überführt:
+Projekt-/Werkzeug-Dock (mit allen bisherigen Registerkarten), separater
+beweglicher **Timeline-Dock**, zentraler Original-/Proxy-Programmmonitor
+und ein kontextbezogener **Eigenschaften-Dock**. Der top-level
+Workspace-Schalter **Highlights / Schnitt / Audio / Untertitel / Export**
+ist mit echten bestehenden Editor-Panels verdrahtet, keine Attrappen.
+Dock-Größe/-Position, Sichtbarkeit und aktiver Workspace werden lokal,
+atomar, versioniert gespeichert; „Layout zurücksetzen“ stellt ein
+sicheres Standardlayout wieder her. Schlanke Graphit-/Saphir-Styles
+mit konsistentem Focus-, Hover-, Selektions- und deaktivierten Zustand
+ersetzen die bisher verstreuten QSS-Regeln. **Keine Projekt- oder
+Video-Migration erforderlich.**
+
+**Ehrliche Teil-1-Grenzen:** Kontextinspektor ist zunächst lesend und
+springt zu den bestehenden Editoren; Clip-Drag&Drop zwischen Docks,
+eine wirklich vereinte mehrspurige Timeline (bisher separate
+Wellenform-/Spur-Canvas), Keyframe-Property-Editor,
+weitere Workspace-Presets für benutzerdefinierte Panel-Inhalte sowie
+vollständiges UI/UX-Polishing stehen aus. Formale Abnahme erst nach
+Windows 1366×768/1920×1080, realen Tastatur-/Video-/Docking-Sessions,
+Accessibility und Performance-Messungen.
+
+Das übergeordnete 60-Feature-Inventar bleibt unverändert; die
+Premiere-inspirierte UX-Architektur wird iterativ umgesetzt.
+
+**M12-UX Teil 2 (Draft):** Wellenform/Untertitel und M11-Spur-Canvas
+belegen jetzt genau **einen gemeinsamen Timeline-Dock** mit
+gemeinsamem sichtbaren Zeitintervall, ausgerichteter 128px-Zeitachse,
+Playhead, IN/OUT, Zoom und horizontalem Scrollen. Auf einer
+vertikalen Splitterfläche bleiben die bisherigen Zeichen-/Edit-
+Kontrollen erhalten, statt parallele Zeitachsen in zwei Tabs zu
+zeigen. 8px-Magnetismus für Clipstart/-ende an andere Kanten,
+Playhead, IN/OUT ist abschaltbar; Track-Lock und
+Undo-/Persistenz-Regeln gelten. Der Inspector editiert Clip-
+Quell-IN/OUT, Timeline-IN und ggf. Gain in **einem** atomaren,
+undoable Delta; ungültige Eingaben scheitern ohne Zwischenstand.
+Nicht implementiert: Ripple/Roll-/Multi-Clip-NLE, tatsächlicher
+Mehrspurvideo-/Overlay-Graph und vollständige Live-WYSIWYG-Simulation.
+Reale Windows-/6h-Bedienbarkeit und GPU-Tuning sind Release-Gates.
+
+**M12b Teil 2 (Draft):** Projektformat **v3** erweitert v2-
+Audiospuren um ausdrücklich referenzierte lokale Videoquellen
+für Picture-in-Picture und statische PNG/JPEG/WebP-Overlays.
+Bounded normalisierte Bildbox (x/y/w/h) und Deckkraft, geordnete
+visuelle Rendergraph-Layer (max. acht), Quell- und Timeline-Zeiten
+sowie aktive/gesperrte/stumme Spuren werden deterministisch
+durch denselben `RenderRequest` für MP4 und 20-s-Render-Vorschau
+geführt. Externe Bild-/Videodateien vor dem Export per FFprobe prüfen,
+Originaldateien nicht beschreiben. Der Inspector verwaltet Geometrie/
+Deckkraft in einem atomaren Undo-Schritt; Qt bietet Dateiauswahl für
+zweite Videospur und vorhandene Grafiken-Spur. Mit **Clip entfernen**
+werden nur nicht gesperrte, nicht-Basis-Spurclips gelöscht; Datei und
+Undo/Redo bleiben unversehrt. v1-/v2-Projekte und
+Checkpoints lesend v3 migrieren, gespeicherte Originalstände nicht
+ungefragt überschreiben. Reproduzierbare Frame-/Audio-Golden-Vergleiche,
+Abbruch-/Missing-Source-Gates und Windows-Qt-Offscreen sind Pflicht.
+**Nicht unterstützt:** Metadaten-only-Highlightclips als PiP,
+Austausch der Basisvideospur, echtes Text-Clip-Compositing,
+Audioübernahme aus PiP, animierte Keyframes, vollständiges
+Live-WYSIWYG, NVENC und lange reale VOD-Akzeptanztests.
+Nicht unterstützte aktive Layer **fail closed**.
+
+
+
+**M12a (Draft):** Gemeinsamer, unveränderlicher `RenderRequest` für
+den bestehenden Single-Source-FFmpeg-Export und die ausdrücklich
+ausgelöste, auf 20 Sekunden begrenzte Render-Vorschau (MP4).
+Identische Crop-/Reframe-/ASS-Untertitelparameter in beiden Pfaden,
+separater Qt-Player, Hintergrundjob, Abbruch und temporäre Datei.
+Dies ist **noch kein M12-Freeze**: reale Windows-/6h-Abnahme,
+Mehrspur-Komposition, Live-WYSIWYG, NVENC, Export-QA und Renderqueue
+bleiben offen. M11-Metadaten-Spuren wirken weiterhin nicht auf den
+Rendergraph.
+
+**M12b Teil 1 (Draft):** Versionierter, deterministischer Rendergraph
+und Projektformat v2 (v1-Dateien und v1-Checkpoints beim Lesen migrieren).
+Editor kann lokale WAV/MP3/FLAC-Audiomedien mit Quellzeit, Zielzeit
+und Pegel als Spurclips referenzieren. Opt-in FFmpeg-Audio-Compositor
+mit Stumm-/Sperr-/Ausblenden-Semantik; Ausgaben aus MP4-Export und
+20-s-Render-Vorschau haben identische Graph-Parameter und Audiomischung.
+Noch keine Mehrspur-Videokomposition, kein Overlay-Compositing,
+keine durchgehende Live-WYSIWYG-Vorschau. Diese werden bei angeforderter
+Graph-Verarbeitung ausdrücklich abgelehnt statt ignoriert. Echte
+Windows-/6h-VOD-Abnahme noch offen.
+
+**M12c (Draft): NVENC-Hardware-Encoding und automatische CPU-Rettung.**
+Der bisherige FFmpeg-Compositor und `RenderRequest` erhalten ein
+append-only `encoder`-Profil: `auto_h264/cpu_h264/nvenc_h264` bzw.
+`auto_hevc/cpu_hevc/nvenc_hevc`. Im Qt-Export-Workspace sind alle
+sechs Profiltypen explizit wählbar, H.264 Automatik ist die
+Default-Einstellung. Standalone-API-Aufrufe bleiben standardmäßig
+`cpu_h264` und kompatibel zu alten positional `RenderRequest`s.
+NVENC-Verfügbarkeit wird **nicht** über `ffmpeg -encoders` behauptet:
+Jeder Auto-/NVENC-Job kodiert zwei echte 64×64-Testframes mit der
+ausgewählten NVIDIA-Hardware. Läuft die kurze Probe nicht durch,
+fällt Auto **vor dem Render** auf den gleichen CPU-Codec zurück,
+während explizites NVENC fail-closed bleibt.
+
+Falls NVENC nach bestandener Probe beim **realen Encode** ausfällt,
+verwirft Auto die unfertige temporäre MP4 und versucht den
+identischen Rendergraphen **genau einmal** mit `libx264` bzw.
+`libx265` neu, inklusive echter Fortschritts- und Statusanzeige.
+Der Original-Clip und vorhandene fertige Exports dürfen dabei
+nie überschrieben werden; Abbruch wird nicht als GPU-Fehler
+umgedeutet. MP4-Publish erst nach erfolgreicher Containerprüfung.
+HEVC-Ausgaben werden mit `hvc1` geschrieben, bleiben explizit
+eine Kompatibilitätsentscheidung. **Nicht enthalten** sind CUDA-
+Decoding, GPU-Filtergraph, HDR/10-Bit, AV1, frei wählbare
+Bitraten/Rate-Control und technische Echtzeit-Performance-Garantien.
+
+**Abnahme M12c:** Vollsuite mit echten FFmpeg-CPU-Encodes,
+simuliertem NVENC-Ausfall **nach** positiver Probe,
+GPU-only-Negativtest, Abbruch, Preview-/Export-Framegleichheit
+bei gleichem CPU-Profil, Qt-Offscreen-Auswahl plus
+portablem Windows-ZIP. Reale NVENC-Hardwareprüfung der
+RTX 5060 Ti, lange OBS-Aufnahmen, HEVC-Plattformkompatibilität
+und Messung von GPU-Auslastung/Temperaturen bleiben offen,
+bis auf lokaler Windows-11-Hardware ausgeführt.
 
 - Rendergraph/-Parameter für Vorschau und MP4-Export gemeinschaftlich definieren (**#01**).
 - NVENC (H.264/HEVC), sichere CPU-Fallbacks, stapelbare Renderjobs und Exportqualitätsprüfung (**#06–#08**).
 - Die Vorschau darf nicht nur „ungefähr“ stimmen: Kamerafahrt- und Untertiteltests werden in **M13/M14** gegen denselben Rendervertrag erweitert.
+
+**M12d + M12e (gemeinsamer Draft): Exportqualitätsabnahme und
+persistente Renderqueue.** Vor dem atomaren MP4-Publish prüft M12d
+FFprobe-Codec/Container/Dimensionen/Streamzeitstempel,
+drei wirklich decodierte Frames und begrenzte EBU-R128-Audio-
+Samples (Anfang/Mitte, höchstens 16 Sekunden); harte Codec/
+Decoding-/A/V-Synchronitätsverstöße verhindern den Publish.
+Sample-LUFS und True-Peak sind **nur Messwerte des geprüften
+Abschnitts**, nicht der integrierte Lautheitswert eines 6h-VODs.
+Eine atomare `.mp4.qa.json` mit Version, Evidenz, Warnungen,
+Dateihash und Timestamp dokumentiert jeden bestandenen Export.
+
+M12e speichert unveränderliche RenderRequest-Snapshots mit
+stabilen Job-IDs atomar lokal und startet niemals automatisch.
+Ein OS-Dateilock und nur ein aktiver QThread verhindern doppelte
+parallele Queues. Statuswechsel sind nachvollziehbar; nach
+Absturz RUNNING→INTERRUPTED, und nur manuelles Resume ist
+zulässig. Ein jobgebundener `.mp4.scjob.json`-Beleg prüft
+Job-ID, Request-SHA und QA-Dateihash. Vorhandene, nicht
+belegbare Ausgaben werden **BLOCKED**, niemals überschrieben
+oder automatisch erneut erzeugt; ein bestätigter, bereits
+abgeschlossener Export wird nach Neustart erkannt. Stop/Cancel/
+Retry/Discard erhalten Originaldateien und QA-Berichte.
+Ein Render-Neustart beginnt den einzelnen Job wieder **bei
+Frame 0** und ist kein Container-Resume ab dem letzten Frame.
+
+**Gate:** reale H264-/HEVC-FFmpeg- und korrupten-Output-Tests,
+Unterbrechung beim Publizieren, Receipt-Hit/No-Receipt/Hash-
+Mismatch, v1-Queue-Migration, Lock zwei Prozesse, alle bisherigen
+M11/M12-Tests, Windows GUI + portable ZIP am identischen Head.
+**Offen:** reale 6h-OBS-VFR-/RTX-5060-Ti-Benchmarks,
+End-to-End-Loudness des gesamten Programms, Uploadplattform-
+Zertifizierung. Keine Cloud- oder Autopublish-Funktion.
 
 ### 5.4 M13 – Manuelle Szenen, Smart Director und **vollständiges** A-11
 
@@ -223,11 +477,162 @@ Vorhandene *experimentelle* Implementierungen umfassen Audio-Highlighting, nicht
 ### 5.5 M14–M19 – Domänenweise fertigstellen
 
 - **M14 Untertitel & Branding:** Worttiming, Word Captions, Übersetzung, Callouts und Thumbnails in **einem** Bearbeitungsworkflow.
-- **M15 Audio & Sprache:** Mischspuren, Cleanup, Sprechererkennung, Ducking und Voice-over teilen sich die Audiotimeline.
+- **M15 Audio & Speech Intelligence:** Mischspuren, Cleanup, Sprechererkennung, Ducking und Voice-over teilen sich die Audiotimeline. Audiotrennung, robuste ASR und sprachsignalbasierte Timing-Korrektur siehe M15a–M15f (Abschnitt 5.5.2).
 - **M16 Gameplay Intelligence:** Benchmark, zweistufiges temporales Screening, bessere multimodale Fusion, Sprachreaktionen, Spielprofile, Feedback-Learning, Dubletten/Kontaktbögen sowie optional Twitch-Chat und semantische Suche – **mit unabhängigen Vergleichstests**; siehe M16a–M16f.
 - **M17 Montage:** Story-aware Clipgrenzen (Aufbau, Aktion, Pointe/Reaktion), Hooks/Kapitel, Geschwindigkeit, Standbilder, Sounds, Farbe, mehrere Längen und A/B-Varianten; siehe M17a.
 - **M18 Streaming-Integrationen & Multi-Plattform-Import:** Einmalige URL-Imports für Twitch/YouTube/Kick und weitere unterstützte Plattformen mit einer gemeinsamen Download-Engine; OBS, Stream Deck, NLE, Tastatur-/Sprachoberfläche, Watch Folders und **separater** optionaler Kanalimport. **#36 Shortcuts sind bereits M11 zugeordnet**, damit sie von Beginn an editorweit wirken.
 - **M19 Publishing & Collaboration:** Veröffentlichung nur mit Freigabe; Cloud Review, Sync, Analytics und Companion App ergänzen den Publishing-Workflow, erzwingen aber **keinen** Cloud-Zugang für lokales Editing.
+
+#### 5.5.1 M19-PUBLISH – Plattformübergreifender Direktupload (Owner-Wunsch 23.11.2026)
+
+**Produkterlebnis:** Im Premiere-inspirierten Editor erscheint der eigenständige
+Workspace **„Veröffentlichen“**, direkt nach erfolgreicher Render-/Export-QA.
+Nutzer:innen wählen bewusst eine oder mehrere Plattformen, sehen den
+korrekten Account, den fertigen Clip und dessen Ziel-Metadaten, passen
+Titel/Beschreibung/Hashtags/Sichtbarkeit und plattformspezifische Optionen
+an und bestätigen jede Veröffentlichung ausdrücklich. Ein **gemeinsamer
+Publish-Job** verwaltet pro Ziel isolierte Zustände, Fortschritte, Fehler,
+Abbruch und überprüfte Links zum veröffentlichten Beitrag. Der lokale MP4-
+Export bleibt ohne Kontoverknüpfung oder Cloud funktional.
+
+**Adapter (offizielle APIs; Verfügbarkeit und Prüfung vor Implementierung):**
+
+- **YouTube + Shorts**: OAuth 2.0, YouTube Data API v3 `videos.insert`,
+  resumierbarer Upload, Datenschutz-/Publikumsstatus, Thumbnail,
+  Titel/Beschreibung. Shorts sind keine separate Upload-API; die
+  Klassifikation erfolgt anhand der Plattformregeln zum Video.
+  Referenz: https://developers.google.com/youtube/data/reference/rest/v3/videos/insert
+- **TikTok**: Content Posting API – `video.publish` für Direct Post,
+  alternativ `video.upload` zum Weiterbearbeiten/Bestätigen in TikTok;
+  Creator-Info/Privacy-Möglichkeiten vorher abrufen, ausdrückliche Zustimmung.
+  Nicht auditierte Clients können nur privat posten; App-/Scope-Audit für
+  öffentliche Direct-Posts als externer Freigabeschritt.
+  Referenz: https://developers.tiktok.com/docs/en/content-posting-api-get-started
+- **Instagram Reels**: Instagram Platform Content Publishing mit
+  Professional-Business/Creator-Account und gültiger Berechtigung;
+  Container-Erstellung, Verarbeitung prüfen, erst dann `media_publish`.
+  Der dokumentierte `video_url`-Flow benötigt eine für Meta erreichbare
+  Video-URL: optionaler sicherer temporärer Transfer statt erzwungener
+  permanenter Video-Cloud; alternativ nur geprüfte offizielle Varianten.
+  Private Consumer-Konten sind kein API-Publishing-Ziel.
+  Referenz: https://www.postman.com/meta/instagram/folder/830j7my/reels-publishing
+- **Snapchat Spotlight**: Public Profile API: Media erstellen/verschlüsselt
+  hochladen, danach `POST /public_profiles/{profile_id}/spotlights`;
+  benötigte Public-Profile-/Partner-Freigabe ist aktuell **allowlist-only**.
+  Ohne Freigabe lokaler Spotlight-Export + manuelle Weitergabe statt
+  irreführendem „Direktupload verfügbar“.
+  Referenz: https://developers.snap.com/marketing-api/Public-Profile-API/GetStarted
+
+**Übergreifender technischer Vertrag:**
+
+1. **M12/M14 Export-Übergabe:** Versionierte `PublishAsset`-Referenz auf
+   fertig validierten lokalen MP4-Render (Hash, Dauer, Framerate, Format,
+   Ausmaße, Audiocodec, Thumbnail und Rechte-Metadaten). Plattform-Presets
+   (u. a. 9:16) werden bei Bedarf als **separate Render-Varianten**
+   produziert; niemals die falsche Version stillschweigend hochladen.
+2. **M18 Accounts/Upload-Adapter-Vorbereitung:** OAuth über Systembrowser,
+   minimale Scopes, Tokenverschlüsselung im Windows Credential Manager,
+   kein Token in Projektdatei/Logs/URL-/CLI-Argumenten. Adapter pro
+   Anbieter mit `authorize → validate → upload → publish → status`,
+   API-Gates, Retry/Backoff, Idempotenz und Provider-Fehlerzuordnung.
+3. **M19 Publish-Center:** Per-Plattform-Metadaten, Account-/Rechtecheck,
+   Inhaltssichtbarkeit, Musik-/Urheberrechtshinweise, freiwillige
+   Finalbestätigung pro Ziel. Getrennte Upload-/Publish-Zustände:
+   `READY / UPLOADING / PROCESSING / PUBLISHED / FAILED / REQUIRES_ACTION`;
+   erst nach gesichertem Provider-Status „veröffentlicht“ anzeigen.
+   Teilweise Erfolge dürfen nicht durch andere Plattformfehler verdeckt
+   werden. Doppelposts durch unkritische Retries verhindern.
+4. **Abnahme:** Offizielle Sandbox-/Testaccounts und überprüfte App-
+   Freigaben, Mock-Adapter ohne echte Veröffentlichungen, manuelle
+   E2E-Veröffentlichungen nur mit explizit erlaubtem Testinhalt,
+   6h-VOD-Erzeugung und echte Windows-Upload-/Abbruchtests. Externe
+   API-/Account-Audits bleiben offen, bis dokumentiert bestanden.
+
+**Harte Negativanforderung:** Keine automatische Veröffentlichung beim
+Export, beim Clip-Fund, beim Verbinden eines Kontos oder nach App-Start.
+Auch bei mehreren Plattformen zählt jede Veröffentlichungsfreigabe
+bewusst und nachvollziehbar. Keine offizielle API umgehen oder Browser-
+Automatisierung als vermeintlich vollwertigen Provider-Upload tarnen.
+
+**Status:** Geplant und fachlich M19 / B-B2 zugeordnet, **noch nicht
+implementiert**. Die bestehende 60-Feature-Tierliste bleibt unverändert.
+
+
+#### 5.5.2 M15 – Audio & Speech Intelligence (Owner-Erweiterung 25.11.2026)
+
+Verbindliche Vertiefung bestehender Features #13–#16, #26, #33, #38 und S-B2;
+keine neuen Hauptfeature-IDs. Grundlage für M16 und M17a, nicht Ersatz für
+deren unabhängige Qualitätsprüfung. Offline-first; Quellvideo und Original-
+transkript unverändert, lokale Modelle optional und explizit bereitgestellt.
+
+**M15a – Audioquellen und Referenzdaten**
+- Alle vorhandenen Audio-Streams per FFprobe inventarisieren (Codec, Kanäle,
+  Sprache/Titel soweit vorhanden). Tatsächliche getrennte OBS-Spuren haben
+  Vorrang vor KI-Rekonstruktion. Keine Mikrofon-/Spieltonrolle aus Streamindex
+  oder Titel als bewiesene Tatsache ableiten; explizite Zuordnung.
+- Originalzeitbasis, Dauer, Sample-Rate, Kanalzahl und Provenienz sichern.
+  Mehrspur-/Einspur-Import und getrennte Ausgaben; bei nur einem Mix keine
+  behaupteten Original-Stems. Referenzmaterial aus freiwillig bereitgestellten
+  lokalen Aufnahmen, unabhängige Mischungs-/Sprecher-Holdouts.
+
+**M15b – Source Separation und Target Speaker Extraction (#13, #26)**
+- Musik-/Sprach-/Geräuschtrennung gegen reine Mix-Baseline vergleichen.
+  Dialog im Spiel ist ebenfalls Sprache: generische Vocal-Separation ist
+  nicht gleich Streamer-Isolation. Diarization optional; gezielte
+  Sprecherextraktion mit freiwilliger lokaler Stimmreferenz evaluieren
+  (z. B. WeSep als Kandidat, erst Lizenz/Checkpoint/Backend prüfen).
+- Keine Identifikation fremder Personen, keine Voice-Cloning-Funktion;
+  Referenz nur für Trennung in autorisierten Aufnahmen verwenden. Kein
+  erzwungener Voiceprint-Upload. Rekonstruierte Spuren kennzeichnen;
+  Residualmix und Artefakte, Übersprechen, Überlappungen und Phasenfehler
+  hörbar/quantitativ prüfen. Kein perfektes Entfernen von NPC-Stimmen versprechen.
+- Segment-/Chunk-Verarbeitung, Überlappung, Zeitachsen-/Pegel-Erhalt,
+  Ressourcenbudget auf RTX-5060-Ti-Klasse (16 GB), CPU-Fallback wo sinnvoll,
+  Abbruch/Wiederaufnahme und Cache. Originalmix jederzeit auswählbar.
+
+**M15c – Sprachsignalbasierte Timing-Korrektur (S-B2, #16)**
+- VAD auf ausgewählter Sprachspur bzw. belegter Sprachrekonstruktion; kein
+  globales Lautstärkegate für Spielsound. Leading/trailing silence bei
+  Cues begrenzen, natürliche Pausen für Segmentierung verwenden; kurze
+  konfigurierbare Lesbarkeits-Nachlaufzeit von Sprachendzeit unterscheiden.
+- Forced Alignment optional, Unsicherheit und nicht ausrichtbare Wörter
+  kenntlich machen; niemals exakte Zeiten erfinden. Keine automatische
+  Änderung manuell korrigierter Cue-/Wortzeiten. Korrekturvorschläge
+  nachvollziehbar, rückgängig machbar; keine Rohdaten überschreiben.
+- Bei unklarer Sprache, überlappenden NPC-Dialogen oder fehlender Evidenz
+  keine erzwungene Korrektur. Testfälle: nachlaufende Stille, Spielgeräusche,
+  leise Sprache, Musik, Unterbrechungen, Sprachwechsel, kurze Wörter.
+
+**M15d – ASR Quality Pipeline**
+- Whisper als Baseline, austauschbarer ASR-Adapter. DE/EN, Code-Switching,
+  Gaming-Namen und optionale Glossare/Kontext; kein blindes Ersetzen von
+  erkannten Wörtern. Confidence/No-speech-Signale soweit verfügbar,
+  Halluzinations-/Wiederholungsprüfung, gezieltes Reprocessing nur
+  unsicherer Fenster. Alternative lokale ASR-Modelle nur nach Lizenz-,
+  Ressourcen- und Qualitätsvergleich integrieren.
+- Versionierte Rohtranskripte, Korrektur-/Alignment-Provenienz und
+  cachebare Zwischenstände. Korrekturen ohne erneute Volltranskription;
+  manuelle Texte und Zeiten bleiben geschützt.
+
+**M15e – Audio-Editor und gemeinsame Timeline (#14, #15, #16, #33, #38)**
+- Original-/getrennte Spuren, Pegel, Normalisierung/True-Peak, Cleanup,
+  Ducking, Pausenvorschläge und Voice-over im bestehenden Editor.
+  Vorschau/Export/Queue verwenden gemeinsame, eingefrorene Parameter.
+  Keine automatische Entfernung von Pausen aus dem Quellvideo.
+
+**M15f – unabhängige Abnahme und Übergabe**
+- Vergleich Rohmix/Baseline vs. getrennte Sprache/ASR/Alignment an
+  annotierten Gaming-Aufnahmen (DE/EN, NPC/Streamer-Überlappung, Musik,
+  Geräusche, Stille). WER/CER, Sprecherleckage, SI-SDR bei echten Referenz-
+  stems, Anfangs-/Endzeitfehler, überlange Cues, verlorene/leise Wörter,
+  Hörqualität, Laufzeit und Peak-RAM/VRAM. Keine Qualitätsbehauptung
+  ohne unabhängige Messung; ungeeignete Modelle/Settings verwerfen.
+- M16 nutzt getrennte, mit Unsicherheit versehene Sprach-/Reaktionssignale;
+  M17a nutzt korrigierte Sprach-/Satzgrenzen plus visuelle Ereigniszeiten
+  für variable Cliplängen, nicht allein Whisper-Segmentenden.
+- Native Windows-/GPU-Prüfung, lange VODs, Originalintegrität, Cancel/Resume,
+  manuelle Korrekturen und Renderparität nachweisen. M15 nicht als abgenommen
+  deklarieren, solange wesentliche Gates offen sind.
 
 ### 5.6 M16 – Gaming Intelligence: verbindlicher Qualitätsausbau
 
@@ -375,7 +780,7 @@ Für relevante Meilensteine sind reproduzierbare Nachweise im Issue/PR vorzulege
 6. Basis-Datenintegrität/Autosave (#04) und umfangreiche Projektverwaltung (D-B1) bleiben getrennte Funktionen, können technisch aber ein Speichermodell nutzen.
 7. Die Standard-Highlight-Wortliste wird **in künftigen Entwicklungsrunden** gepflegt; keine angebliche permanente Hintergrundarbeit ohne separate Automation.
 8. Meilensteine dürfen in kleine PRs gesplittet werden. **Keine stillen Scope-Reduktionen** und kein „fertig“ ohne Test- und Windows-Evidenz.
-9. Nächster Schritt bleibt **M10.5 – Integration & Stabilisierung**, anschließend **M11 – Editor, Timeline & Datenhaltung**.
+9. Nächster Schritt: M10.5-/M11-Review und Abnahme; die nichtblockierende UX-Ergänzung #32 läuft im gestapelten Draft. Danach M12.
 
 
 ---

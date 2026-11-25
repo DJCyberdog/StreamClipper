@@ -1,0 +1,408 @@
+"""Versioned offline editor model for audio/video/graphic layers.
+
+V3 adds explicit bounded overlay geometry to existing v2 local media
+references. V1 and v2 load without changing saved files; no Qt/ML dependency.
+"""
+from __future__ import annotations
+
+from dataclasses import asdict, dataclass, replace
+import hashlib
+import json
+import math
+import os
+from pathlib import Path
+import re
+import tempfile
+
+from .models import VideoInfo
+from .portable import installation_directory
+from .scene_selection import SceneSelection, selection_from_dict
+
+SCHEMA_VERSION = 3
+LEGACY_SCHEMA_VERSION = 1
+AUDIO_SCHEMA_VERSION = 2
+_VIDEO_SUFFIXES = frozenset({".mp4", ".mkv", ".mov", ".webm", ".m4v", ".avi"})
+_IMAGE_SUFFIXES = frozenset({".png", ".jpg", ".jpeg", ".webp"})
+_KINDS = frozenset({"video", "audio", "captions", "overlay"})
+_ID = re.compile(r"[a-zA-Z0-9_-]{1,64}\Z")
+_MAX_ITEMS = 5000
+_MAX_BYTES = 4 * 1024 * 1024
+
+
+@dataclass(frozen=True)
+class Track:
+    id: str
+    kind: str
+    name: str
+    muted: bool = False
+    locked: bool = False
+    hidden: bool = False
+
+
+@dataclass(frozen=True)
+class TimelineItem:
+    id: str
+    track_id: str
+    source_start: float
+    source_end: float
+    timeline_start: float
+    label: str = ""
+    media_path: str | None = None  # local media for audio/video/image layers
+    gain_db: float = 0.0  # per-clip relative audio level
+    x: float = .68  # relative to output resolution, not source pixels
+    y: float = .08
+    width: float = .28
+    height: float = .28
+    opacity: float = 1.0
+
+
+@dataclass(frozen=True)
+class EditorProject:
+    schema_version: int
+    source: VideoInfo
+    tracks: tuple[Track, ...]
+    items: tuple[TimelineItem, ...]
+    scene_plans: tuple[SceneSelection, ...] = ()
+
+    def validate(self) -> None:
+        if self.schema_version != SCHEMA_VERSION:
+            raise ValueError("Unbekannte Projektformat-Version")
+        if not isinstance(self.source.path, str) or not self.source.path:
+            raise ValueError("Projektquelle fehlt")
+        if not math.isfinite(self.source.duration) or self.source.duration <= 0:
+            raise ValueError("Projekt hat keine gültige Aufnahmedauer")
+        if self.source.width < 1 or self.source.height < 1:
+            raise ValueError("Ungültige Videoauflösung")
+        if not 1 <= len(self.tracks) <= 100 or len(self.items) > _MAX_ITEMS:
+            raise ValueError("Zu viele oder keine Spuren / Clips")
+        if not isinstance(self.scene_plans, tuple) or len(self.scene_plans) > 500:
+            raise ValueError("Zu viele Szenenpläne")
+        intervals = set()
+        for plan in self.scene_plans:
+            plan.validate()
+            interval = (plan.start, plan.end)
+            if interval in intervals or plan.end > self.source.duration + .1:
+                raise ValueError("Doppelter oder ungültiger Szenenplan")
+            intervals.add(interval)
+        ids = set()
+        for track in self.tracks:
+            if (not _ID.fullmatch(track.id) or track.id in ids
+                    or track.kind not in _KINDS or not isinstance(track.name, str)
+                    or not 1 <= len(track.name.strip()) <= 80
+                    or not all(isinstance(flag, bool)
+                               for flag in (track.muted, track.locked, track.hidden))):
+                raise ValueError("Ungültige oder doppelte Spur")
+            ids.add(track.id)
+        if not any(track.kind == "video" for track in self.tracks):
+            raise ValueError("Mindestens eine Videospur erforderlich")
+        clip_ids = set()
+        for item in self.items:
+            if (not _ID.fullmatch(item.id) or item.id in clip_ids
+                    or item.track_id not in ids or not isinstance(item.label, str)
+                    or len(item.label) > 120
+                    or not isinstance(item.gain_db, (int, float))
+                    or not math.isfinite(item.gain_db)
+                    or not -60 <= item.gain_db <= 12
+                    or not all(isinstance(v, (int, float)) and math.isfinite(v)
+                               for v in (item.x, item.y, item.width,
+                                         item.height, item.opacity))
+                    or not (0 <= item.x <= 1 and 0 <= item.y <= 1
+                            and .05 <= item.width <= 1
+                            and .05 <= item.height <= 1
+                            and item.x + item.width <= 1.000001
+                            and item.y + item.height <= 1.000001
+                            and 0 <= item.opacity <= 1)):
+                raise ValueError("Ungültiger oder doppelter Clip")
+            clip_ids.add(item.id)
+            a, b, t = item.source_start, item.source_end, item.timeline_start
+            track = next(x for x in self.tracks if x.id == item.track_id)
+            if item.media_path is not None:
+                if (track.kind not in {"audio", "video", "overlay"}
+                        or not isinstance(item.media_path, str)
+                        or not item.media_path or len(item.media_path) > 4096
+                        or not Path(item.media_path).is_absolute()
+                        or any(ord(ch) < 32 for ch in item.media_path)
+                        or "://" in item.media_path):
+                    raise ValueError("Externe Audio-/Videodatei muss ein absoluter lokaler Pfad sein")
+                suffix = Path(item.media_path).suffix.lower()
+                if (track.kind == "video" and suffix not in _VIDEO_SUFFIXES
+                        or track.kind == "overlay" and suffix not in _IMAGE_SUFFIXES):
+                    raise ValueError("Unbekanntes Video-/Grafikformat (nur lokale Medien)")
+            # v1/v2 data without explicit external visual assets remain
+            # metadata-only and are rejected by the compositor, not guessed.
+            if track.kind in {"audio", "captions"} and (
+                    item.x != .68 or item.y != .08 or item.width != .28
+                    or item.height != .28 or item.opacity != 1.0):
+                raise ValueError("Audio-/Untertitelspur hat keine Bildposition")
+            limit = 24 * 3600 if item.media_path else self.source.duration + .10
+            if (not all(isinstance(n, (int, float)) and math.isfinite(n)
+                        for n in (a, b, t))
+                    or not (0 <= a < b <= limit)
+                    or t < 0 or t + b - a > 24 * 3600):
+                raise ValueError("Clip-Zeitbereich außerhalb der Aufnahme")
+
+
+def initial_project(video: VideoInfo) -> EditorProject:
+    tracks = (
+        Track("gameplay", "video", "Gameplay"),
+        Track("mic", "audio", "Mikrofon"),
+        Track("music", "audio", "Musik"),
+        Track("captions", "captions", "Untertitel"),
+        Track("graphics", "overlay", "Grafiken"),
+    )
+    project = EditorProject(
+        SCHEMA_VERSION, video, tracks,
+        (TimelineItem("source", "gameplay", 0, video.duration, 0, "Originalaufnahme"),))
+    project.validate()
+    return project
+
+
+def _replace_track(project: EditorProject, track_id: str, **changes) -> EditorProject:
+    found = False
+    tracks = []
+    for track in project.tracks:
+        if track.id == track_id:
+            found = True
+            track = replace(track, **changes)
+        tracks.append(track)
+    if not found:
+        raise ValueError("Spur nicht gefunden")
+    updated = replace(project, tracks=tuple(tracks))
+    updated.validate()
+    return updated
+
+
+def rename_track(project: EditorProject, track_id: str, name: str) -> EditorProject:
+    return _replace_track(project, track_id, name=name.strip())
+
+
+def toggle_track(project: EditorProject, track_id: str, field: str) -> EditorProject:
+    if field not in {"muted", "locked", "hidden"}:
+        raise ValueError("Ungültige Spureigenschaft")
+    track = next((t for t in project.tracks if t.id == track_id), None)
+    if not track:
+        raise ValueError("Spur nicht gefunden")
+    return _replace_track(project, track_id, **{field: not getattr(track, field)})
+
+
+def add_track(project: EditorProject, kind: str, name: str) -> EditorProject:
+    if kind not in _KINDS:
+        raise ValueError("Unbekannter Spurtyp")
+    ids = {t.id for t in project.tracks}
+    index = 1
+    while f"{kind}_{index}" in ids:
+        index += 1
+    track = Track(f"{kind}_{index}", kind, name.strip())
+    updated = replace(project, tracks=(*project.tracks, track))
+    updated.validate()
+    return updated
+
+
+def remove_track(project: EditorProject, track_id: str) -> EditorProject:
+    track = next((t for t in project.tracks if t.id == track_id), None)
+    if track is None:
+        raise ValueError("Spur nicht gefunden")
+    if track.id == "gameplay" or any(item.track_id == track_id for item in project.items):
+        raise ValueError("Diese Spur enthält Clips oder ist die Hauptvideospur")
+    updated = replace(project, tracks=tuple(t for t in project.tracks if t.id != track_id))
+    updated.validate()
+    return updated
+
+
+def move_track(project: EditorProject, track_id: str, direction: int) -> EditorProject:
+    tracks = list(project.tracks)
+    index = next((i for i, t in enumerate(tracks) if t.id == track_id), None)
+    if index is None or direction not in {-1, 1} or not 0 <= index + direction < len(tracks):
+        raise ValueError("Spur kann nicht verschoben werden")
+    tracks[index], tracks[index + direction] = tracks[index + direction], tracks[index]
+    return replace(project, tracks=tuple(tracks))
+
+
+def _item_index(project: EditorProject, item_id: str) -> int:
+    idx = next((i for i, item in enumerate(project.items) if item.id == item_id), None)
+    if idx is None:
+        raise ValueError("Clip nicht gefunden")
+    return idx
+
+
+def remove_item(project: EditorProject, item_id: str) -> EditorProject:
+    """Delete only timeline metadata; never remove or rewrite source media."""
+    index = _item_index(project, item_id)
+    item = project.items[index]
+    if item.id == "source":
+        raise ValueError("Die unveränderte Basisaufnahme darf nicht entfernt werden")
+    track = next(t for t in project.tracks if t.id == item.track_id)
+    if track.locked:
+        raise ValueError("Clip auf gesperrter Spur kann nicht entfernt werden")
+    updated = replace(
+        project, items=tuple(x for x in project.items if x.id != item_id))
+    updated.validate()
+    return updated
+
+
+def edit_item(project: EditorProject, item_id: str, *,
+              track_id: str | None = None, source_start: float | None = None,
+              source_end: float | None = None,
+              timeline_start: float | None = None,
+              gain_db: float | None = None,
+              x: float | None = None, y: float | None = None,
+              width: float | None = None, height: float | None = None,
+              opacity: float | None = None) -> EditorProject:
+    i = _item_index(project, item_id)
+    before = project.items[i]
+    destination = track_id or before.track_id
+    locked = {t.id for t in project.tracks if t.locked}
+    if before.track_id in locked or destination in locked:
+        raise ValueError("Gesperrte Spur kann nicht bearbeitet werden")
+    candidate = replace(
+        before, track_id=destination,
+        source_start=before.source_start if source_start is None else source_start,
+        source_end=before.source_end if source_end is None else source_end,
+        timeline_start=before.timeline_start if timeline_start is None else timeline_start,
+        gain_db=before.gain_db if gain_db is None else gain_db,
+        x=before.x if x is None else x,
+        y=before.y if y is None else y,
+        width=before.width if width is None else width,
+        height=before.height if height is None else height,
+        opacity=before.opacity if opacity is None else opacity)
+    items = list(project.items)
+    items[i] = candidate
+    updated = replace(project, items=tuple(items))
+    updated.validate()
+    return updated
+
+
+def add_item(project: EditorProject, track_id: str, start: float,
+             end: float, timeline_start: float, label: str = "",
+             *, media_path: str | None = None, gain_db: float = 0.0,
+             x: float = .68, y: float = .08,
+             width: float = .28, height: float = .28,
+             opacity: float = 1.0) -> EditorProject:
+    track = next((t for t in project.tracks if t.id == track_id), None)
+    if not track or track.locked:
+        raise ValueError("Zielspur fehlt oder ist gesperrt")
+    ids = {item.id for item in project.items}
+    index = 1
+    while f"clip_{index}" in ids:
+        index += 1
+    updated = replace(
+        project, items=(*project.items,
+                        TimelineItem(f"clip_{index}", track_id, start, end,
+                                     timeline_start, label, media_path,
+                                     gain_db, x, y, width, height, opacity)))
+    updated.validate()
+    return updated
+
+
+class ProjectHistory:
+    """Undo/redo lightweight project metadata, not waveform or media bytes."""
+    def __init__(self) -> None:
+        self._past: list[tuple[EditorProject, EditorProject]] = []
+        self._future: list[tuple[EditorProject, EditorProject]] = []
+
+    @property
+    def can_undo(self) -> bool:
+        return bool(self._past)
+
+    @property
+    def can_redo(self) -> bool:
+        return bool(self._future)
+
+    def record(self, before: EditorProject, after: EditorProject) -> None:
+        if before.source != after.source:
+            raise ValueError("Verlauf darf nicht zwischen Quellen wechseln")
+        if before != after:
+            self._past.append((before, after))
+            self._future.clear()
+
+    def undo(self, current: EditorProject) -> EditorProject:
+        if not self._past:
+            return current
+        before, after = self._past[-1]
+        if current != after:
+            raise ValueError("Spurenverlauf ist nicht konsistent")
+        self._past.pop()
+        self._future.append((before, after))
+        return before
+
+    def redo(self, current: EditorProject) -> EditorProject:
+        if not self._future:
+            return current
+        before, after = self._future[-1]
+        if current != before:
+            raise ValueError("Spurenverlauf ist nicht konsistent")
+        self._future.pop()
+        self._past.append((before, after))
+        return after
+
+
+def project_path(source: str | Path, *, root: Path | None = None) -> Path:
+    canonical = os.path.normcase(os.path.abspath(os.fspath(source)))
+    fingerprint = hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:32]
+    directory = (Path(root) if root is not None else
+                 installation_directory() / "data" / "projects" / "editor")
+    return directory / f"{fingerprint}.project.json"
+
+
+def save_project(project: EditorProject, *, root: Path | None = None) -> Path:
+    project.validate()
+    destination = project_path(project.source.path, root=root)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    payload = json.dumps(asdict(project), ensure_ascii=False, indent=2)
+    stage: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w", encoding="utf-8", newline="\n", delete=False,
+            dir=destination.parent, prefix=f".{destination.name}.",
+            suffix=".tmp") as handle:
+            stage = Path(handle.name)
+            handle.write(payload)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(stage, destination)
+    finally:
+        if stage is not None:
+            stage.unlink(missing_ok=True)
+    return destination
+
+
+def load_project(video: VideoInfo, *, root: Path | None = None) -> EditorProject:
+    path = project_path(video.path, root=root)
+    if path.stat().st_size > _MAX_BYTES:
+        raise ValueError("Projektdatei ist zu groß")
+    try:
+        doc = json.loads(path.read_text(encoding="utf-8"))
+        if (not isinstance(doc, dict)
+                or doc.get("schema_version") not in {
+                    LEGACY_SCHEMA_VERSION, AUDIO_SCHEMA_VERSION, SCHEMA_VERSION}):
+            raise ValueError("Unbekannte Projektformat-Version")
+        project = EditorProject(
+            SCHEMA_VERSION, VideoInfo(**doc["source"]),
+            tuple(Track(**record) for record in doc["tracks"]),
+            tuple(TimelineItem(**record) for record in doc["items"]),
+            tuple(selection_from_dict(p) for p in doc.get("scene_plans", [])))
+        project.validate()
+        a, b = project.source, video
+        if (os.path.normcase(os.path.abspath(a.path))
+                != os.path.normcase(os.path.abspath(b.path))
+                or abs(a.duration - b.duration) > 0.25
+                or (a.width, a.height) != (b.width, b.height)):
+            raise ValueError("Projekt gehört zu einer anderen Videoaufnahme")
+        return project
+    except (KeyError, TypeError, ValueError, OverflowError) as exc:
+        raise ValueError(f"Spurenprojekt ist ungültig: {exc}") from exc
+
+
+def set_scene_plan(project: EditorProject, plan: SceneSelection) -> EditorProject:
+    plans = tuple(p for p in project.scene_plans
+                  if (p.start, p.end) != (plan.start, plan.end))
+    updated = replace(project, scene_plans=(*plans, plan))
+    updated.validate()
+    return updated
+
+
+def scene_plan_for(project, start, end):
+    if project is None:
+        return None
+    return next((p for p in project.scene_plans
+                 if (p.start, p.end) == (start, end)), None)

@@ -1,9 +1,10 @@
 @echo off
 setlocal
 cd /d "%~dp0"
+call "%~dp0portable_env.bat"
 where py >nul 2>&1
 if errorlevel 1 (
-  echo Python Launcher "py" fehlt. Bitte Python 3.12 (64-bit) installieren.
+  echo Python Launcher "py" fehlt. Bitte Python 3.12 installieren.
   echo https://www.python.org/downloads/windows/
   pause
   exit /b 1

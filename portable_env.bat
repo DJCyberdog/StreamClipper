@@ -1,0 +1,18 @@
+@echo off
+rem Call this from a StreamClipper .bat. Variables are local to its cmd session.
+set "STREAMCLIPPER_HOME=%~dp0"
+if "%STREAMCLIPPER_HOME:~-1%"=="\" set "STREAMCLIPPER_HOME=%STREAMCLIPPER_HOME:~0,-1%"
+set "STREAMCLIPPER_MODELS_DIR=%STREAMCLIPPER_HOME%\data\models"
+set "HF_HOME=%STREAMCLIPPER_HOME%\data\cache\huggingface"
+set "HF_HUB_CACHE=%HF_HOME%\hub"
+set "HF_XET_CACHE=%HF_HOME%\xet"
+set "XDG_CACHE_HOME=%STREAMCLIPPER_HOME%\data\cache\xdg"
+set "TORCH_HOME=%STREAMCLIPPER_HOME%\data\cache\torch"
+set "TORCH_EXTENSIONS_DIR=%STREAMCLIPPER_HOME%\data\cache\torch_extensions"
+set "TRITON_CACHE_DIR=%STREAMCLIPPER_HOME%\data\cache\triton"
+set "CUDA_CACHE_PATH=%STREAMCLIPPER_HOME%\data\cache\cuda"
+set "PIP_CACHE_DIR=%STREAMCLIPPER_HOME%\data\cache\pip"
+set "TEMP=%STREAMCLIPPER_HOME%\data\tmp"
+set "TMP=%TEMP%"
+set "TMPDIR=%TEMP%"
+if not exist "%TEMP%" mkdir "%TEMP%"
