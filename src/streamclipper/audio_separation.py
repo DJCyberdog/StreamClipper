@@ -64,7 +64,7 @@ class InworldBackend:
 
 
 def separate_stream(selection,folder,*,backend,progress=None,cancelled=None,use_cache=False):
-    """Bounded 8s/2s overlap, float32 WAV; input mono/stereo 48kHz only.
+    """Bounded 8s/2s overlap, float32 WAV; mono/stereo input 8–192 kHz; aligned output at 48 kHz.
     Speech estimate broadcast equally to each original channel. Residual =
     input minus estimate; no peak normalization/clipping or identity claim.
     Cancellation is cooperative between model calls, not inside inference.
@@ -77,8 +77,8 @@ def separate_stream(selection,folder,*,backend,progress=None,cancelled=None,use_
     source=selection.inventory
     if source.duration>MAX_DURATION:raise ValueError("Maximal sechs Stunden pro Trennlauf")
     stream=next(s for s in source.streams if s.index==selection.index)
-    if stream.sample_rate!=RATE or stream.channels not in (1,2):
-        raise ValueError("Pilot unterstützt 48 kHz Mono/Stereo; andere Formate folgen")
+    if not 8000<=stream.sample_rate<=192000 or stream.channels not in (1,2):
+        raise ValueError("Unterstützt Mono/Stereo mit 8–192 kHz Eingang")
     def check():
         if cancelled and cancelled():raise CancelledError("Audiotrennung abgebrochen")
     check()
@@ -97,7 +97,7 @@ def separate_stream(selection,folder,*,backend,progress=None,cancelled=None,use_
     reused=0;computed=0
     try:
         with tempfile.TemporaryDirectory(prefix="input-",dir=staging) as temp:
-            wav=extract_audio_stream(source,selection.index,temp,role=selection.role,cancelled=cancelled)
+            wav=extract_audio_stream(source,selection.index,temp,role=selection.role,cancelled=cancelled,output_rate=RATE)
             with sf.SoundFile(wav) as src, sf.SoundFile(staging/"voice_estimate.wav","w",RATE,
                 stream.channels,subtype="FLOAT",format=file_format) as voice, sf.SoundFile(staging/"residual.wav","w",RATE,
                 stream.channels,subtype="FLOAT",format=file_format) as residual:
@@ -181,7 +181,7 @@ def separate_stream(selection,folder,*,backend,progress=None,cancelled=None,use_
             "source":asdict(source),"selected_stream":asdict(stream),"role_user_selected":selection.role,
             "backend":backend.metadata,"sample_rate":RATE,"channels":stream.channels,"samples":count,
             "timeline_origin":"container_start","container_format":file_format,"chunk_samples":CHUNK,"overlap_samples":0 if continuous else OVERLAP,"processing_mode":"continuous" if continuous else "overlap_windows",
-            "voice_projection":"mono_equal_channels","residual_definition":"original_pcm_minus_voice_estimate",
+            "voice_projection":"mono_equal_channels","residual_definition":"aligned_48khz_pcm_minus_voice_estimate","input_sample_rate":stream.sample_rate,"resampled":stream.sample_rate!=RATE,
             "outputs":outputs,"cache":{"enabled":use_cache,"reused_windows":reused,"computed_windows":computed},"elapsed_seconds":time.monotonic()-began}
         (staging/"provenance.json").write_text(json.dumps(manifest,ensure_ascii=False,indent=2,allow_nan=False),encoding="utf-8")
         check()

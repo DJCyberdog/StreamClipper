@@ -90,8 +90,8 @@ def test_declared_limits(mix,tmp_path):
                         tmp_path,backend=TestBackend())
     with pytest.raises(ValueError,match="gemischte Spur"):
         separate_stream(replace(selection,role="microphone"),tmp_path,backend=TestBackend())
-    streams=tuple(replace(s,sample_rate=44100) for s in selection.inventory.streams)
-    with pytest.raises(ValueError,match="48 kHz"):
+    streams=tuple(replace(s,sample_rate=4000) for s in selection.inventory.streams)
+    with pytest.raises(ValueError,match="8–192 kHz"):
         separate_stream(replace(selection,inventory=replace(selection.inventory,streams=streams)),
                         tmp_path,backend=TestBackend())
 
@@ -170,3 +170,26 @@ def test_foreground_restart_cache(mix,tmp_path):
     targeted=TestBackend();targeted.metadata={"speaker_targeted":True}
     with pytest.raises(ValueError,match="Stimmreferenz"):
         separate_stream(selection,root,backend=targeted,use_cache=True)
+
+
+@pytest.mark.parametrize("rate",[16000,44100,96000])
+def test_resampled_separation_source_bound(rate,tmp_path):
+    if not shutil.which("ffmpeg") or not shutil.which("ffprobe"):pytest.skip("FFmpeg required")
+    from streamclipper.audio_sources import extract_audio_stream
+    from streamclipper.reconstructed_speech import select_reconstructed
+    path=tmp_path/"input.wav"
+    x=(.2*np.sin(2*np.pi*440*np.arange(rate*2)/rate)).astype(np.float32)
+    sf.write(path,x,rate,subtype="FLOAT")
+    snap=inventory(path);selection=SpeechSource(snap,snap.streams[0].index,"mix")
+    digest=sha256_file(path)
+    out=separate_stream(selection,tmp_path/"stems",backend=TestBackend())
+    aligned=extract_audio_stream(snap,selection.index,tmp_path/"aligned",output_rate=RATE)
+    expected,_=sf.read(aligned,dtype="float32")
+    v,sr=sf.read(out/"voice_estimate.wav",dtype="float32")
+    rem,_=sf.read(out/"residual.wav",dtype="float32")
+    assert sr==RATE and len(v)==RATE*2
+    np.testing.assert_allclose(v+rem,expected,atol=1e-6)
+    assert select_reconstructed(snap,out/"voice_estimate.wav").validate().index==selection.index
+    manifest=json.loads((out/"provenance.json").read_text())
+    assert manifest["input_sample_rate"]==rate and manifest["resampled"] is True
+    assert sha256_file(path)==digest

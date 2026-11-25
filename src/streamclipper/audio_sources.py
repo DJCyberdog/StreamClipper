@@ -76,10 +76,10 @@ def inventory(path):
                           stat.st_size,stat.st_mtime_ns,tuple(streams))
 
 
-def extract_audio_stream(snapshot,index,folder,*,role="unspecified",cancelled=None):
+def extract_audio_stream(snapshot,index,folder,*,role="unspecified",cancelled=None,output_rate=None):
     """Create a unique bundle with PCM WAV and explicit source metadata.
 
-    Uses original channel count and sample rate. FFmpeg timestamp compensation
+    Uses original channel count and sample rate unless an explicit output_rate is requested. FFmpeg timestamp compensation
     may insert/drop samples to preserve the container timeline; this is not
     packet-bit-identical demuxing. No source role is asserted by the program.
     """
@@ -93,7 +93,9 @@ def extract_audio_stream(snapshot,index,folder,*,role="unspecified",cancelled=No
     if stream is None:raise ValueError("Audiospur nicht gefunden")
     if not 8000<=stream.sample_rate<=192000 or not 1<=stream.channels<=8:
         raise ValueError("Nicht unterstützte Sample-Rate oder Kanalzahl")
-    count=round(current.duration*stream.sample_rate)
+    rate=stream.sample_rate if output_rate is None else output_rate
+    if type(rate) is not int or not 8000<=rate<=192000:raise ValueError("Ungültige PCM-Ausgaberate")
+    count=round(current.duration*rate)
     output=Path(folder).resolve()
     output.mkdir(parents=True,exist_ok=True)
     if shutil.disk_usage(output).free < count*stream.channels*4+64*1024*1024:
@@ -103,8 +105,8 @@ def extract_audio_stream(snapshot,index,folder,*,role="unspecified",cancelled=No
     try:
         cmd=[tool_path("ffmpeg"),"-hide_banner","-nostdin","-loglevel","error","-n",
              "-copyts","-start_at_zero","-i",current.source,"-map",f"0:{index}","-vn","-sn","-dn",
-             "-af",f"aresample=async=1:first_pts=0,apad,atrim=end_sample={count}",
-             "-ar",str(stream.sample_rate),"-ac",str(stream.channels),
+             "-af",f"aresample={rate}:async=1:first_pts=0,apad,atrim=end_sample={count}",
+             "-ar",str(rate),"-ac",str(stream.channels),
              "-c:a","pcm_f32le","-rf64","auto",str(stage)]
         with tempfile.TemporaryFile() as errors:
             proc=subprocess.Popen(cmd,stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=errors)
@@ -120,15 +122,15 @@ def extract_audio_stream(snapshot,index,folder,*,role="unspecified",cancelled=No
             finally:_stop_process(proc)
         check()
         actual=inventory(stage)
-        if (len(actual.streams)!=1 or actual.streams[0].sample_rate!=stream.sample_rate
+        if (len(actual.streams)!=1 or actual.streams[0].sample_rate!=rate
                 or actual.streams[0].channels!=stream.channels
-                or abs(actual.duration-count/stream.sample_rate)>.002):
+                or abs(actual.duration-count/rate)>.002):
             raise ValueError("Extrahierte Audiospur hat unerwartete Zeitbasis oder Kanäle")
         if inventory(snapshot.source)!=snapshot:
             raise ValueError("Originalaufnahme während Extraktion verändert")
         manifest={"schema_version":1,"kind":"decoded_container_stream",
             "role_user_selected":role,"source":asdict(snapshot),"selected_stream":asdict(stream),
-            "output":{"file":"audio.wav","sample_format":"float32","samples_per_channel":count,
+            "output":{"file":"audio.wav","sample_format":"float32","sample_rate":rate,"samples_per_channel":count,
                       "timeline_origin":"container_start","duration":count/stream.sample_rate,
                       "timestamp_compensation":True}}
         (bundle/"provenance.json").write_text(json.dumps(manifest,ensure_ascii=False,indent=2,

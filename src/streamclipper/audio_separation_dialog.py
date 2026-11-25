@@ -35,7 +35,7 @@ class SeparationDialog(QDialog):
         self.resize(690,340)
         layout=QVBoxLayout(self)
         hint=QLabel("Vordergrundsprache oder gezielte Schätzung anhand einer Stimmreferenz. "
-                    "NPC-Dialoge können erhalten bleiben. Nur 48 kHz Mono/Stereo, maximal 6 Stunden; lange Aufnahmen benötigen viel freien Speicher. "
+                    "NPC-Dialoge können erhalten bleiben. 8–192 kHz Mono/Stereo, Ausgabe 48 kHz, maximal 6 Stunden; lange Aufnahmen benötigen viel freien Speicher. "
                     "Originalaufnahme bleibt unverändert. Lokales Modell, kein automatischer Download.")
         hint.setWordWrap(True);layout.addWidget(hint)
         form=QFormLayout()

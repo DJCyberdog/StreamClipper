@@ -47,7 +47,7 @@ class ReconstructedSpeech:
         if inventory(self.inventory.source)!=self.inventory:
             raise ValueError("Originalaufnahme verändert")
         path=Path(self.path).resolve(strict=True)
-        if path.name!="voice_estimate.wav" or not any(s.index==self.index and s.channels==self.channels and s.sample_rate==RATE for s in self.inventory.streams):
+        if path.name!="voice_estimate.wav" or not any(s.index==self.index and s.channels==self.channels and 8000<=s.sample_rate<=192000 for s in self.inventory.streams):
             raise ValueError("Ungültige rekonstruierte Sprachspur")
         info=sf.info(path)
         if (info.frames,info.samplerate,info.channels,info.subtype)!=(round(self.inventory.duration*RATE),RATE,self.channels,"FLOAT"):
