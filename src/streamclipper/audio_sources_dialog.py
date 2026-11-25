@@ -3,7 +3,7 @@ from threading import Event
 from PySide6.QtCore import QThread,Signal,Qt
 from PySide6.QtWidgets import (QDialog,QVBoxLayout,QFormLayout,QTableWidget,QTableWidgetItem,
     QLabel,QComboBox,QPushButton,QFileDialog,QHBoxLayout)
-from .audio_sources import inventory,extract_audio_stream
+from .audio_sources import inventory,extract_audio_stream,SpeechSource
 
 
 class AudioSourceWorker(QThread):
@@ -26,6 +26,7 @@ class AudioSourcesDialog(QDialog):
     def __init__(self,path,parent=None):
         super().__init__(parent)
         self.path=path;self.worker=None;self.snapshot=None;self.closing=False
+        self.selection=None;self.extracted=None;self.action=None
         self.setWindowTitle("Audioquellen · Originalspuren")
         self.resize(940,470)
         layout=QVBoxLayout(self)
@@ -48,6 +49,9 @@ class AudioSourcesDialog(QDialog):
         buttons=QHBoxLayout()
         self.extract=QPushButton("Ausgewählte Spur als WAV extrahieren …")
         self.extract.clicked.connect(self.start_extract);buttons.addWidget(self.extract)
+        self.use=QPushButton("Für Whisper wählen");self.use.clicked.connect(self.choose_speech);buttons.addWidget(self.use)
+        self.reset=QPushButton("Whisper: Standardspur");self.reset.clicked.connect(self.reset_speech);buttons.addWidget(self.reset)
+        self.add=QPushButton("Extrahierte WAV auf Timeline");self.add.clicked.connect(self.choose_extracted);buttons.addWidget(self.add)
         close=QPushButton("Schließen / Abbrechen");close.clicked.connect(self.reject);buttons.addWidget(close)
         layout.addLayout(buttons)
         self.table.itemSelectionChanged.connect(self.controls)
@@ -56,6 +60,9 @@ class AudioSourcesDialog(QDialog):
     def controls(self):
         busy=self.worker is not None
         self.extract.setEnabled(not busy and self.snapshot is not None and self.table.currentRow()>=0)
+        self.use.setEnabled(not busy and self.snapshot is not None and self.table.currentRow()>=0)
+        self.reset.setEnabled(not busy)
+        self.add.setEnabled(not busy and self.extracted is not None)
         self.role.setEnabled(not busy)
         self.table.setEnabled(not busy)
 
@@ -78,11 +85,28 @@ class AudioSourcesDialog(QDialog):
             if value.streams:self.table.selectRow(0)
             self.status.setText(f"{len(value.streams)} Audiospur(en) gefunden. "
                 +("Einspuraufnahme: KI-Trennung ist ein separater späterer Schritt." if len(value.streams)==1 else ""))
-        else:self.status.setText("Extrahiert: "+str(value)+" · provenance.json im gleichen Ordner.")
+        else:
+            self.extracted=value
+            self.status.setText("Extrahiert: "+str(value)+" · provenance.json im gleichen Ordner.")
 
     def done(self):
         worker=self.worker;self.worker=None;worker.deleteLater();self.controls()
         if self.closing:super().reject()
+
+    def choose_speech(self):
+        if self.worker or self.snapshot is None:return
+        row=self.table.currentRow()
+        if not 0<=row<len(self.snapshot.streams):return
+        self.selection=SpeechSource(self.snapshot,self.snapshot.streams[row].index,self.role.currentData()).validate()
+        self.action="speech";self.accept()
+
+    def reset_speech(self):
+        if self.worker:return
+        self.selection=None;self.action="speech";self.accept()
+
+    def choose_extracted(self):
+        if self.worker or self.extracted is None:return
+        self.action="timeline";self.accept()
 
     def start_extract(self):
         if self.worker or self.snapshot is None:return
