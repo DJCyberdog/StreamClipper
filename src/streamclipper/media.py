@@ -196,7 +196,7 @@ def build_export_command(video: VideoInfo, start: float, end: float, destination
                          visual_layers: tuple[VisualLayer, ...] = (),
                          encoder: str = "cpu_h264", region=None,
                          fit_region: bool = False, force_audio: bool = False,
-                         director=None, restored_video=None) -> list[str]:
+                         director=None, restored_video=None, base_audio_enabled: bool = True) -> list[str]:
     """Construct command without a shell. Optional captions use a local ASS file.
 
     If burned_captions, the caller must write `captions.ass` in the FFmpeg cwd.
@@ -316,12 +316,14 @@ def build_export_command(video: VideoInfo, start: float, end: float, destination
             chain += f";[{base_label}]format=yuv420p[v]"
     elif burned_captions:
         chain += ";[base]ass=filename=captions.ass,format=yuv420p[v]"
-    audio_map = "0:a:0?"
+    if type(base_audio_enabled) is not bool:raise ValueError("Ungültiger Originalton-Schalter")
+    base_audio = video.has_audio and base_audio_enabled
+    audio_map = "0:a:0?" if base_audio_enabled else None
     if audio_layers:
         if len(audio_layers) > 16:
             raise ValueError("Zu viele gleichzeitige Audioquellen")
         duration = end - start
-        if video.has_audio:
+        if base_audio:
             chain += (
                 f";[0:a:0]aresample=async=1:first_pts=0,"
                 f"aformat=sample_rates=48000:channel_layouts=stereo,"
@@ -359,7 +361,7 @@ def build_export_command(video: VideoInfo, start: float, end: float, destination
               "normalize=0:dropout_transition=0,"
             + f"atrim=duration={duration:.6f}[audio_out]")
         audio_map = "[audio_out]"
-    if force_audio and not (video.has_audio or audio_layers):
+    if force_audio and not (base_audio or audio_layers):
         chain += f";anullsrc=r=48000:cl=stereo,atrim=duration={duration:.6f}[scene_silence]"
         audio_map = "[scene_silence]"
     if restored_video is not None:
@@ -370,7 +372,7 @@ def build_export_command(video: VideoInfo, start: float, end: float, destination
         chain = chain.replace("[0:v:0]", f"[{index}:v:0]")
     return inputs + [
             "-t", f"{end-start:.3f}",
-            "-filter_complex", chain, "-map", "[v]", "-map", audio_map,
+            "-filter_complex", chain, "-map", "[v]", *(["-map", audio_map] if audio_map is not None else ["-an"]),
             *encoder_options(encoder),
             "-c:a", "aac", "-b:a", "160k",
             *(["-ar", "48000", "-ac", "2"] if force_audio else []),
@@ -444,7 +446,7 @@ def export_clip(video: VideoInfo, start: float, end: float, destination: str | P
                 encoder: str = "cpu_h264",
                 encoder_notice: Callable[[str], None] | None = None,
                 region=None, fit_region: bool = False, force_audio: bool = False,
-                director=None, motion_analysis_end=None, caption_style=None) -> Path:
+                director=None, motion_analysis_end=None, caption_style=None, base_audio_enabled: bool = True) -> Path:
     """Encode with cancellable progress and publish only validated, complete MP4s.
 
     The temporary file is on the destination filesystem for atomic publication.
@@ -468,7 +470,7 @@ def export_clip(video: VideoInfo, start: float, end: float, destination: str | P
         video, start, end, output, mode, width, height,
         audio_layers=audio_layers, visual_layers=tuple(layer for layer in visual_layers if layer.callout is None),
         encoder=validation_encoder, region=region, fit_region=fit_region,
-        force_audio=force_audio, director=director)
+        force_audio=force_audio, director=director,base_audio_enabled=base_audio_enabled)
     for layer in visual_layers:
         if layer.callout is not None:
             layer.callout.validate()
@@ -553,7 +555,7 @@ def export_clip(video: VideoInfo, start: float, end: float, destination: str | P
                 burned_captions=burn_subtitles,
                 audio_layers=audio_layers, visual_layers=visual_layers,
                 encoder=profile, region=region, fit_region=fit_region,
-                force_audio=force_audio, director=director, restored_video=restored_video)
+                force_audio=force_audio, director=director, restored_video=restored_video,base_audio_enabled=base_audio_enabled)
             cmd[1:1] = ["-progress", "pipe:1", "-stats_period", "0.25"]
             with tempfile.TemporaryFile(mode="w+b") as stderr_log:
                 proc = subprocess.Popen(
@@ -623,7 +625,7 @@ def export_clip(video: VideoInfo, start: float, end: float, destination: str | P
                     quality = inspect_export(
                         partial, expected_codec=expected_codec,
                         width=width, height=height, duration=duration,
-                        audio_expected=(video.has_audio or bool(audio_layers) or force_audio))
+                        audio_expected=((video.has_audio and base_audio_enabled) or bool(audio_layers) or force_audio))
                     if cancelled and cancelled():
                         raise CancelledError("Export abgebrochen")
                     published = _publish_without_overwrite(partial, output)
