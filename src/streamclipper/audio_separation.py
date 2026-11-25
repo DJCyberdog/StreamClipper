@@ -128,7 +128,7 @@ def separate_stream(selection,folder,*,backend,progress=None,cancelled=None):
             if (info.frames,info.samplerate,info.channels,info.subtype)!=(count,RATE,stream.channels,"FLOAT"):
                 raise ValueError("Ausgabeprüfung fehlgeschlagen")
             outputs[name]={"sha256":sha256_file(path,cancelled=cancelled),"frames":count}
-        manifest={"schema_version":1,"kind":"reconstructed_foreground_voice_and_residual",
+        manifest={"schema_version":1,"kind":("reconstructed_target_voice_and_residual" if backend.metadata.get("speaker_targeted") is True else "reconstructed_foreground_voice_and_residual"),
             "source":asdict(source),"selected_stream":asdict(stream),"role_user_selected":selection.role,
             "backend":backend.metadata,"sample_rate":RATE,"channels":stream.channels,"samples":count,
             "timeline_origin":"container_start","chunk_samples":CHUNK,"overlap_samples":OVERLAP,
