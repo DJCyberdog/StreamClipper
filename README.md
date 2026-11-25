@@ -1328,3 +1328,12 @@ Audio → Audioquellen → KI-Audiotrennung. Optionales Extra `.[separation]` un
 
 
 M15b: zusätzlich experimenteller Modus **Referenzstimme · VoxLock (CPU)**. Mit eigener/autorisierter sauberer WAV (3–30 s) und lokalem INT8-Modell; Installationsanleitung in [M15b](docs/M15B_SEPARATION.md). Keine automatische Stimmwahl, kein Upload. Qualitätsabnahme offen.
+
+
+M15b/c: Trennläufe bis 6 Stunden (48 kHz Mono/Stereo, RF64 bei großen
+Dateien). Über **Audio → Audioquellen → KI-Sprachspur für Whisper wählen …**
+eine zum Original passende voice_estimate.wav auswählen. Prüfsumme und
+Zeitbasis werden beim Analysieren geprüft; Whisper verarbeitet 5-Minuten-
+Fenster mit Kontext und Originalzeitstempeln. VAD-Kern ebenfalls fensterweise.
+Kein automatisches Ersetzen des Originaltons. 6h-Nativtest, Resume,
+Modellqualität und Timing-Review-GUI offen.

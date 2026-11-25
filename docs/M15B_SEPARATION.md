@@ -82,3 +82,39 @@ VOD support remain future work. CPU/ONNX first, no GPU acceleration claim.
 Synthetic/injected tests validate lengths, explicit reference, failure paths;
 actual model inference, target-absent rejection, speaker leakage, WER,
 German gaming quality and performance require real independent fixtures.
+
+
+## Longer recordings and reconstructed ASR/VAD selection
+
+This supersedes the original ten-minute separation cap: up to six hours per
+job, still 48 kHz mono/stereo. Files switch from RIFF WAV to RF64 before the
+4 GiB limit. For six hours of stereo float32 PCM allow approximately 24.88 GB
+for the temporary aligned mix and two stems together, plus reserve, and
+16.59 GB for final stems. The app checks disk space and shows an estimate.
+Memory remains bounded by the separation window, but runtime and peak RAM/VRAM
+on a full real VOD remain unmeasured. Cancellation removes partial output;
+resume/partial-cache and continuous VoxLock state are not yet supported.
+
+In Audio → Audioquellen → KI-Sprachspur für Whisper wählen, choose the
+voice_estimate.wav from a separation bundle belonging to the open recording.
+The residual is not accepted. Schema, source revision metadata, sample count,
+format and output SHA-256 are validated. Hash checks run before and after
+ASR/VAD. These are consistency/integrity checks, not proof of model accuracy
+or authenticated provenance; original source identity uses size/mtime and
+stream metadata. Analysis result still refers to original video, and records
+estimate kind, stream index and content hash. No automatic fallback or
+replacement of original audio, no change to render/timeline.
+
+Reconstructed ASR uses 300-second central windows with 2 seconds of context
+on each available side, mapping cue and word times back to source time.
+A cue is assigned by its midpoint. Boundary transcription inconsistencies
+may remain; no cross-window linguistic reconciliation or model reuse yet.
+VAD on the same explicit estimate uses 60-second windows with one second
+context, clips evidence to central intervals and merges touching intervals.
+No automatic subtitle change or graphical timing review yet. Original-stream
+ASR/VAD paths are unchanged. Reconstructed estimates are not original mics.
+
+Tests: real small RF64 roundtrip, format selection for six hours, real WAV
+stem pipeline with injected backend, source-bound selection, rejection of
+residual and mutated stem, simulated ASR offset/word timing and VAD merge.
+Actual six-hour and native model acceptance remain open.

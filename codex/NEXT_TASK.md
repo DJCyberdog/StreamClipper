@@ -84,3 +84,16 @@ manueller Cue-Provenienz; keine automatische Anwendung auf Alttranskripte.
   target-absent and overlapping speech benchmark; continuous recurrent
   state, long VOD/cache, source-bound reconstructed-stem import to ASR/VAD.
   No claims of recovered original mic or reliable speaker identification.
+
+
+### M15b/c longer recordings and reconstructed speech
+- VoxLock 809c076a Linux 45630605232 / Windows 45630605342 PASS.
+- Separation cap raised to 6h, RF64 for large files, disk estimate and guard.
+  Cancellation removes partial work; resume and continuous model state open.
+- Reconstructed estimate selection in Audio dialog, strict source/format/
+  hash validation; ASR bounded 300s + 2s context and VAD 60s + 1s context.
+  Original stream and original video unchanged; VAD available as core API,
+  not review GUI. ASR model loaded per window; boundary quality unverified.
+- New CI not confirmed. Next: confirm checks; source-bound timing review UI
+  and persistent manual cue provenance, then explicit cache/resume and actual
+  native model/6h VOD benchmark. No automatic timing edits.
