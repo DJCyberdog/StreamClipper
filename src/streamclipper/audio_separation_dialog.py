@@ -35,7 +35,7 @@ class SeparationDialog(QDialog):
         self.resize(690,340)
         layout=QVBoxLayout(self)
         hint=QLabel("Vordergrundsprache oder gezielte Schätzung anhand einer Stimmreferenz. "
-                    "NPC-Dialoge können erhalten bleiben. Nur 48 kHz Mono/Stereo, maximal 10 Minuten. "
+                    "NPC-Dialoge können erhalten bleiben. Nur 48 kHz Mono/Stereo, maximal 6 Stunden; lange Aufnahmen benötigen viel freien Speicher. "
                     "Originalaufnahme bleibt unverändert. Lokales Modell, kein automatischer Download.")
         hint.setWordWrap(True);layout.addWidget(hint)
         form=QFormLayout()
@@ -55,6 +55,9 @@ class SeparationDialog(QDialog):
         for label,value in (("Automatisch","auto"),("NVIDIA CUDA","cuda"),("CPU","cpu")):self.device.addItem(label,value)
         form.addRow("Gerät",self.device);layout.addLayout(form)
         self.progress=QProgressBar();layout.addWidget(self.progress)
+        size=round(selection.inventory.duration*48000)*next(s.channels for s in selection.inventory.streams if s.index==selection.index)*4
+        disk=QLabel(f'PCM-Speicher: ca. {3*size/1e9:.2f} GB während der Trennung, {2*size/1e9:.2f} GB Ergebnis (zzgl. Reserve).')
+        disk.setWordWrap(True);layout.addWidget(disk)
         self.status=QLabel("Lokalen denoiser.safetensors-Checkpoint auswählen.")
         self.status.setWordWrap(True);layout.addWidget(self.status)
         self.start_button=QPushButton("Trennen und WAV speichern …");self.start_button.clicked.connect(self.start_job)

@@ -16,7 +16,12 @@ from .media import CancelledError
 RATE=48000
 CHUNK=8*RATE
 OVERLAP=2*RATE
-MAX_DURATION=600
+MAX_DURATION=6*3600
+
+
+def output_format(samples,channels):
+    # Leave ample room for RIFF headers and metadata. RF64 supports >4 GiB.
+    return 'RF64' if samples*channels*4>=2**32-65536 else 'WAV'
 MODEL_SHA256="647335a6aeb4dc706b895532c209d51e0e84a4849d17b339f00d4392a050ae53"
 MODEL_ID="inworld/voice-isolator/denoiser.safetensors"
 
@@ -67,7 +72,7 @@ def separate_stream(selection,folder,*,backend,progress=None,cancelled=None):
     if selection.role not in ("mix","unspecified"):
         raise ValueError("Für die KI-Trennung bitte eine gemischte Spur auswählen")
     source=selection.inventory
-    if source.duration>MAX_DURATION:raise ValueError("Pilot: maximal zehn Minuten Aufnahme")
+    if source.duration>MAX_DURATION:raise ValueError("Maximal sechs Stunden pro Trennlauf")
     stream=next(s for s in source.streams if s.index==selection.index)
     if stream.sample_rate!=RATE or stream.channels not in (1,2):
         raise ValueError("Pilot unterstützt 48 kHz Mono/Stereo; andere Formate folgen")
@@ -76,6 +81,7 @@ def separate_stream(selection,folder,*,backend,progress=None,cancelled=None):
     check()
     root=Path(folder).resolve();root.mkdir(parents=True,exist_ok=True)
     count=round(source.duration*RATE)
+    file_format=output_format(count,stream.channels)
     if shutil.disk_usage(root).free<count*stream.channels*4*3+64*1024*1024:
         raise OSError("Nicht genügend Speicherplatz für drei PCM-Spuren")
     staging=Path(tempfile.mkdtemp(prefix=".separation-",dir=root))
@@ -85,8 +91,8 @@ def separate_stream(selection,folder,*,backend,progress=None,cancelled=None):
         with tempfile.TemporaryDirectory(prefix="input-",dir=staging) as temp:
             wav=extract_audio_stream(source,selection.index,temp,role=selection.role,cancelled=cancelled)
             with sf.SoundFile(wav) as src, sf.SoundFile(staging/"voice_estimate.wav","w",RATE,
-                stream.channels,subtype="FLOAT",format="WAV") as voice, sf.SoundFile(staging/"residual.wav","w",RATE,
-                stream.channels,subtype="FLOAT",format="WAV") as residual:
+                stream.channels,subtype="FLOAT",format=file_format) as voice, sf.SoundFile(staging/"residual.wav","w",RATE,
+                stream.channels,subtype="FLOAT",format=file_format) as residual:
                 if src.frames!=count or src.samplerate!=RATE or src.channels!=stream.channels:
                     raise ValueError("PCM-Zeitbasis ungültig")
                 start=0;written=0;tail=None
@@ -131,7 +137,7 @@ def separate_stream(selection,folder,*,backend,progress=None,cancelled=None):
         manifest={"schema_version":1,"kind":("reconstructed_target_voice_and_residual" if backend.metadata.get("speaker_targeted") is True else "reconstructed_foreground_voice_and_residual"),
             "source":asdict(source),"selected_stream":asdict(stream),"role_user_selected":selection.role,
             "backend":backend.metadata,"sample_rate":RATE,"channels":stream.channels,"samples":count,
-            "timeline_origin":"container_start","chunk_samples":CHUNK,"overlap_samples":OVERLAP,
+            "timeline_origin":"container_start","container_format":file_format,"chunk_samples":CHUNK,"overlap_samples":OVERLAP,
             "voice_projection":"mono_equal_channels","residual_definition":"original_pcm_minus_voice_estimate",
             "outputs":outputs,"elapsed_seconds":time.monotonic()-began}
         (staging/"provenance.json").write_text(json.dumps(manifest,ensure_ascii=False,indent=2,allow_nan=False),encoding="utf-8")
