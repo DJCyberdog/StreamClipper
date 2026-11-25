@@ -1439,6 +1439,8 @@ class MainWindow(QMainWindow):
         audio_menu.addAction("Originalton in Komposition ein-/ausschalten", self._toggle_base_audio)
         audio_menu.addAction("Untertitel-Zeitstempel prüfen …",self._review_speech_timing)
         audio_menu.addAction("ASR-Qualität prüfen …",self._review_asr_quality)
+        audio_menu.addAction("KI-Stems / Audio-Mix …",self._edit_stem_mix)
+        audio_menu.addAction("Voice-over-Datei auf ausgewählte Audiospur …",self._add_audio_file_to_track)
         branding = self.menuBar().addMenu("Branding")
         branding.addAction("Untertitel gestalten …", self._edit_caption_style)
         branding.addAction("Untertitel übersetzen …", self._edit_translations)
@@ -1474,6 +1476,16 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage('Whisper: '+(getattr(self.speech_source,'label',f'Stream {self.speech_source.index} ({self.speech_source.role})') if self.speech_source else 'Standardspur')+' · nächste Analyse')
         elif dialog.action=='timeline':
             self._import_extracted_audio(dialog.extracted)
+
+    def _edit_stem_mix(self):
+        if not self.editor_project or self._history_blocked or (self.worker and self.worker.isRunning()) or (self.queue_worker and self.queue_worker.isRunning()):return
+        path,_=QFileDialog.getOpenFileName(self,"KI-Sprachspur mit zugehörigem Restton","","WAV (*.wav)")
+        if not path:return
+        from .audio_mix_dialog import AudioMixDialog
+        dialog=AudioMixDialog(self.editor_project,path,self)
+        if dialog.exec()==QDialog.DialogCode.Accepted and self._apply_project_edit(lambda p:dialog.value):
+            self.include_track_audio.setChecked(True)
+            self.statusBar().showMessage("Audio-Mix übernommen · Originalton aus · Render-Vorschau prüfen")
 
     def _review_asr_quality(self):
         if not self.analysis or not self.analysis.transcript or self._history_blocked or (self.worker and self.worker.isRunning()):return

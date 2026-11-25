@@ -899,3 +899,46 @@ def concatenate_scene_parts(parts: list[Path], destination: Path, *, cancelled=N
                                    errors.read().decode("utf-8", "replace"))
         finally:
             _stop_process(proc)
+
+
+def process_stem_mix(voice,residual,destination,*,duration,channels,voice_gain=0.,background_gain=0.,
+                     cleanup=False,ducking=False,normalize=False,cancelled=None):
+    """Bake a non-destructive local mix for identical preview/export/queue.
+    Loudnorm is single-pass dynamic normalization, not a verified final MP4
+    true-peak ceiling. Input estimates remain untouched.
+    """
+    import time
+    if not 0<duration<=21600 or channels not in (1,2) or any(not math.isfinite(g) or not -60<=g<=12 for g in (voice_gain,background_gain)):
+        raise ValueError("Ungültige Mixparameter")
+    if not all(type(x) is bool for x in (cleanup,ducking,normalize)):raise ValueError("Ungültige Audioeffekte")
+    out=Path(destination)
+    if out.exists():raise FileExistsError(out)
+    if cancelled and cancelled():raise CancelledError("Audiomix abgebrochen")
+    layout="mono" if channels==1 else "stereo"
+    fmt=f"aformat=sample_rates=48000:channel_layouts={layout}"
+    clean=",highpass=f=75,afftdn=nf=-35" if cleanup else ""
+    chain=f"[0:a:0]{fmt},volume={voice_gain:.3f}dB{clean}[voice];[1:a:0]{fmt},volume={background_gain:.3f}dB[bg]"
+    if ducking:
+        chain+=";[voice]asplit=2[lead][key];[bg][key]sidechaincompress=threshold=0.025:ratio=6:attack=15:release=350[back];[lead][back]"
+    else:chain+=";[voice][bg]"
+    chain+="amix=inputs=2:duration=first:normalize=0:dropout_transition=0"
+    if normalize:chain+=",loudnorm=I=-16:TP=-1.5:LRA=11"
+    chain+=f",aresample=48000,apad,atrim=end_sample={round(duration*48000)}[mix]"
+    cmd=[tool_path("ffmpeg"),"-nostdin","-hide_banner","-loglevel","error","-n",
+         "-i",str(voice),"-i",str(residual),"-filter_complex",chain,"-map","[mix]",
+         "-ar","48000","-ac",str(channels),"-c:a","pcm_f32le","-rf64","auto",str(out)]
+    with tempfile.TemporaryFile() as errors:
+        proc=subprocess.Popen(cmd,stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=errors)
+        try:
+            deadline=time.monotonic()+max(120,duration*3+60)
+            while proc.poll() is None:
+                if cancelled and cancelled():raise CancelledError("Audiomix abgebrochen")
+                if time.monotonic()>deadline:raise RuntimeError("Audiomix: Zeitlimit")
+                time.sleep(.1)
+            if proc.returncode:
+                errors.seek(0,os.SEEK_END);errors.seek(max(0,errors.tell()-4000))
+                raise RuntimeError("Audiomix: "+errors.read().decode("utf-8","replace"))
+        finally:_stop_process(proc)
+    if cancelled and cancelled():raise CancelledError("Audiomix abgebrochen")
+    if abs(probe_audio_duration(out)-duration)>.002:raise ValueError("Audiomix-Zeitbasis ungültig")
+    return out
