@@ -39,6 +39,7 @@ def _add_audio(project,path,label,gain):
     return add_item(result,result.tracks[-1].id,0.,project.source.duration,0.,label,media_path=str(path),gain_db=gain)
 
 def import_pair(project,voice,options=MixOptions(),*,cancelled=None):
+    if options.cleanup or options.ducking or options.normalize:raise ValueError('Effekte erfordern gerenderten Mix')
     chosen,residual=prepare_stems(project,voice,cancelled=cancelled)
     result=_add_audio(project,Path(chosen.path),"KI-Stimme (Schätzung)",options.voice_gain)
     result=_add_audio(result,residual,"KI-Restton (Schätzung)",options.background_gain)

@@ -1488,7 +1488,7 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage("Audio-Mix übernommen · Originalton aus · Render-Vorschau prüfen")
 
     def _review_asr_quality(self):
-        if not self.analysis or not self.analysis.transcript or self._history_blocked or (self.worker and self.worker.isRunning()):return
+        if not self.analysis or not self.analysis.transcript or self._history_blocked or (self.worker and self.worker.isRunning()) or (self.queue_worker and self.queue_worker.isRunning()):return
         selection=self.speech_source
         if selection is None or not self.analysis.method.endswith(selection.method_suffix) or not self.speech_path.text().strip():
             QMessageBox.warning(self,"ASR-Qualität","Passende Sprachquelle und lokales Whisper-Modell benötigt.");return
