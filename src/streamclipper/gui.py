@@ -1429,6 +1429,7 @@ class MainWindow(QMainWindow):
         scene_menu.addAction("Highlight in Szenen bearbeiten …", self._edit_scene_selection)
         audio_menu = self.menuBar().addMenu("Audio")
         audio_menu.addAction("Audioquellen / Originalspuren …", self._inspect_audio_sources)
+        audio_menu.addAction("Originalton in Komposition ein-/ausschalten", self._toggle_base_audio)
         branding = self.menuBar().addMenu("Branding")
         branding.addAction("Untertitel gestalten …", self._edit_caption_style)
         branding.addAction("Untertitel übersetzen …", self._edit_translations)
@@ -1464,6 +1465,16 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage('Whisper: '+(f'Stream {self.speech_source.index} ({self.speech_source.role})' if self.speech_source else 'Standardspur')+' · nächste Analyse')
         elif dialog.action=='timeline':
             self._import_extracted_audio(dialog.extracted)
+
+    def _toggle_base_audio(self):
+        if not self.editor_project or self._history_blocked:return
+        from dataclasses import replace
+        enabled=not self.editor_project.base_audio_enabled
+        if enabled and QMessageBox.question(self,'Originalton','Originalmix wieder zuschalten? Bereits hinzugefügte Spuren können den Mix verdoppeln.')!=QMessageBox.StandardButton.Yes:return
+        if self._apply_project_edit(lambda p:replace(p,base_audio_enabled=enabled)):
+            self.include_track_audio.setEnabled(True)
+            self.include_track_audio.setChecked(True)
+            self.statusBar().showMessage('Originalton in Komposition: '+('an' if enabled else 'aus'))
 
     def _import_extracted_audio(self,path):
         if not self.editor_project:return
@@ -2381,7 +2392,7 @@ class MainWindow(QMainWindow):
                  and not clip_track.locked))
         if hasattr(self, "include_track_audio"):
             has_layers = bool(self.editor_project and any(
-                i.id != "source" for i in self.editor_project.items))
+                i.id != "source" for i in self.editor_project.items) or self.editor_project and not self.editor_project.base_audio_enabled)
             # Busy disables changes but must NOT clear the opt-in choice.
             # Unsupported legacy metadata-only clips remain fail-closed if
             # the user deliberately enables project rendering.
