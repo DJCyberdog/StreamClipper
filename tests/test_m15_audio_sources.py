@@ -51,6 +51,8 @@ def test_inventory_and_aligned_extraction(source,tmp_path):
     snap=inventory(source)
     assert [s.index for s in snap.streams]==[1,2]
     assert all(s.sample_rate==48000 and s.channels==1 for s in snap.streams)
+    assert [s.title for s in snap.streams]==['Mix','Mic']
+    assert snap.streams[1].language=='deu'
     assert abs(snap.duration-3)<.1
     assert abs(snap.streams[1].start_time-.75)<.04
     out=extract_audio_stream(snap,2,tmp_path/"exports",role="microphone")
