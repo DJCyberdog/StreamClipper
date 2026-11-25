@@ -110,7 +110,8 @@ class AnalysisThread(QThread):
                              cancelled=self._cancelled.is_set,
                              speech_model=self.speech_model,
                              vision_model=self.vision_model,
-                             detector_model=self.detector_model,speech_source=self.speech_source)
+                             detector_model=self.detector_model,
+                             **({'speech_source':self.speech_source} if self.speech_source is not None else {}))
             if self._cancelled.is_set():
                 raise CancelledError("Analyse abgebrochen")
             self.done.emit(result)
