@@ -443,6 +443,8 @@ class RenderedClipDialog(QDialog):
     def closeEvent(self, event) -> None:
         self.player.stop()
         self.player.setSource(QUrl())
+        self.player.setVideoOutput(None)
+        self.player.setAudioOutput(None)
         if not self._released:
             self._released = True
             try:
@@ -4206,6 +4208,9 @@ class MainWindow(QMainWindow):
                 event.ignore()
                 return
             self.render_queue = None
+        self.player.setSource(QUrl())
+        self.player.setVideoOutput(None)
+        self.player.setAudioOutput(None)
         self._save_workspace_layout(quiet=True)
         event.accept()
 
