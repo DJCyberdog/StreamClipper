@@ -18,13 +18,25 @@ M15a erster Funktionsschnitt:
   mit Containerzeitbasis, führender/nachlaufender Auffüllung, Quellenprüfung,
   Speicherplatzgrenze, Abbruch und provenance.json. Kein Quellüberschreiben.
 - Qt Audio-Menü und Worker; echte Mehrspur-/Zeitversatz-/Einspur-Tests
-  hinzugefügt. Neue CI offen, keine native Abnahme.
+  hinzugefügt. Head 46ee8158 Linux 397 passed/19 skipped, PASS;
+  Windows 204 passed/1 skipped, danach Exit 1, Build nicht ausgeführt.
+  Ursache ungeklärt. Windows-CI trennt GUI-/Legacy-Suite und M15-Audiotests
+  in eigene Prozesse und protokolliert Exitcodes; keine Fehlerunterdrückung.
+- Neu: Sprachspur-Auswahl im Audio-Dialog für nächste Whisper-Analyse;
+  temporäre zeitbasierte WAV, ASR-Provenienz im method-Feld (Stream-ID,
+  Rolle, Quellgröße/mtime), keine stille Rückkehr zum Mix; Originalvideo
+  bleibt Analyseidentität. Standard-RMS/Visualanalyse unverändert.
+- Extrahierte Audio-WAV auf Timeline übernehmen; expliziter, persistenter
+  Originalton-Schalter, Undo/Redo, Checkpoints, Queue und Szenenrender.
+  Import deaktiviert den Originalmix erst nach Bestätigung; keine
+  automatische Stem-Erkennung. Tests mit realem Audio und Mock-ASR
+  geschrieben, neue CI offen.
 
 Nächste Schritte:
 1. Neue CI auswerten und reale Zeitbasis-/Mehrspurtests korrigieren falls nötig.
-2. M15a: ausgewählte vorhandene Sprachspur als explizite Analysequelle in
-   Whisper/VAD und Audio-Timeline übernehmen; Mehrspur-Remix ohne doppelten
-   Originalmix, Quellenprovenienz/Cache, Mehrspur-/Einspur-Holdouts.
+2. M15a: neue Tests/GUI abnehmen; persistente Sprachspur-/Cacheverwaltung,
+   VAD-Anbindung, Mehrspur-/Einspur-Holdouts und echte Whisper-Inferenz.
+   Sprachspurwahl bisher sitzungslokal; kein automatischer Import bei Wiederöffnung.
 3. M15b: Modell-/Lizenz-/Ressourcenvergleich für Trennung und TSE.
    M15c: VAD und Alignment-basierte Korrekturvorschläge, manuelle Zeiten
    schützen, nachlaufende Stille messen. Kein globales Spielton-Lautstärkegate.
