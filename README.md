@@ -1320,3 +1320,8 @@ nicht zugleich Mix und seine Bestandteile hinzufügen. Alte Projekte
 laden mit Originalton an. Tests für ASR-Routing (Mock-Modell, echtes
 Audio), fehlenden Mix, persistente Render-Requests und MP4-Vorschau
 hinzugefügt. Echte Whisper-/GPU-Abnahme offen.
+
+
+### M15b – experimentelle lokale KI-Audiotrennung
+
+Audio → Audioquellen → KI-Audiotrennung. Optionales Extra `.[separation]` und separat bereitgestellter, geprüfter Offline-Checkpoint erforderlich. Erste Stufe: Vordergrundsprache und Restton als WAV, maximal zehn Minuten, 48 kHz Mono/Stereo. Kein automatischer Download, keine Sprecheridentifikation oder automatische Übernahme in Whisper. Details und Modellquellen: [M15b-Kandidatenentscheidung](docs/M15B_SEPARATION.md). Echte Modell-/GPU-Abnahme noch offen.

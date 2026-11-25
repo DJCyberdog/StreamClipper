@@ -54,3 +54,22 @@ Noch keine GUI-Anbindung, keine persistente manuelle Cue-Provenienz, kein
 realer VAD-Modelllauf, keine Chunk-Verarbeitung oder TSE. Tests eingecheckt.
 Nächster Schritt: M15b Modellvergleich und M15c Review-UI mit persistenter
 manueller Cue-Provenienz; keine automatische Anwendung auf Alttranskripte.
+
+## M15b erster Pilot (25.11.2026)
+- Konsolidierung #53 ist in main; M14/M15-Baselines bdaa1d7d/7e035755
+  jeweils Linux+Windows PASS. Neue M15b-CI ausstehend.
+- Inworld Voice Isolator 1.0.0, veröffentlichter Offline-Safetensors-Checkpoint
+  SHA256 647335a6aeb4dc706b895532c209d51e0e84a4849d17b339f00d4392a050ae53.
+  Explizite lokale Dateiwahl, kein automatischer Download. Optionales Extra.
+- WAV-Schätzung der Vordergrundsprache und rechnerischer Restton, 48 kHz,
+  Mono/Stereo, max. zehn Minuten; acht Sekunden Fenster, zwei Sekunden
+  Überlappung, samplegenaue Dauer, Hashes, temporäre Extraktion und Abbruch.
+  Stereoprojektion als identische Mono-Stimme je Kanal; Rest ist keine
+  Original-Spielspur. Kein Sprecher-ID-/TSE-Versprechen.
+- Tests mit injiziertem synthetischem Backend prüfen Rekonstruktion,
+  Überlappung, Zeitbasis, Abbruch, Modellintegrität. Echte Inferenz fehlt.
+- Nächster Schritt: CI auswerten; unabhängiger Benchmark echter Sprach-/NPC-/
+  Musikmischungen, native RTX-5060-Ti-Inferenz; WeSep Referenzstimme und
+  Modelllizenz/Checkpoint prüfen; lange VODs mit Resume und Cache; geprüfte
+  rekonstruierte Sprachspur optional in ASR/VAD/Timeline übernehmen.
+  Keine automatische Ersetzung der Originalspur.
