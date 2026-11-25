@@ -4,7 +4,7 @@ from PySide6.QtCore import QThread,Signal,Qt
 from PySide6.QtWidgets import (QDialog,QVBoxLayout,QLabel,QPushButton,QTableWidget,
     QTableWidgetItem,QDoubleSpinBox,QHBoxLayout,QCheckBox,QPlainTextEdit)
 from .speech_activity import detect_speech
-from .speech_timing import propose_timings,apply_proposals
+from .speech_timing import propose_timings,apply_proposals,propose_pause_splits,apply_pause_splits
 
 class TimingWorker(QThread):
     ready=Signal(object)
@@ -29,6 +29,7 @@ class TimingReviewDialog(QDialog):
         self.padding=QDoubleSpinBox();self.padding.setRange(0,.5);self.padding.setDecimals(2);self.padding.setSingleStep(.05);self.padding.setValue(.12)
         row.addWidget(self.padding);row.addStretch();layout.addLayout(row)
         self.trim=QCheckBox('Überlange Randwörter als VAD-Schätzung vorschlagen (kein Forced Alignment)');layout.addWidget(self.trim)
+        self.split=QCheckBox('Statt Randkorrekturen: Teilung an bestätigten Sprechpausen (Wortzeiten bleiben erhalten)');layout.addWidget(self.split)
         self.table=QTableWidget(0,6);self.table.setHorizontalHeaderLabels(["Übernehmen","Text","Bisher (s)","Vorschlag (s)","Kürzung (s)","Begründung"])
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.table.horizontalHeader().setStretchLastSection(True);layout.addWidget(self.table)
@@ -36,7 +37,7 @@ class TimingReviewDialog(QDialog):
         self.status=QLabel("Lokale Sprachaktivität wird ermittelt …");self.status.setWordWrap(True);layout.addWidget(self.status)
         self.apply=QPushButton("Markierte Vorschläge übernehmen");self.apply.clicked.connect(self.commit);self.apply.setEnabled(False);layout.addWidget(self.apply)
         close=QPushButton("Abbrechen / Schließen");close.clicked.connect(self.reject);layout.addWidget(close)
-        self.padding.valueChanged.connect(self.refresh);self.trim.toggled.connect(self.refresh)
+        self.padding.valueChanged.connect(self.refresh);self.trim.toggled.connect(self.refresh);self.split.toggled.connect(self.refresh)
         self.worker=TimingWorker(selection,self);self.worker.ready.connect(self.ready);self.worker.failed.connect(self.status.setText)
         self.worker.finished.connect(self.done);self.worker.start()
     def ready(self,spans):
@@ -49,14 +50,17 @@ class TimingReviewDialog(QDialog):
     def refresh(self):
         if self.spans is None:return
         protected=[i for i,c in enumerate(self.result.transcript) if c.review_origin not in ("asr","vad")]
-        self.proposals=propose_timings(self.result.transcript,self.spans,duration=self.result.video.duration,
-                                       protected_rows=protected,padding=self.padding.value(),trim_outer_words=self.trim.isChecked())
+        self.trim.setEnabled(not self.split.isChecked())
+        self.proposals=(propose_pause_splits(self.result,self.spans,padding=min(.3,self.padding.value())) if self.split.isChecked() else
+            propose_timings(self.result.transcript,self.spans,duration=self.result.video.duration,
+                protected_rows=protected,padding=self.padding.value(),trim_outer_words=self.trim.isChecked()))
         self.table.setRowCount(len(self.proposals))
         for i,p in enumerate(self.proposals):
             check=QTableWidgetItem();check.setFlags(Qt.ItemFlag.ItemIsEnabled|Qt.ItemFlag.ItemIsUserCheckable)
             check.setCheckState(Qt.CheckState.Unchecked);self.table.setItem(i,0,check)
+            parts=p.parts if self.split.isChecked() else (p.after,)
             for col,value in enumerate((p.before.text,f"{p.before.start:.3f} – {p.before.end:.3f}",
-                f"{p.after.start:.3f} – {p.after.end:.3f}",f"{p.before.end-p.before.start-p.after.end+p.after.start:.3f}",p.reason),1):
+                " | ".join(f"{c.start:.3f} – {c.end:.3f}" for c in parts),f"{p.before.end-p.before.start-sum(c.end-c.start for c in parts):.3f}",p.reason),1):
                 self.table.setItem(i,col,QTableWidgetItem(value))
         self.status.setText(f"{len(self.proposals)} Vorschläge · {len(protected)} geschützte Zeilen. Bitte einzeln prüfen und markieren.")
         self.apply.setEnabled(self.worker is None and bool(self.proposals))
@@ -67,7 +71,7 @@ class TimingReviewDialog(QDialog):
     def commit(self):
         selected=[p for i,p in enumerate(self.proposals) if self.table.item(i,0).checkState()==Qt.CheckState.Checked]
         if not selected:return
-        try:self.value=apply_proposals(self.result,selected)
+        try:self.value=(apply_pause_splits if self.split.isChecked() else apply_proposals)(self.result,selected)
         except ValueError as exc:self.status.setText(str(exc));return
         self.accept()
     def reject(self):
