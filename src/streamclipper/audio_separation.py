@@ -60,7 +60,7 @@ class InworldBackend:
         return result.detach().cpu().numpy()
 
 
-def separate_stream(selection,folder,*,backend,progress=None,cancelled=None):
+def separate_stream(selection,folder,*,backend,progress=None,cancelled=None,use_cache=False):
     """Bounded 8s/2s overlap, float32 WAV; input mono/stereo 48kHz only.
     Speech estimate broadcast equally to each original channel. Residual =
     input minus estimate; no peak normalization/clipping or identity claim.
@@ -79,14 +79,19 @@ def separate_stream(selection,folder,*,backend,progress=None,cancelled=None):
     def check():
         if cancelled and cancelled():raise CancelledError("Audiotrennung abgebrochen")
     check()
+    if type(use_cache) is not bool or (use_cache and backend.metadata.get("speaker_targeted") is not False):
+        raise ValueError("Persistenter Cache nur für Vordergrundsprache ohne Stimmreferenz")
     root=Path(folder).resolve();root.mkdir(parents=True,exist_ok=True)
     count=round(source.duration*RATE)
     file_format=output_format(count,stream.channels)
-    if shutil.disk_usage(root).free<count*stream.channels*4*3+64*1024*1024:
+    cache_budget=(count+((count+CHUNK-OVERLAP-1)//(CHUNK-OVERLAP))*OVERLAP)*4 if use_cache else 0
+    if shutil.disk_usage(root).free<count*stream.channels*4*3+cache_budget+64*1024*1024:
         raise OSError("Nicht genügend Speicherplatz für drei PCM-Spuren")
     staging=Path(tempfile.mkdtemp(prefix=".separation-",dir=root))
     final=root/("separation-"+staging.name.removeprefix(".separation-"))
     began=time.monotonic()
+    cache=WindowCache(root/".streamclipper-separation-cache",backend.metadata) if use_cache else None
+    reused=0;computed=0
     try:
         with tempfile.TemporaryDirectory(prefix="input-",dir=staging) as temp:
             wav=extract_audio_stream(source,selection.index,temp,role=selection.role,cancelled=cancelled)
@@ -102,7 +107,12 @@ def separate_stream(selection,folder,*,backend,progress=None,cancelled=None):
                     mix=src.read(min(CHUNK,count-start),dtype="float32",always_2d=True)
                     if not np.isfinite(mix).all():raise ValueError("Nicht endliche PCM-Eingabe")
                     mono=mix.mean(axis=1,dtype=np.float32)
-                    estimate=np.asarray(backend(mono),dtype=np.float32)
+                    estimate=cache.load(mono) if cache else None
+                    if estimate is None:
+                        estimate=np.asarray(backend(mono),dtype=np.float32)
+                        computed+=1
+                        if cache and estimate.shape==(len(mix),) and np.isfinite(estimate).all():cache.save(mono,estimate)
+                    else:reused+=1
                     check()
                     if estimate.shape!=(len(mix),) or not np.isfinite(estimate).all():
                         raise ValueError("Modell lieferte ungültige Sample-Anzahl oder Werte")
@@ -139,7 +149,7 @@ def separate_stream(selection,folder,*,backend,progress=None,cancelled=None):
             "backend":backend.metadata,"sample_rate":RATE,"channels":stream.channels,"samples":count,
             "timeline_origin":"container_start","container_format":file_format,"chunk_samples":CHUNK,"overlap_samples":OVERLAP,
             "voice_projection":"mono_equal_channels","residual_definition":"original_pcm_minus_voice_estimate",
-            "outputs":outputs,"elapsed_seconds":time.monotonic()-began}
+            "outputs":outputs,"cache":{"enabled":use_cache,"reused_windows":reused,"computed_windows":computed},"elapsed_seconds":time.monotonic()-began}
         (staging/"provenance.json").write_text(json.dumps(manifest,ensure_ascii=False,indent=2,allow_nan=False),encoding="utf-8")
         check()
         if final.exists():raise FileExistsError(final)
@@ -149,3 +159,42 @@ def separate_stream(selection,folder,*,backend,progress=None,cancelled=None):
     except BaseException:
         shutil.rmtree(staging,ignore_errors=True)
         raise
+
+
+class WindowCache:
+    """Local opt-in foreground inference cache. Contains reconstructed audio.
+    Key binds input bytes, model identity and pipeline revision. Verify size
+    and payload checksum on every hit; no pickle or executable deserialization.
+    """
+    def __init__(self,root,metadata):
+        self.root=Path(root);self.root.mkdir(parents=True,exist_ok=True)
+        self.key=json.dumps({"schema":1,"rate":RATE,"chunk":CHUNK,"overlap":OVERLAP,"backend":metadata},
+                            sort_keys=True,allow_nan=False).encode("utf-8")
+    def path(self,mono):
+        import numpy as np
+        raw=np.asarray(mono,dtype="<f4").tobytes()
+        return self.root/(hashlib.sha256(self.key+b"\0"+raw).hexdigest()+".pcm")
+    def load(self,mono):
+        import numpy as np
+        path=self.path(mono)
+        if not path.exists():return None
+        if path.stat().st_size!=32+4*len(mono):raise ValueError("Audio-Cache beschädigt; Cache deaktivieren oder lokal löschen")
+        with path.open("rb") as f:
+            digest=f.read(32);raw=f.read(4*len(mono)+1)
+        if len(raw)!=4*len(mono) or hashlib.sha256(raw).digest()!=digest:raise ValueError("Audio-Cache beschädigt")
+        estimate=np.frombuffer(raw,dtype="<f4").copy()
+        if not np.isfinite(estimate).all():raise ValueError("Audio-Cache ungültig")
+        return estimate
+    def save(self,mono,estimate):
+        import numpy as np
+        from .media import _publish_without_overwrite
+        raw=np.asarray(estimate,dtype="<f4").tobytes()
+        path=self.path(mono);stage=None
+        try:
+            with tempfile.NamedTemporaryFile(dir=self.root,delete=False) as f:
+                stage=Path(f.name);f.write(hashlib.sha256(raw).digest()+raw);f.flush()
+            try:_publish_without_overwrite(stage,path)
+            except FileExistsError:
+                if self.load(mono) is None:raise
+        finally:
+            if stage is not None:stage.unlink(missing_ok=True)

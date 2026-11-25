@@ -10,11 +10,11 @@ class SeparationWorker(QThread):
     ready=Signal(object)
     failed=Signal(str)
     progress=Signal(int)
-    def __init__(self,selection,checkpoint,folder,device,parent,*,kind='foreground',reference='',consent=False):
+    def __init__(self,selection,checkpoint,folder,device,parent,*,kind='foreground',reference='',consent=False,use_cache=False):
         super().__init__(parent)
         self.selection=selection;self.checkpoint=checkpoint;self.folder=folder
         self.device=device;self.stop=Event()
-        self.kind=kind;self.reference=reference;self.consent=consent
+        self.kind=kind;self.reference=reference;self.consent=consent;self.use_cache=use_cache
     def run(self):
         try:
             if self.kind=='target':
@@ -22,7 +22,7 @@ class SeparationWorker(QThread):
                 backend=VoxLockBackend(self.checkpoint,self.reference,consent=self.consent,cancelled=self.stop.is_set)
             else:backend=InworldBackend(self.checkpoint,self.device,cancelled=self.stop.is_set)
             result=separate_stream(self.selection,self.folder,backend=backend,
-                                    progress=self.progress.emit,cancelled=self.stop.is_set)
+                                    progress=self.progress.emit,cancelled=self.stop.is_set,use_cache=self.use_cache)
             self.ready.emit(result)
         except Exception as exc:self.failed.emit(str(exc))
 
@@ -51,6 +51,8 @@ class SeparationDialog(QDialog):
         form.addRow("Referenz-WAV (3–30 s)",refrow)
         self.consent=QCheckBox("Meine eigene oder ausdrücklich autorisierte Stimme; nur lokal verwenden")
         form.addRow(self.consent)
+        self.cache=QCheckBox('Vordergrund-Cache behalten (lokale PCM-Ausschnitte, Wiederaufnahme bei erneutem Lauf)')
+        form.addRow(self.cache)
         self.device=QComboBox()
         for label,value in (("Automatisch","auto"),("NVIDIA CUDA","cuda"),("CPU","cpu")):self.device.addItem(label,value)
         form.addRow("Gerät",self.device);layout.addLayout(form)
@@ -71,10 +73,11 @@ class SeparationDialog(QDialog):
         target=self.kind.currentData()=='target';idle=self.worker is None
         self.kind.setEnabled(idle);self.device.setEnabled(idle and not target)
         self.reference_button.setEnabled(idle and target);self.consent.setEnabled(idle and target)
+        self.cache.setEnabled(idle and not target)
         self.start_button.setEnabled(idle and bool(self.checkpoint.text()) and (not target or (bool(self.reference.text()) and self.consent.isChecked())))
 
     def mode_changed(self):
-        self.checkpoint.clear();self.reference.clear();self.consent.setChecked(False)
+        self.checkpoint.clear();self.reference.clear();self.consent.setChecked(False);self.cache.setChecked(False)
         self.status.setText('Lokalen VoxLock-Ordner mit enroll.onnx und chunk_int8.onnx wählen.' if self.kind.currentData()=='target' else 'Lokalen denoiser.safetensors-Checkpoint auswählen.')
         self.controls()
 
@@ -94,7 +97,7 @@ class SeparationDialog(QDialog):
         folder=QFileDialog.getExistingDirectory(self,"Ordner für rekonstruierte Audiospuren")
         if not folder:return
         self.progress.setValue(0);self.status.setText("Prüfe Modell und trenne Audio …")
-        self.worker=SeparationWorker(self.selection,self.checkpoint.text(),folder,self.device.currentData(),self,kind=self.kind.currentData(),reference=self.reference.text(),consent=self.consent.isChecked())
+        self.worker=SeparationWorker(self.selection,self.checkpoint.text(),folder,self.device.currentData(),self,kind=self.kind.currentData(),reference=self.reference.text(),consent=self.consent.isChecked(),use_cache=self.cache.isChecked() and self.kind.currentData()=='foreground')
         self.worker.progress.connect(self.progress.setValue)
         self.worker.ready.connect(lambda p:self.status.setText("Gespeichert: "+str(p)+" · voice_estimate.wav / residual.wav"))
         self.worker.failed.connect(self.status.setText)
