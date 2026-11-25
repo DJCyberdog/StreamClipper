@@ -479,6 +479,7 @@ class MainWindow(QMainWindow):
         self.queue_worker: QueueRunThread | None = None
         self.source: str | None = None
         self.speech_source=None
+        self._speech_source_error=None
         self.analysis: AnalysisResult | None = None
         self.worker: AnalysisThread | ExportThread | TwitchImportThread | RenderPreviewThread | None = None
         self._render_preview_dialog: RenderedClipDialog | None = None
@@ -1472,7 +1473,11 @@ class MainWindow(QMainWindow):
         dialog=AudioSourcesDialog(self.source,self)
         if dialog.exec()!=QDialog.DialogCode.Accepted:return
         if dialog.action=='speech':
+            from .speech_selection import save_selection
+            try:save_selection(self.source,dialog.selection)
+            except Exception as exc:QMessageBox.warning(self,'Sprachquellenwahl',str(exc));return
             self.speech_source=dialog.selection
+            self._speech_source_error=None
             self.statusBar().showMessage('Whisper: '+(getattr(self.speech_source,'label',f'Stream {self.speech_source.index} ({self.speech_source.role})') if self.speech_source else 'Standardspur')+' · nächste Analyse')
         elif dialog.action=='timeline':
             self._import_extracted_audio(dialog.extracted)
@@ -2738,6 +2743,10 @@ class MainWindow(QMainWindow):
         self._update_checkpoint_actions()
         self.source = source
         self.speech_source=None
+        self._speech_source_error=None
+        from .speech_selection import load_selection
+        try:self.speech_source=load_selection(source)
+        except Exception as exc:self._speech_source_error=str(exc)
         self._source_duration = 0.0
         self.caption_overlay.hide()
         self._active_caption = None
@@ -3344,6 +3353,8 @@ class MainWindow(QMainWindow):
         except FileNotFoundError as exc:
             QMessageBox.critical(self, "FFmpeg fehlt", str(exc))
             return
+        if self.speech_enabled.isChecked() and self._speech_source_error:
+            QMessageBox.warning(self,'Sprachquellenwahl','Gespeicherte Sprachquelle ungültig: '+self._speech_source_error+'\nBitte unter Audio → Audioquellen erneut wählen oder explizit die Standardspur wählen.');return
         speech = self.speech_path.text().strip() if self.speech_enabled.isChecked() else None
         vision = self.vision_path.text().strip() if self.vision_enabled.isChecked() else None
         detector = self.detector_path.text().strip() if self.detector_enabled.isChecked() else None

@@ -160,3 +160,23 @@ def test_whisper_model_reuse_and_options(tmp_path,monkeypatch):
         assert result[0].review_origin=="asr" and result[0].avg_logprob==-1.2
     assert len(constructors)==1 and len(calls)==2
     assert calls[0]["beam_size"]==5 and calls[1]["hotwords"]=="GTA"
+
+
+def test_source_selection_persistence(source,tmp_path):
+    from streamclipper.speech_selection import save_selection,load_selection
+    video,bundle=source
+    snapshot=inventory(video.path)
+    original=SpeechSource(snapshot,snapshot.streams[0].index,"mix")
+    root=tmp_path/"choices"
+    assert load_selection(video.path,root=root) is None
+    save_selection(video.path,original,root=root)
+    assert load_selection(video.path,root=root)==original
+    selected=select_reconstructed(snapshot,bundle/"voice_estimate.wav")
+    save_selection(video.path,selected,root=root)
+    assert load_selection(video.path,root=root)==selected
+    sidecar=bundle/"provenance.json";data=json.loads(sidecar.read_text())
+    data["outputs"]["voice_estimate.wav"]["sha256"]="b"*64
+    sidecar.write_text(json.dumps(data))
+    with pytest.raises(ValueError,match="verändert"):load_selection(video.path,root=root)
+    save_selection(video.path,None,root=root)
+    assert load_selection(video.path,root=root) is None
