@@ -211,4 +211,4 @@ def build_render_graph(project: EditorProject, video: VideoInfo,
         raise ValueError("Keine gültige Gameplay-Basisspur im Renderzeitfenster")
     return RenderGraph(
         RENDER_GRAPH_VERSION, video, start, end, tuple(nodes),
-        tuple(active_audio), video.has_audio, tuple(active_visual)).validate()
+        tuple(active_audio), video.has_audio and project.base_audio_enabled, tuple(active_visual)).validate()
