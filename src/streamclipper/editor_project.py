@@ -67,9 +67,11 @@ class EditorProject:
     items: tuple[TimelineItem, ...]
     scene_plans: tuple[SceneSelection, ...] = ()
     caption_style: CaptionStyle = CaptionStyle()
+    base_audio_enabled: bool = True
 
     def validate(self) -> None:
         self.caption_style.validate()
+        if type(self.base_audio_enabled) is not bool:raise ValueError('Ungültiger Originalton-Schalter')
         if self.schema_version != SCHEMA_VERSION:
             raise ValueError("Unbekannte Projektformat-Version")
         if not isinstance(self.source.path, str) or not self.source.path:
@@ -390,7 +392,7 @@ def load_project(video: VideoInfo, *, root: Path | None = None) -> EditorProject
             tuple(Track(**record) for record in doc["tracks"]),
             tuple(item_from_dict(record) for record in doc["items"]),
             tuple(selection_from_dict(p) for p in doc.get("scene_plans", [])),
-            caption_style_from_dict(doc.get("caption_style")))
+            caption_style_from_dict(doc.get("caption_style")),doc.get("base_audio_enabled",True))
         project.validate()
         a, b = project.source, video
         if (os.path.normcase(os.path.abspath(a.path))
