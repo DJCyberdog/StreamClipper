@@ -1337,3 +1337,15 @@ Zeitbasis werden beim Analysieren geprüft; Whisper verarbeitet 5-Minuten-
 Fenster mit Kontext und Originalzeitstempeln. VAD-Kern ebenfalls fensterweise.
 Kein automatisches Ersetzen des Originaltons. 6h-Nativtest, Resume,
 Modellqualität und Timing-Review-GUI offen.
+
+
+### M15 Audio & Speech Intelligence — review / evaluation
+
+Full implementation and explicit remaining acceptance gates:
+[docs/M15F_ACCEPTANCE.md](docs/M15F_ACCEPTANCE.md).
+
+Audio menu: persisted speech-source choice, KI-Audiotrennung, KI-Stems /
+Audio-Mix, Untertitel-Zeitstempel prüfen, ASR-Qualität prüfen and voice-over
+file import. Raw ASR reports remain separate; VAD proposals require approval.
+Real model smoke CI uses generated TTS, not user recordings. Gaming holdout
+and 6h RTX acceptance remain open. This is not an official 0.9 release.

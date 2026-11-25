@@ -1,3 +1,28 @@
+# NEXT_TASK – M15 implementation / acceptance
+
+Owner asked to complete M15a–f. Technical paths across all six implemented;
+not accepted or merged. See docs/M15F_ACCEPTANCE.md for exact scope, evidence,
+remaining gates, local model/setup and benchmark runner. Latest code
+4851e412 before documentation. Check exact final CI, no false green.
+
+Immediate acceptance sequence:
+1. Verify latest Linux/Windows and neural smoke. Fix concrete failures.
+   Real continuous VoxLock CPU smoke 45637124101 job 139285479206 PASS.
+   Initial Inworld CPU import mismatch fixed in e63b6155; new result pending.
+2. Complete genuinely open engineering: persistent TSE resume without
+   voiceprint persistence, broader sample-rate handling, bounded original-
+   stream ASR and resumable ASR cache, optional validated alignment and
+   pause-based splitting. Do not represent these as accepted.
+3. Actual annotated DE/EN gaming holdout, native Windows/RTX 5060 Ti 16 GB,
+   six-hour VOD, listening, cancel/restart, render parity, model licensing.
+   User-supplied authorized fixtures needed; do not substitute generated TTS.
+4. Record M15f gate results; only then propose M15 acceptance/merge and M16.
+   M14 #51 native acceptance still open. No automatic release.
+
+Source ZIP analog M9; preserve .venv and data. No automatic merges.
+
+## Historical development notes
+
 # NEXT_TASK – M15 Audio & Speech Intelligence
 
 Owner-Auftrag 25.11.2026: besprochene Erweiterungen zu dynamischer
