@@ -17,6 +17,7 @@ from streamclipper.speech_activity import detect_speech
 from streamclipper.speech_timing import propose_timings,apply_proposals
 from streamclipper.speech_benchmark import evaluate_manifest
 from streamclipper.speech_handoff import handoff
+from streamclipper.resource_sampling import ResourceSampler
 
 def main():
     p=argparse.ArgumentParser()
@@ -58,28 +59,29 @@ def main():
         video=VideoInfo(str(mix),snap.duration,1,1,1,True)
         if args.backend=="voxlock":
             backend=VoxLockBackend(args.model,source(case["reference_wav"]),consent=True)
-        started=time.monotonic()
-        bundle=separate_stream(selection,folder,backend=backend)
-        separation_seconds=time.monotonic()-started
-        estimate=select_reconstructed(snap,bundle/"voice_estimate.wav")
-        baseline=transcribe_video(video,args.whisper)
-        from functools import partial
-        variant=transcribe_reconstructed(video,args.whisper,estimate,
-            transcriber=partial(transcribe_video,model_cache={}))
-        analysis=AnalysisResult(video,[],method="benchmark"+estimate.method_suffix,transcript=variant)
-        spans=detect_speech(estimate)
-        proposals=propose_timings(variant,spans,duration=video.duration,trim_outer_words=True)
-        # Benchmark the deterministic proposals separately from manual review.
-        corrected=apply_proposals(analysis,proposals)
-        for name,cues in (("baseline",baseline),("variant",variant),("timing_proposals",corrected.transcript)):
-            (folder/(name+".json")).write_text(json.dumps([asdict(c) for c in cues],ensure_ascii=False,allow_nan=False),encoding="utf-8")
-        (folder/"handoff.json").write_text(json.dumps(handoff(corrected),ensure_ascii=False,allow_nan=False),encoding="utf-8")
+        with ResourceSampler() as resources:
+            started=time.monotonic()
+            bundle=separate_stream(selection,folder,backend=backend)
+            separation_seconds=time.monotonic()-started
+            estimate=select_reconstructed(snap,bundle/"voice_estimate.wav")
+            baseline=transcribe_video(video,args.whisper)
+            from functools import partial
+            variant=transcribe_reconstructed(video,args.whisper,estimate,
+                transcriber=partial(transcribe_video,model_cache={}))
+            analysis=AnalysisResult(video,[],method="benchmark"+estimate.method_suffix,transcript=variant)
+            spans=detect_speech(estimate)
+            proposals=propose_timings(variant,spans,duration=video.duration,trim_outer_words=True)
+            # Benchmark the deterministic proposals separately from manual review.
+            corrected=apply_proposals(analysis,proposals)
+            for name,cues in (("baseline",baseline),("variant",variant),("timing_proposals",corrected.transcript)):
+                (folder/(name+".json")).write_text(json.dumps([asdict(c) for c in cues],ensure_ascii=False,allow_nan=False),encoding="utf-8")
+            (folder/"handoff.json").write_text(json.dumps(handoff(corrected),ensure_ascii=False,allow_nan=False),encoding="utf-8")
         row={k:case[k] for k in ("id","split","speaker_group","language","conditions","reference_cues")}
         row.update({"mix":str(mix),"reference_voice":str(source(case["reference_voice"])),
             "estimate":str(bundle/"voice_estimate.wav"),"baseline_cues":str(folder/"baseline.json"),
             "variant_cues":str(folder/"variant.json"),"timing_proposals_cues":str(folder/"timing_proposals.json"),
             "runtime_seconds":time.monotonic()-started,"separation_seconds":separation_seconds,
-            "peak_ram_bytes":None,"peak_vram_bytes":None})
+            **resources.report()})
         if case.get("interferer"):row["interferer"]=str(source(case["interferer"]))
         result["cases"].append(row)
     index=out/"evaluated_cases.json"

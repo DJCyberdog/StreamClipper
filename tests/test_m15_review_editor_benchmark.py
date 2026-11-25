@@ -99,6 +99,7 @@ def test_pair_mix_and_graph(source,tmp_path):
     assert sha256_file(path)==digest
     manifest=json.loads((output.parent/"mix.json").read_text())
     assert manifest["options"]["ducking"] and manifest["output_sha256"]==sha256_file(output)
+    assert isinstance(manifest["measured_wav_loudness"]["true_peak_dbtp"],float)
     assert pause_suggestions([(0,1),(2.5,3)],4)==((1,2.5),)
 
 def test_benchmark_synthetic_metrics_and_split_guard(tmp_path):
@@ -126,3 +127,36 @@ def test_benchmark_synthetic_metrics_and_split_guard(tmp_path):
     doc["cases"].append({**case,"id":"other","split":"development"})
     manifest.write_text(json.dumps(doc))
     with pytest.raises(ValueError,match="beiden Splits"):evaluate_manifest(manifest)
+
+
+def test_handoff_distinguishes_uncertain_estimates(tmp_path):
+    from streamclipper.speech_handoff import handoff
+    video=VideoInfo(str(tmp_path/"source.mp4"),10,320,240,25,True)
+    cue=TranscriptSegment(1,2,"Hallo",review_origin="vad")
+    result=AnalysisResult(video,[],method="m|asr:reconstructed=target_voice_estimate,stream=1,sha256="+"a"*64,transcript=[cue])
+    doc=handoff(result);event=doc["events"][0]
+    assert event["source_kind"]=="target_voice_estimate"
+    assert event["timing_origin"]=="vad" and event["estimated_word_times"]
+    assert event["speaker_identity_verified"] is False
+    assert handoff(replace(result,transcript=[replace(cue,end=2.5)]))["transcript_sha256"]!=doc["transcript_sha256"]
+
+def test_whisper_model_reuse_and_options(tmp_path,monkeypatch):
+    import sys
+    from types import ModuleType,SimpleNamespace
+    from streamclipper.semantic import transcribe_video
+    constructors=[];calls=[]
+    class Fake:
+        def __init__(self,*a,**kw):constructors.append(kw)
+        def transcribe(self,path,**kw):
+            calls.append(kw)
+            return iter([SimpleNamespace(start=0.,end=1.,text="Hallo",words=[],avg_logprob=-1.2)]),None
+    module=ModuleType("faster_whisper");module.WhisperModel=Fake
+    monkeypatch.setitem(sys.modules,"faster_whisper",module)
+    monkeypatch.setenv("STREAMCLIPPER_WHISPER_DEVICE","cpu")
+    video=VideoInfo(str(tmp_path/"x.wav"),2,1,1,1,True)
+    cache={}
+    for i in range(2):
+        result=transcribe_video(video,str(tmp_path),model_cache=cache,quality_options=ASROptions("de","GTA"))
+        assert result[0].review_origin=="asr" and result[0].avg_logprob==-1.2
+    assert len(constructors)==1 and len(calls)==2
+    assert calls[0]["beam_size"]==5 and calls[1]["hotwords"]=="GTA"

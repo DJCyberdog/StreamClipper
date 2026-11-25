@@ -9,7 +9,7 @@ from .audio_sources import inventory
 from .reconstructed_speech import select_reconstructed
 from .audio_separation import sha256_file
 from .editor_project import add_track,add_item
-from .media import process_stem_mix,CancelledError
+from .media import process_stem_mix,measure_loudness,CancelledError
 
 @dataclass(frozen=True)
 class MixOptions:
@@ -60,9 +60,10 @@ def create_processed_mix(project,voice,folder,options=MixOptions(),*,cancelled=N
         chosen.validate(cancelled=cancelled)
         if sha256_file(residual,cancelled=cancelled)!=json.loads((Path(chosen.path).parent/"provenance.json").read_text(encoding="utf-8"))["outputs"]["residual.wav"]["sha256"]:
             raise ValueError("Restton während Verarbeitung verändert")
+        measured=measure_loudness(out,duration=chosen.inventory.duration,cancelled=cancelled)
         digest=sha256_file(out,cancelled=cancelled)
         (stage/"mix.json").write_text(json.dumps({"schema_version":1,"source":asdict(chosen.inventory),"voice_sha256":chosen.sha256,
-            "options":asdict(options),"output_sha256":digest,"duration":chosen.inventory.duration},ensure_ascii=False,allow_nan=False),encoding="utf-8")
+            "options":asdict(options),"measured_wav_loudness":measured,"output_sha256":digest,"duration":chosen.inventory.duration},ensure_ascii=False,allow_nan=False),encoding="utf-8")
         if cancelled and cancelled():raise CancelledError("Audiomix abgebrochen")
         if final.exists():raise FileExistsError(final)
         result=_add_audio(project,final/"processed_mix.wav","KI-Audiomix (bearbeitet)",0.)

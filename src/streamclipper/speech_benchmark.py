@@ -111,7 +111,7 @@ def evaluate_manifest(path):
                 cues=json.loads(local(case[key]).read_text(encoding="utf-8"))
                 row[key]={"text":text_errors(" ".join(c["text"] for c in case["reference_cues"])," ".join(c["text"] for c in cues)),
                           "timing":cue_errors(case["reference_cues"],cues)}
-        row["runtime_seconds"]=case.get("runtime_seconds");row["separation_seconds"]=case.get("separation_seconds");row["peak_ram_bytes"]=case.get("peak_ram_bytes");row["peak_vram_bytes"]=case.get("peak_vram_bytes")
+        row["runtime_seconds"]=case.get("runtime_seconds");row["separation_seconds"]=case.get("separation_seconds");row["peak_ram_bytes"]=case.get("peak_ram_bytes");row["peak_vram_bytes"]=case.get("peak_vram_bytes");row["resource_samples"]=case.get("resource_samples");row["resource_measurement"]=case.get("resource_measurement")
         rows.append(row)
     return {"schema_version":1,"manifest_sha256":sha256_file(path),"evidence_kind":doc.get("evidence_kind","unspecified"),
             "model":doc.get("model"),"commit":doc.get("commit"),"platform":platform.platform(),

@@ -942,3 +942,32 @@ def process_stem_mix(voice,residual,destination,*,duration,channels,voice_gain=0
     if cancelled and cancelled():raise CancelledError("Audiomix abgebrochen")
     if abs(probe_audio_duration(out)-duration)>.002:raise ValueError("Audiomix-Zeitbasis ungültig")
     return out
+
+
+def measure_loudness(path,*,duration,cancelled=None):
+    """Measure the actual audio asset with FFmpeg loudnorm input metrics.
+    Null values for silent/undefined loudness. Not an AAC export guarantee.
+    """
+    import time
+    if not math.isfinite(duration) or not 0<duration<=21600:raise ValueError("Ungültige Messdauer")
+    with tempfile.TemporaryFile() as log:
+        cmd=[tool_path("ffmpeg"),"-nostdin","-hide_banner","-loglevel","info","-i",str(Path(path).resolve(strict=True)),
+             "-vn","-af","loudnorm=I=-16:TP=-1.5:LRA=11:print_format=json","-f","null","-"]
+        proc=subprocess.Popen(cmd,stdout=subprocess.DEVNULL,stderr=log,stdin=subprocess.DEVNULL)
+        try:
+            deadline=time.monotonic()+max(120,duration*3+60)
+            while proc.poll() is None:
+                if cancelled and cancelled():raise CancelledError("Lautheitsmessung abgebrochen")
+                if time.monotonic()>deadline:raise RuntimeError("Lautheitsmessung: Zeitlimit")
+                time.sleep(.1)
+            if proc.returncode:raise RuntimeError("FFmpeg-Lautheitsmessung fehlgeschlagen")
+            log.seek(0,os.SEEK_END);log.seek(max(0,log.tell()-65536))
+            text=log.read().decode("utf-8","replace")
+        finally:_stop_process(proc)
+    i,j=text.rfind("{"),text.rfind("}")
+    if i<0 or j<=i:raise ValueError("FFmpeg-Lautheitsmesswerte fehlen")
+    doc=json.loads(text[i:j+1])
+    values={}
+    for key,label in (("input_i","integrated_lufs"),("input_tp","true_peak_dbtp"),("input_lra","loudness_range_lu")):
+        value=float(doc[key]);values[label]=value if math.isfinite(value) else None
+    return values
