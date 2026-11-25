@@ -90,8 +90,9 @@ class AnalysisThread(QThread):
 
     def __init__(self, source: str, length: int, parent=None,
                  speech_model: str | None = None, vision_model: str | None = None,
-                 detector_model: str | None = None):
+                 detector_model: str | None = None, speech_source=None):
         super().__init__(parent)
+        self.speech_source=speech_source
         self.source = source
         self.length = length
         self.speech_model = speech_model
@@ -109,7 +110,7 @@ class AnalysisThread(QThread):
                              cancelled=self._cancelled.is_set,
                              speech_model=self.speech_model,
                              vision_model=self.vision_model,
-                             detector_model=self.detector_model)
+                             detector_model=self.detector_model,speech_source=self.speech_source)
             if self._cancelled.is_set():
                 raise CancelledError("Analyse abgebrochen")
             self.done.emit(result)
@@ -470,6 +471,7 @@ class MainWindow(QMainWindow):
         self.render_queue: RenderQueue | None = None
         self.queue_worker: QueueRunThread | None = None
         self.source: str | None = None
+        self.speech_source=None
         self.analysis: AnalysisResult | None = None
         self.worker: AnalysisThread | ExportThread | TwitchImportThread | RenderPreviewThread | None = None
         self._render_preview_dialog: RenderedClipDialog | None = None
@@ -1455,7 +1457,29 @@ class MainWindow(QMainWindow):
         if not self.source or self._history_blocked or (self.worker and self.worker.isRunning()) or (self.queue_worker and self.queue_worker.isRunning()):
             return
         from .audio_sources_dialog import AudioSourcesDialog
-        AudioSourcesDialog(self.source,self).exec()
+        dialog=AudioSourcesDialog(self.source,self)
+        if dialog.exec()!=QDialog.DialogCode.Accepted:return
+        if dialog.action=='speech':
+            self.speech_source=dialog.selection
+            self.statusBar().showMessage('Whisper: '+(f'Stream {self.speech_source.index} ({self.speech_source.role})' if self.speech_source else 'Standardspur')+' · nächste Analyse')
+        elif dialog.action=='timeline':
+            self._import_extracted_audio(dialog.extracted)
+
+    def _import_extracted_audio(self,path):
+        if not self.editor_project:return
+        from .audio_sources import import_extracted_audio
+        tracks=[t for t in self.editor_project.tracks if t.kind=="audio" and not t.locked and not t.muted]
+        if not tracks:
+            QMessageBox.warning(self,"Audio","Aktive, entsperrte Audiospur benötigt.");return
+        labels=[f"{t.name} ({t.id})" for t in tracks]
+        choice,ok=QInputDialog.getItem(self,"Extrahierte Audiospur","Zielspur:",labels,0,False)
+        if not ok:return
+        if QMessageBox.question(self,"Originalton ersetzen",
+            "Extrahierte Spur synchron auf die Timeline übernehmen und den bisherigen Originalton in der Komposition deaktivieren? "
+            "So wird der Mix nicht doppelt abgespielt. Weitere Spuren können danach ergänzt werden.")!=QMessageBox.StandardButton.Yes:return
+        if self._apply_project_edit(import_extracted_audio,path,tracks[labels.index(choice)].id):
+            self.include_track_audio.setChecked(True)
+            self.statusBar().showMessage("Audio übernommen · Originalton in Komposition deaktiviert · Render-Vorschau prüfen.")
 
     def _edit_translations(self):
         if not self.analysis or not self.analysis.transcript or self._history_blocked:
@@ -2655,6 +2679,7 @@ class MainWindow(QMainWindow):
         self._refresh_track_tables()
         self._update_checkpoint_actions()
         self.source = source
+        self.speech_source=None
         self._source_duration = 0.0
         self.caption_overlay.hide()
         self._active_caption = None
@@ -3299,13 +3324,13 @@ class MainWindow(QMainWindow):
         self.progress.setValue(0)
         self.worker = AnalysisThread(self.source, self.length.value(), self,
                                      speech_model=speech, vision_model=vision,
-                                     detector_model=detector)
+                                     detector_model=detector,speech_source=self.speech_source if speech else None)
         self.worker.progress_changed.connect(self.progress.setValue)
         self.worker.done.connect(self.analysis_finished)
         self.worker.failed.connect(self.job_failed)
         self.worker.finished.connect(lambda: self._busy(False))
         self._busy(True)
-        self.statusBar().showMessage("Analyse läuft lokal (Audio / optionale Modelle) …")
+        self.statusBar().showMessage("Analyse läuft lokal (Audio / optionale Modelle) …" + (f' · Whisper Stream {self.speech_source.index}' if speech and self.speech_source else ''))
         self.worker.start()
 
     def refresh_highlight_table(self) -> None:
