@@ -180,3 +180,35 @@ def transcribe_selected_stream(video,model,selection,*,transcriber,progress=None
         if inventory(selection.inventory.source)!=selection.inventory:
             raise ValueError("Originalaufnahme während Analyse verändert")
         return result
+
+
+def import_extracted_audio(project,path,track_id):
+    """Import only a source-bound extracted bundle, with original mix disabled.
+    Source metadata is a consistency check, not a cryptographic identity proof.
+    """
+    from dataclasses import replace
+    from .editor_project import add_item
+    wav=Path(path).resolve(strict=True)
+    sidecar=wav.parent/"provenance.json"
+    if sidecar.stat().st_size>128*1024:raise ValueError("Audio-Provenienz zu groß")
+    manifest=json.loads(sidecar.read_text(encoding="utf-8"))
+    original=inventory(project.source.path)
+    if (manifest.get("schema_version")!=1 or manifest.get("kind")!="decoded_container_stream"
+            or manifest.get("source")!=json.loads(json.dumps(asdict(original)))
+            or manifest.get("output",{}).get("file")!=wav.name
+            or wav.name!="audio.wav"):
+        raise ValueError("Extrahierte Audiospur gehört nicht zu dieser Aufnahme")
+    selected=next((s for s in original.streams if asdict(s)==manifest.get("selected_stream")),None)
+    if selected is None:raise ValueError("Unbekannte Originalspur")
+    decoded=inventory(wav)
+    if (len(decoded.streams)!=1 or abs(decoded.duration-original.duration)>.002
+            or decoded.streams[0].sample_rate!=selected.sample_rate
+            or decoded.streams[0].channels!=selected.channels):
+        raise ValueError("Extrahierte Audio-Zeitbasis oder Kanäle stimmen nicht")
+    track=next((t for t in project.tracks if t.id==track_id and t.kind=="audio" and not t.locked and not t.muted),None)
+    if track is None:raise ValueError("Aktive, entsperrte Audiospur erforderlich")
+    result=replace(project,base_audio_enabled=False)
+    if any(i.media_path==str(wav) for i in result.items):return result
+    return add_item(result,track_id,0.,min(decoded.duration,project.source.duration),0.,
+                    f"Stream {selected.index} · {manifest.get('role_user_selected','unspecified')}"[:120],
+                    media_path=str(wav))
