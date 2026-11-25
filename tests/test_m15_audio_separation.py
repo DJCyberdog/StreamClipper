@@ -141,3 +141,32 @@ def test_reconstructed_selection_and_mock_asr_vad(mix,tmp_path,monkeypatch):
         audio.seek(0);audio.write(np.ones((1,2),dtype=np.float32)*.5)
     with pytest.raises(ValueError,match="Prüfsumme"):
         transcribe_reconstructed(video,"mock",chosen,transcriber=mock_asr)
+
+
+def test_foreground_restart_cache(mix,tmp_path):
+    _,_,selection=mix
+    root=tmp_path/"stems"
+    backend=TestBackend()
+    # First call persists its result then cancellation removes partial bundle.
+    with pytest.raises(CancelledError):
+        separate_stream(selection,root,backend=backend,use_cache=True,cancelled=lambda:bool(backend.calls))
+    cache=root/".streamclipper-separation-cache"
+    assert len(list(cache.glob("*.pcm")))==1
+    assert not list(root.glob(".separation-*"))
+    second=TestBackend()
+    bundle=separate_stream(selection,root,backend=second,use_cache=True)
+    m=json.loads((bundle/"provenance.json").read_text())
+    assert m["cache"]=={"enabled":True,"reused_windows":1,"computed_windows":2}
+    assert len(second.calls)==2
+    third=TestBackend()
+    other=separate_stream(selection,root,backend=third,use_cache=True)
+    assert not third.calls
+    assert sha256_file(bundle/"voice_estimate.wav")==sha256_file(other/"voice_estimate.wav")
+    bad=next(cache.glob("*.pcm"))
+    with bad.open("r+b") as stream:
+        stream.seek(35);stream.write(b"\xff"*4)
+    with pytest.raises(ValueError,match="Cache beschädigt"):
+        separate_stream(selection,root,backend=TestBackend(),use_cache=True)
+    targeted=TestBackend();targeted.metadata={"speaker_targeted":True}
+    with pytest.raises(ValueError,match="Stimmreferenz"):
+        separate_stream(selection,root,backend=targeted,use_cache=True)

@@ -87,10 +87,10 @@ def separate_stream(selection,folder,*,backend,progress=None,cancelled=None,use_
     cache_budget=(count+((count+CHUNK-OVERLAP-1)//(CHUNK-OVERLAP))*OVERLAP)*4 if use_cache else 0
     if shutil.disk_usage(root).free<count*stream.channels*4*3+cache_budget+64*1024*1024:
         raise OSError("Nicht genügend Speicherplatz für drei PCM-Spuren")
+    cache=WindowCache(root/".streamclipper-separation-cache",backend.metadata) if use_cache else None
     staging=Path(tempfile.mkdtemp(prefix=".separation-",dir=root))
     final=root/("separation-"+staging.name.removeprefix(".separation-"))
     began=time.monotonic()
-    cache=WindowCache(root/".streamclipper-separation-cache",backend.metadata) if use_cache else None
     reused=0;computed=0
     try:
         with tempfile.TemporaryDirectory(prefix="input-",dir=staging) as temp:
@@ -193,8 +193,12 @@ class WindowCache:
         try:
             with tempfile.NamedTemporaryFile(dir=self.root,delete=False) as f:
                 stage=Path(f.name);f.write(hashlib.sha256(raw).digest()+raw);f.flush()
-            try:_publish_without_overwrite(stage,path)
-            except FileExistsError:
-                if self.load(mono) is None:raise
+            if path.exists():
+                if self.load(mono) is None:raise ValueError("Audio-Cache nicht lesbar")
+                return
+            actual=_publish_without_overwrite(stage,path)
+            if actual!=path:
+                actual.unlink(missing_ok=True)
+                if self.load(mono) is None:raise ValueError("Audio-Cache nicht lesbar")
         finally:
             if stage is not None:stage.unlink(missing_ok=True)

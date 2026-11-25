@@ -98,7 +98,10 @@ def archive_raw(result,root):
     try:
         with tempfile.NamedTemporaryFile(dir=root,delete=False) as f:
             stage=Path(f.name);f.write(payload);f.flush();os.fsync(f.fileno())
-        _publish_without_overwrite(stage,target)
+        actual=_publish_without_overwrite(stage,target)
+        if actual!=target:
+            actual.unlink(missing_ok=True)
+            if target.read_bytes()!=payload:raise ValueError("Rohtranskript-Archiv beschädigt")
         return target
     finally:
         if stage is not None:stage.unlink(missing_ok=True)
