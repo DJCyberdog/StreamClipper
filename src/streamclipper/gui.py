@@ -114,6 +114,10 @@ class AnalysisThread(QThread):
                              **({'speech_source':self.speech_source} if self.speech_source is not None else {}))
             if self._cancelled.is_set():
                 raise CancelledError("Analyse abgebrochen")
+            if result.transcript:
+                from .asr_quality import archive_raw
+                from .portable import installation_directory
+                archive_raw(result,installation_directory()/"data"/"projects"/"raw_asr")
             self.done.emit(result)
         except Exception as exc:
             self.failed.emit(str(exc))
@@ -1434,6 +1438,7 @@ class MainWindow(QMainWindow):
         audio_menu.addAction("Audioquellen / Originalspuren …", self._inspect_audio_sources)
         audio_menu.addAction("Originalton in Komposition ein-/ausschalten", self._toggle_base_audio)
         audio_menu.addAction("Untertitel-Zeitstempel prüfen …",self._review_speech_timing)
+        audio_menu.addAction("ASR-Qualität prüfen …",self._review_asr_quality)
         branding = self.menuBar().addMenu("Branding")
         branding.addAction("Untertitel gestalten …", self._edit_caption_style)
         branding.addAction("Untertitel übersetzen …", self._edit_translations)
@@ -1469,6 +1474,19 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage('Whisper: '+(getattr(self.speech_source,'label',f'Stream {self.speech_source.index} ({self.speech_source.role})') if self.speech_source else 'Standardspur')+' · nächste Analyse')
         elif dialog.action=='timeline':
             self._import_extracted_audio(dialog.extracted)
+
+    def _review_asr_quality(self):
+        if not self.analysis or not self.analysis.transcript or self._history_blocked or (self.worker and self.worker.isRunning()):return
+        selection=self.speech_source
+        if selection is None or not self.analysis.method.endswith(selection.method_suffix) or not self.speech_path.text().strip():
+            QMessageBox.warning(self,"ASR-Qualität","Passende Sprachquelle und lokales Whisper-Modell benötigt.");return
+        if not self.apply_word_editor() or not self.apply_transcript_editor():return
+        from .asr_review_dialog import ASRReviewDialog
+        dialog=ASRReviewDialog(self.analysis,selection,self.speech_path.text().strip(),self)
+        if dialog.exec()==QDialog.DialogCode.Accepted:
+            before=self.analysis
+            self.analysis_finished(dialog.value,preserve_history=True)
+            self._register_edit(before)
 
     def _review_speech_timing(self):
         if not self.analysis or not self.analysis.transcript or self._history_blocked or (self.worker and self.worker.isRunning()):return

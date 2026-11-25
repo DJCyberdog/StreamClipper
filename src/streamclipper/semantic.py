@@ -81,7 +81,7 @@ def _missing_cuda_library(exc: BaseException) -> bool:
 
 def transcribe_video(video: VideoInfo, model_directory: str, *,
                      progress: Progress | None = None,
-                     cancelled: Cancelled | None = None) -> list[TranscriptSegment]:
+                     cancelled: Cancelled | None = None, quality_options=None) -> list[TranscriptSegment]:
     """Transcribe locally, retrying on CPU only for missing NVIDIA DLLs.
 
     A CTranslate2 model may construct successfully and fail *during generator
@@ -115,9 +115,10 @@ def transcribe_video(video: VideoInfo, model_directory: str, *,
         model = WhisperModel(str(folder), device=chosen_device,
                              compute_type="int8" if chosen_device == "cpu" else "default",
                              local_files_only=True)
+        options={} if quality_options is None else quality_options.whisper_kwargs()
         segments, _ = model.transcribe(
-            video.path, beam_size=2, vad_filter=True,
-            condition_on_previous_text=False, word_timestamps=True,
+            video.path, beam_size=options.pop('beam_size',2), vad_filter=True,
+            condition_on_previous_text=False, word_timestamps=True, **options,
         )
         spans: list[TranscriptSegment] = []
         try:
