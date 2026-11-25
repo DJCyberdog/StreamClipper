@@ -40,10 +40,12 @@ Ausgabezeit nach Szenenreihenfolge, Hintergrundframe, Titelbox, vier Formate,
 Crop/Fit, PNG/JPEG ohne Überschreiben; abbrechbarer Qt-Worker.
 Neu A-B2: lokale wiederverwendbare Branding-Profile mit Untertitelstil,
 Logo-Referenz und Geometrie, explizite atomare Anwendung auf Highlight,
-identische Wiederholung ohne doppelte Grafik. Tests eingecheckt; neue CI offen.
+identische Wiederholung ohne doppelte Grafik. Head 7ec32c3c: Linux 45464642687 PASS,
+Windows 45464642673 PASS. Native Bedienung, Marian, Thumbnail-Entwürfe und Fontwahl offen.
 
 Nächste konkrete Schritte:
-- CI dieses Heads prüfen; der letzte Windows-Build war erfolgreich, früherer Exit 1 bleibt historisch ungeklärt.
+- M14-Abnahme bleibt offen; früherer Windows Exit 1 historisch ungeklärt, aktueller Build PASS.
+- Owner-Erweiterung für M15 in ROADMAP.md §5.5.2 verbindlich; M15a parallel auf separatem gestapeltem Draft vorbereiten, ohne M14 als abgenommen auszugeben.
 - Wort-/Timingkorrektur und Übersetzung mit tatsächlichem lokalem Modell abnehmen.
 - Branding-/Thumbnail-Designer GUI-Abnahme, Fontauswahl und Workflow-Feinschliff.
 - M14-Gesamtabnahme einschließlich neuer CI, Export/Preview/Queue und Sprachwahl.
