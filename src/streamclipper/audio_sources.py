@@ -139,3 +139,44 @@ def extract_audio_stream(snapshot,index,folder,*,role="unspecified",cancelled=No
     except BaseException:
         shutil.rmtree(bundle,ignore_errors=True)
         raise
+
+
+@dataclass(frozen=True)
+class SpeechSource:
+    inventory: AudioInventory
+    index: int
+    role: str = "unspecified"
+
+    def validate(self):
+        if type(self.index) is not int or not any(s.index==self.index for s in self.inventory.streams):
+            raise ValueError("Sprachspur nicht gefunden")
+        if self.role not in ROLES:raise ValueError("Ungültige Sprachspurrolle")
+        return self
+
+    @property
+    def method_suffix(self):
+        # Persist selection and source revision in existing analysis provenance.
+        # No user-supplied string or local absolute path in the method.
+        return f"|asr:stream={self.index},role={self.role},size={self.inventory.size},mtime={self.inventory.mtime_ns}"
+
+
+def transcribe_selected_stream(video,model,selection,*,transcriber,progress=None,cancelled=None,temp_root=None):
+    """Decode selected stream to aligned temporary WAV, then run existing ASR.
+    The analysis result retains the original video identity. No fallback to mix.
+    """
+    from dataclasses import replace
+    selection.validate()
+    if (Path(video.path).resolve()!=Path(selection.inventory.source).resolve()
+            or abs(video.duration-selection.inventory.duration)>.1):
+        raise ValueError("Sprachspur gehört zu einer anderen Aufnahme")
+    root=Path(temp_root) if temp_root is not None else None
+    if root is not None:root.mkdir(parents=True,exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="asr-stream-",dir=root) as folder:
+        wav=extract_audio_stream(selection.inventory,selection.index,folder,role=selection.role,
+                                 cancelled=cancelled)
+        aligned=replace(video,path=str(wav),has_audio=True)
+        result=transcriber(aligned,model,progress=progress,cancelled=cancelled)
+        if cancelled and cancelled():raise CancelledError("Analyse abgebrochen")
+        if inventory(selection.inventory.source)!=selection.inventory:
+            raise ValueError("Originalaufnahme während Analyse verändert")
+        return result
