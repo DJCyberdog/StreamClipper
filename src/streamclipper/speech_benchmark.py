@@ -106,12 +106,12 @@ def evaluate_manifest(path):
         row={"id":case["id"],"split":split,"language":case["language"],"conditions":case["conditions"],
              "inputs_sha256":{k:sha256_file(v) for k,v in (("reference",ref),("mix",mix),("estimate",estimate))},
              "baseline":baseline,"variant":variant,"si_sdr_improvement_db":b-a if a is not None and b is not None else None}
-        for key in ("baseline_cues","variant_cues"):
+        for key in ("baseline_cues","variant_cues","timing_proposals_cues"):
             if key in case:
                 cues=json.loads(local(case[key]).read_text(encoding="utf-8"))
                 row[key]={"text":text_errors(" ".join(c["text"] for c in case["reference_cues"])," ".join(c["text"] for c in cues)),
                           "timing":cue_errors(case["reference_cues"],cues)}
-        row["runtime_seconds"]=case.get("runtime_seconds");row["peak_ram_bytes"]=case.get("peak_ram_bytes");row["peak_vram_bytes"]=case.get("peak_vram_bytes")
+        row["runtime_seconds"]=case.get("runtime_seconds");row["separation_seconds"]=case.get("separation_seconds");row["peak_ram_bytes"]=case.get("peak_ram_bytes");row["peak_vram_bytes"]=case.get("peak_vram_bytes")
         rows.append(row)
     return {"schema_version":1,"manifest_sha256":sha256_file(path),"evidence_kind":doc.get("evidence_kind","unspecified"),
             "model":doc.get("model"),"commit":doc.get("commit"),"platform":platform.platform(),

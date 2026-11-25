@@ -121,8 +121,10 @@ def analyze(path: str, clip_seconds: int = 25, max_clips: int = 8,
             from .audio_sources import transcribe_selected_stream
             from .reconstructed_speech import ReconstructedSpeech,transcribe_reconstructed
             transcribe = transcribe_reconstructed if isinstance(speech_source,ReconstructedSpeech) else transcribe_selected_stream
+            from functools import partial
+            session_transcriber=partial(transcribe_video,model_cache={}) if isinstance(speech_source,ReconstructedSpeech) else transcribe_video
             transcript = transcribe(video,speech_model,speech_source,
-                transcriber=transcribe_video,progress=stage('speech'),cancelled=cancelled)
+                transcriber=session_transcriber,progress=stage('speech'),cancelled=cancelled)
         evidence.extend(transcript_cues(((s.start, s.end, s.text) for s in transcript),
                                         rules=speech_rules))
     if visual_activity:

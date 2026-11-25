@@ -29,7 +29,7 @@ def mix(tmp_path):
         pytest.skip("FFmpeg/FFprobe required")
     n=RATE*15+731
     x=np.arange(n,dtype=np.float64)/RATE
-    left=.3*np.sin(2*np.pi*440*x)
+    left=(.2+.004*x)*np.sin(2*np.pi*440*x)
     right=.2*np.sin(2*np.pi*710*x)
     samples=np.column_stack((left,right)).astype(np.float32)
     path=tmp_path/"mix.wav"
@@ -161,7 +161,7 @@ def test_foreground_restart_cache(mix,tmp_path):
     third=TestBackend()
     other=separate_stream(selection,root,backend=third,use_cache=True)
     assert not third.calls
-    assert sha256_file(bundle/"voice_estimate.wav")==sha256_file(other/"voice_estimate.wav")
+    np.testing.assert_array_equal(sf.read(bundle/"voice_estimate.wav",dtype="float32")[0],sf.read(other/"voice_estimate.wav",dtype="float32")[0])
     bad=next(cache.glob("*.pcm"))
     with bad.open("r+b") as stream:
         stream.seek(35);stream.write(b"\xff"*4)

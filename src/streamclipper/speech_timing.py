@@ -23,12 +23,14 @@ def propose_timings(cues, speech_intervals, *, duration, protected_rows=(), padd
         if not all(math.isfinite(v) for v in (a,b)) or not last<=a<b<=duration:
             raise ValueError("Ungültige oder überlappende Sprachintervalle")
         last=b
+    from bisect import bisect_right,bisect_left
+    starts=[a for a,b in spans];ends=[b for a,b in spans]
     protected=set(protected_rows)
     proposals=[]
     for i,cue in enumerate(cues):
         if i in protected or cue.review_origin=="manual" or any(w.origin=="manual" for w in cue.words):continue
         if not 0<=cue.start<cue.end<=duration+.1:raise ValueError("Ungültiger Cue")
-        hits=[(max(a,cue.start),min(b,cue.end)) for a,b in spans if a<cue.end and b>cue.start]
+        hits=[(max(a,cue.start),min(b,cue.end)) for a,b in spans[bisect_right(ends,cue.start):bisect_left(starts,cue.end)]]
         if not hits:continue
         # Multiple separated speech islands may belong to different speakers;
         # only trim the external edges, never split or delete their contents.
