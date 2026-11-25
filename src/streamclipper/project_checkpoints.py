@@ -18,9 +18,12 @@ from uuid import uuid4
 
 from .editor_project import (EditorProject, SCHEMA_VERSION, LEGACY_SCHEMA_VERSION,
                              AUDIO_SCHEMA_VERSION, TimelineItem, Track)
-from .models import AnalysisResult, Candidate, TranscriptSegment, TranscriptWord, VideoInfo
+from .models import AnalysisResult, Candidate, TranscriptSegment, TranscriptWord, VideoInfo, SubtitleTranslation
+from .subtitle_translation import validate_translations
 from .portable import installation_directory
 from .scene_selection import selection_from_dict
+from .caption_style import caption_style_from_dict
+from .editor_project import item_from_dict
 from .transcript_editor import validate_segments
 
 FORMAT_VERSION = 1
@@ -60,6 +63,7 @@ def _validate_analysis(analysis: AnalysisResult, video: VideoInfo) -> None:
     if len(analysis.candidates) > 100000 or len(analysis.transcript) > 100000:
         raise ValueError("Analyse enthält zu viele Einträge")
     validate_segments(analysis.transcript, video.duration)
+    validate_translations(analysis)
     for clip in analysis.candidates:
         if (not isinstance(clip, Candidate)
                 or clip.origin not in {"auto", "manual"}
@@ -146,8 +150,9 @@ def load_checkpoint(video: VideoInfo, checkpoint_id: str, *,
             SCHEMA_VERSION if data["project"]["schema_version"] in
             {SCHEMA_VERSION, AUDIO_SCHEMA_VERSION, LEGACY_SCHEMA_VERSION} else -1,
             source, tuple(Track(**t) for t in data["project"]["tracks"]),
-            tuple(TimelineItem(**item) for item in data["project"]["items"]),
-            tuple(selection_from_dict(p) for p in data["project"].get("scene_plans", [])))
+            tuple(item_from_dict(item) for item in data["project"]["items"]),
+            tuple(selection_from_dict(p) for p in data["project"].get("scene_plans", [])),
+            caption_style_from_dict(data["project"].get("caption_style")))
         project.validate()
         if not _matches(source, video):
             raise ValueError("Projektstand gehört zu einer anderen Aufnahme")
@@ -160,7 +165,9 @@ def load_checkpoint(video: VideoInfo, checkpoint_id: str, *,
                 for cue in a.get("transcript", [])]
             analysis = AnalysisResult(VideoInfo(**a["video"]),
                                       [Candidate(**clip) for clip in a.get("candidates", [])],
-                                      str(a["method"]), cues)
+                                      str(a["method"]), cues,
+                                      tuple(SubtitleTranslation(**t) for t in a.get("translations", [])),
+                                      a.get("caption_language", ""))
             _validate_analysis(analysis, source)
         if info.has_analysis != (analysis is not None):
             raise ValueError("Projektstand ist unvollständig")

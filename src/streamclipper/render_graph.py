@@ -19,6 +19,7 @@ import os
 
 from .editor_project import EditorProject
 from .models import VideoInfo
+from .callouts import Callout
 
 RENDER_GRAPH_VERSION = 2
 MAX_MIXED_AUDIO_CLIPS = 16
@@ -43,6 +44,7 @@ class GraphNode:
     width: float = .28
     height: float = .28
     opacity: float = 1.0
+    callout: Callout | None = None
 
 
 @dataclass(frozen=True)
@@ -70,6 +72,7 @@ class VisualLayer:
     width: float
     height: float
     opacity: float
+    callout: Callout | None = None
 
 
 @dataclass(frozen=True)
@@ -105,11 +108,13 @@ class RenderGraph:
                     or not -60 <= layer.gain_db <= 12):
                 raise ValueError("Ungültige oder nichtlokale Audiospur")
         for layer in self.visual_layers:
+            if layer.callout is not None:layer.callout.validate()
             values = (layer.source_start, layer.source_end,
                       layer.timeline_offset, layer.x, layer.y,
                       layer.width, layer.height, layer.opacity)
             if (layer.kind not in {"video", "overlay"}
-                    or not layer.source_path or not os.path.isabs(layer.source_path)
+                    or (layer.callout is None and (not layer.source_path or not os.path.isabs(layer.source_path)))
+                    or (layer.callout is not None and (layer.kind!='overlay' or layer.source_path))
                     or not all(math.isfinite(x) for x in values)
                     or not 0 <= layer.source_start < layer.source_end <= 24 * 3600
                     or not 0 <= layer.timeline_offset < window
@@ -157,10 +162,10 @@ def build_render_graph(project: EditorProject, video: VideoInfo,
         left, right = max(item.timeline_start,start), min(end_on_timeline,end)
         nodes.append(GraphNode(
             item.id, item.track_id, track.kind,
-            item.media_path or project.source.path,
+            item.media_path or ('' if item.callout else project.source.path),
             item.source_start, item.source_end, item.timeline_start,
             track.muted, track.locked, track.hidden, item.gain_db,
-            item.x, item.y, item.width, item.height, item.opacity))
+            item.x, item.y, item.width, item.height, item.opacity, item.callout))
         if right <= left:
             continue
         if track.kind == "video" and item.id == "source" and item.track_id == "gameplay":
@@ -176,7 +181,7 @@ def build_render_graph(project: EditorProject, video: VideoInfo,
         if track.muted:
             continue
         if track.kind in {"video", "overlay"}:
-            if not item.media_path:
+            if not item.media_path and item.callout is None:
                 if track.kind == "video":
                     raise ValueError(
                         "Mehrere Videoclips benötigen eine eigene lokale Videodatei (PiP)")
@@ -184,10 +189,10 @@ def build_render_graph(project: EditorProject, video: VideoInfo,
             source_left = item.source_start + (left-item.timeline_start)
             source_right = source_left + (right-left)
             active_visual.append(VisualLayer(
-                item.id, item.track_id, track.kind, item.media_path,
+                item.id, item.track_id, track.kind, item.media_path or '',
                 round(source_left,6), round(source_right,6),
                 round(left-start,6), item.x, item.y,
-                item.width, item.height, item.opacity))
+                item.width, item.height, item.opacity, item.callout))
         elif track.kind == "captions":
             raise ValueError(
                 "Timeline-Untertitelclips benötigen einen eigenen Text-Compositor; "

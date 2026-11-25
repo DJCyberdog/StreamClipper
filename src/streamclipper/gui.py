@@ -50,11 +50,13 @@ from .timeline import caption_at_time
 from .timeline_widget import TimelineWidget
 from .word_editor import edit_word, effective_words, words_in_clip
 from .captioning import subtitle_text_at_time
+from .caption_style import CaptionStyle
+from .subtitle_translation import export_transcript
 from .highlight_lexicon_dialog import HighlightLexiconDialog
 from .editor_project import (EditorProject, initial_project,
     add_track, remove_track, rename_track, move_track, toggle_track,
     add_item, edit_item, remove_item, load_project, save_project, Track,
-    set_scene_plan, scene_plan_for)
+    set_scene_plan, scene_plan_for, set_caption_style, update_callout)
 from .track_canvas import TrackCanvas
 from .editor_theme import EDITOR_STYLESHEET
 from .workspace_layout import (WORKSPACE_NAMES, WorkspaceLayout,
@@ -67,6 +69,13 @@ from .project_checkpoints import create_checkpoint, list_checkpoints, load_check
 
 from .edit_history import WorkspaceHistory
 from .autosave import autosave_path, clear_autosave, load_autosave, save_autosave
+
+
+def render_transcript(analysis,start,end,scene_plan,burn,offset):
+    if not burn:
+        return tuple(analysis.transcript)
+    intervals=[(s.start,s.end) for s in scene_plan.output_scenes] if scene_plan else [(start,end)]
+    return export_transcript(analysis,intervals,offset=offset)
 
 
 def display_time(seconds: float) -> str:
@@ -118,9 +127,10 @@ class ExportThread(QThread):
                  mode: str, parent=None, burn_subtitles: bool = False,
                  subtitle_offset: float = 0.0,
                  project: EditorProject | None = None,
-                 encoder: str = "cpu_h264", scene_plans=()):
+                 encoder: str = "cpu_h264", scene_plans=(), caption_style=CaptionStyle()):
         super().__init__(parent)
         self.scene_plans = tuple(scene_plans)
+        self.caption_style = caption_style
         self.analysis = analysis
         self.items = items
         self.directory = directory
@@ -142,15 +152,19 @@ class ExportThread(QThread):
                 if self._cancelled.is_set():
                     raise CancelledError("Export abgebrochen")
                 target = safe_destination(self.directory, f"{stem}_clip_{i:02d}.mp4")
+                scene_plan=next((p for p in self.scene_plans if
+                        (p.start,p.end)==(clip.start,clip.end)),None)
+                transcript=render_transcript(self.analysis,clip.start,clip.end,scene_plan,
+                                              self.burn_subtitles,self.subtitle_offset)
                 request = RenderRequest(
                     video=self.analysis.video,
                     start=clip.start, end=clip.end, mode=self.mode,
-                    burn_subtitles=self.burn_subtitles,
+                    burn_subtitles=self.burn_subtitles and bool(transcript),
                     subtitle_offset=self.subtitle_offset,
-                    transcript=tuple(self.analysis.transcript),
+                    transcript=transcript,
                     project=self.project, encoder=self.encoder,
-                    scene_plan=next((p for p in self.scene_plans if
-                        (p.start,p.end) == (clip.start,clip.end)), None))
+                    caption_style=self.caption_style,
+                    scene_plan=scene_plan)
                 actual = render_request(
                     request, target, cancelled=self._cancelled.is_set,
                     progress=lambda value, i=i: self.progress_changed.emit(
@@ -1413,6 +1427,15 @@ class MainWindow(QMainWindow):
     def _install_workspace_controls(self) -> None:
         scene_menu = self.menuBar().addMenu("Szenen")
         scene_menu.addAction("Highlight in Szenen bearbeiten …", self._edit_scene_selection)
+        branding = self.menuBar().addMenu("Branding")
+        branding.addAction("Untertitel gestalten …", self._edit_caption_style)
+        branding.addAction("Untertitel übersetzen …", self._edit_translations)
+        branding.addAction("Text / Callout hinzufügen …", self._add_callout)
+        branding.addAction("Ausgewählten Callout bearbeiten …", self._edit_callout)
+        branding.addAction("Thumbnail Designer …", self._edit_thumbnail)
+        branding.addSeparator()
+        branding.addAction("Branding-Profil speichern …", self._save_branding_profile)
+        branding.addAction("Branding-Profil anwenden …", self._apply_branding_profile)
         menu = self.menuBar().addMenu("Ansicht && Arbeitsbereiche")
         for name in WORKSPACE_NAMES:
             action = menu.addAction(name)
@@ -1427,6 +1450,138 @@ class MainWindow(QMainWindow):
         for dock in (self.project_dock, self.timeline_dock, self.inspector_dock):
             menu.addAction(dock.toggleViewAction())
         self.tabs.currentChanged.connect(lambda _index: self._update_inspector())
+
+    def _edit_translations(self):
+        if not self.analysis or not self.analysis.transcript or self._history_blocked:
+            return
+        if not self.apply_word_editor() or not self.apply_transcript_editor():
+            return
+        clip=self.selected_candidate()
+        a,b=(clip.start,clip.end) if clip else (self.timeline.in_point,self.timeline.out_point)
+        rows=[i for i,cue in enumerate(self.analysis.transcript) if cue.end>a and cue.start<b]
+        if not rows:
+            QMessageBox.information(self,"Übersetzung","Keine Untertitel im gewählten Highlight.");return
+        if len(rows)>500:
+            QMessageBox.warning(self,"Übersetzung","Bitte kürzeren Ausschnitt wählen (maximal 500 Abschnitte).");return
+        from .translation_dialog import TranslationDialog
+        dialog=TranslationDialog(self.analysis,rows,self)
+        if dialog.exec()==QDialog.DialogCode.Accepted:
+            before=self.analysis
+            self.analysis=dialog.value
+            self._register_edit(before)
+            self.statusBar().showMessage("Export-Sprache: "+(self.analysis.caption_language or "Original")+
+                                         " · Quellplayer zeigt Original · Projekt speichern")
+
+    def _callout_dialog(self,item=None):
+        if not self.editor_project or self._history_blocked:
+            return
+        from .callout_dialog import CalloutDialog
+        from .media import video_dimensions
+        track=next((t for t in self.editor_project.tracks
+                    if t.id==(item.track_id if item else self._selected_track_id())
+                    and t.kind=="overlay" and not t.locked),None)
+        if track is None and item is None:
+            track=next((t for t in self.editor_project.tracks if t.kind=="overlay" and not t.locked),None)
+        if track is None:
+            QMessageBox.warning(self,"Callout","Eine entsperrte Grafikspur wird benötigt.");return
+        clip=self.selected_candidate() if self.analysis else None
+        a,b=(clip.start,clip.end) if clip else (self.timeline.in_point,self.timeline.out_point)
+        dialog=CalloutDialog(a,b,self.editor_project.source.duration,
+                             video_dimensions(str(self.mode.currentData()),1080,1920),item,self)
+        if dialog.exec()!=QDialog.DialogCode.Accepted:return
+        values=dict(dialog.geometry_values)
+        if item:
+            ok=self._apply_project_edit(update_callout,item.id,dialog.spec,**values)
+        else:
+            duration=values.pop("source_end")
+            at=values.pop("timeline_start")
+            ok=self._apply_project_edit(add_item,track.id,0.,duration,at,
+                 (dialog.spec.text or dialog.spec.kind)[:120],callout=dialog.spec,**values)
+        if ok:
+            self.include_track_audio.setChecked(True)
+            self.statusBar().showMessage("Callout gespeichert · Render-Vorschau zeigt die vollständige Komposition.")
+
+    def _add_callout(self):
+        self._callout_dialog()
+
+    def _edit_callout(self):
+        if not self.editor_project:return
+        item=next((i for i in self.editor_project.items if i.id==self._selected_clip_id() and i.callout),None)
+        if item is None:
+            QMessageBox.information(self,"Callout","Bitte einen Callout auf der Grafikspur auswählen.");return
+        self._callout_dialog(item)
+
+    def _edit_thumbnail(self):
+        if not self._video_info or self._history_blocked or (self.worker and self.worker.isRunning()) or (self.queue_worker and self.queue_worker.isRunning()):
+            return
+        if not self.apply_word_editor() or not self.apply_transcript_editor():return
+        clip=self.selected_candidate() if self.analysis else None
+        start,end=(clip.start,clip.end) if clip else (self.timeline.in_point,self.timeline.out_point)
+        if not self._scene_render_allowed(self._video_info,[(start,end)]):return
+        plan=scene_plan_for(self.editor_project,start,end)
+        try:
+            transcript=render_transcript(self.analysis,start,end,plan,self.burn_subtitles.isChecked(),
+                       self.caption_offset.value()) if self.analysis and self.analysis.video.path==self.source else ()
+            request=RenderRequest(self._video_info,start,end,str(self.mode.currentData()),
+                burn_subtitles=self.burn_subtitles.isChecked() and bool(transcript),transcript=transcript,
+                subtitle_offset=self.caption_offset.value(),
+                project=self.editor_project if self.include_track_audio.isChecked() else None,
+                encoder=str(self.encoder_mode.currentData()),scene_plan=plan,
+                caption_style=self._current_caption_style()).validate()
+            if request.duration>60:raise ValueError("Thumbnail Designer: Highlight auf maximal 60 Sekunden begrenzen.")
+        except (ValueError,OSError) as exc:
+            QMessageBox.warning(self,"Thumbnail",str(exc));return
+        from .thumbnail_dialog import ThumbnailDialog
+        ThumbnailDialog(request,self).exec()
+
+    def _save_branding_profile(self):
+        if not self.editor_project or self._history_blocked:return
+        from .branding_profile import BrandProfile,save_profile
+        name,ok=QInputDialog.getText(self,"Branding-Profil","Name des Profils:")
+        if not ok:return
+        item=next((i for i in self.editor_project.items if i.id==self._selected_clip_id()
+                    and i.media_path and any(t.id==i.track_id and t.kind=="overlay" for t in self.editor_project.tracks)),None)
+        if item and QMessageBox.question(self,"Branding","Ausgewählte Grafik als wiederverwendbares Logo übernehmen?")!=QMessageBox.StandardButton.Yes:
+            item=None
+        profile=BrandProfile(name,self._current_caption_style(),item.media_path,item.x,item.y,item.width,item.height,item.opacity) if item else BrandProfile(name,self._current_caption_style())
+        path,_=QFileDialog.getSaveFileName(self,"Branding-Profil speichern",name+".json","Branding (*.json)")
+        if not path:return
+        try:target=save_profile(profile,path)
+        except (ValueError,OSError) as exc:QMessageBox.warning(self,"Branding",str(exc));return
+        self.statusBar().showMessage("Branding-Profil gespeichert: "+str(target))
+
+    def _apply_branding_profile(self):
+        if not self.editor_project or self._history_blocked:return
+        from .branding_profile import load_profile,apply_profile
+        path,_=QFileDialog.getOpenFileName(self,"Branding-Profil laden","","Branding (*.json)")
+        if not path:return
+        try:profile=load_profile(path)
+        except (ValueError,OSError) as exc:QMessageBox.warning(self,"Branding",str(exc));return
+        clip=self.selected_candidate() if self.analysis else None
+        a,b=(clip.start,clip.end) if clip else (self.timeline.in_point,self.timeline.out_point)
+        track=next((t for t in self.editor_project.tracks if t.id==self._selected_track_id()
+                    and t.kind=="overlay" and not t.locked and not t.muted),None)
+        if track is None:track=next((t for t in self.editor_project.tracks if t.kind=="overlay" and not t.locked and not t.muted),None)
+        if QMessageBox.question(self,"Branding",f"Profil {profile.name} anwenden? Untertitelstil im Projekt ersetzen"
+                + (f" und Logo im gewählten Zeitbereich auf {track.name if track else 'fehlender Grafikspur'} hinzufügen?" if profile.logo else "?"))!=QMessageBox.StandardButton.Yes:return
+        if self._apply_project_edit(apply_profile,profile,a,b,track.id if track else None):
+            if profile.logo:self.include_track_audio.setChecked(True)
+            self.statusBar().showMessage("Branding angewendet · Render-Vorschau zum Prüfen öffnen.")
+
+    def _current_caption_style(self):
+        return self.editor_project.caption_style if self.editor_project else CaptionStyle()
+
+    def _edit_caption_style(self):
+        if not self.editor_project or self._history_blocked:
+            self.statusBar().showMessage("Bitte zuerst eine Aufnahme öffnen.")
+            return
+        if not self.apply_word_editor() or not self.apply_transcript_editor():
+            return
+        from .caption_style_dialog import CaptionStyleDialog
+        dialog=CaptionStyleDialog(self._current_caption_style(),self)
+        if dialog.exec()==QDialog.DialogCode.Accepted:
+            if self._apply_project_edit(set_caption_style,dialog.value):
+                self.statusBar().showMessage("Untertitelgestaltung gespeichert · Render-Vorschau zum Prüfen öffnen.")
 
     def _activate_workspace(self, name: str) -> None:
         """Switch what is visible, without resetting playback or user dock sizes."""
@@ -2104,6 +2259,8 @@ class MainWindow(QMainWindow):
                     if kind == "audio":
                         extra = ((Path(item.media_path).name if item.media_path
                                   else "Aufnahme") + f" · {item.gain_db:+.1f} dB")
+                    elif item.callout is not None:
+                        extra = "Callout · " + item.callout.kind
                     elif kind in {"video", "overlay"} and item.media_path:
                         extra = Path(item.media_path).name
                     else:
@@ -3503,7 +3660,7 @@ class MainWindow(QMainWindow):
         if not destination:
             return
         try:
-            target = save_transcript(self.analysis.transcript, destination)
+            target = save_transcript(export_transcript(self.analysis), destination)
         except (FileExistsError, OSError, ValueError) as exc:
             QMessageBox.warning(self, "Transkript konnte nicht gespeichert werden", str(exc))
             return
@@ -3587,6 +3744,9 @@ class MainWindow(QMainWindow):
         if not self._scene_render_allowed(self._video_info, [(start, end)]):
             return
         try:
+            if self.analysis and self.analysis.video.path==self.source:
+                transcript=render_transcript(self.analysis,start,end,scene_plan_for(self.editor_project,start,end),
+                                             self.burn_subtitles.isChecked(),self.caption_offset.value())
             request = RenderRequest(
                 video=self._video_info, start=start, end=end,
                 mode=str(self.mode.currentData()),
@@ -3597,6 +3757,7 @@ class MainWindow(QMainWindow):
                          else None),
                 encoder=str(self.encoder_mode.currentData()),
                 scene_plan=scene_plan_for(self.editor_project, start, end),
+                caption_style=self._current_caption_style(),
             ).validate()
         except (ValueError, OSError) as exc:
             QMessageBox.warning(self, "Render-Vorschau nicht möglich", str(exc))
@@ -3698,7 +3859,8 @@ class MainWindow(QMainWindow):
                                             if self.include_track_audio.isChecked()
                                             else None),
                                    encoder=str(self.encoder_mode.currentData()),
-                                   scene_plans=self.editor_project.scene_plans if self.editor_project else ())
+                                   scene_plans=self.editor_project.scene_plans if self.editor_project else (),
+                                   caption_style=self._current_caption_style())
         self.worker.encoder_notice.connect(self._encoder_notice)
         self.worker.progress_changed.connect(self.progress.setValue)
         self.worker.done.connect(self.export_finished)
@@ -3801,6 +3963,10 @@ class MainWindow(QMainWindow):
         added = 0
         for item in clips:
             try:
+                if self.analysis and self.analysis.video.path==self.source:
+                    transcript=render_transcript(self.analysis,item.start,item.end,
+                        scene_plan_for(self.editor_project,item.start,item.end),
+                        self.burn_subtitles.isChecked(),self.caption_offset.value())
                 request = RenderRequest(
                     video=self._video_info, start=item.start, end=item.end,
                     mode=str(self.mode.currentData()),
@@ -3811,7 +3977,8 @@ class MainWindow(QMainWindow):
                     project=(self.editor_project
                              if self.include_track_audio.isChecked() else None),
                     encoder=str(self.encoder_mode.currentData()),
-                    scene_plan=scene_plan_for(self.editor_project, item.start, item.end)).validate()
+                    scene_plan=scene_plan_for(self.editor_project, item.start, item.end),
+                    caption_style=self._current_caption_style()).validate()
                 self.render_queue.enqueue(
                     request, directory,
                     label=f"{display_time(item.start)} – {display_time(item.end)}")

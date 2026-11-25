@@ -1179,3 +1179,102 @@ bei neuen Setups zieht `setup_windows.bat` diese Abhängigkeit automatisch mit.
 Für die gepackte Windows-EXE genügt ein `pip install` in einer separaten
 `.venv` dagegen nicht; der portable Build muss neu erzeugt werden.
 
+
+
+### M14 – Untertitelgestaltung (Entwicklungsstand)
+
+**Branding → Untertitel gestalten …** speichert den Stil im aktuellen Projekt.
+Drei Vorlagen (Klassisch, Creator Highlight, Neon Pop), Schriftname, Größe,
+Text-/Akzent-/Konturfarbe, Wortgruppen und Position. Die Standardposition
+respektiert die M13-Szenen-Safe-Zone. Vorhandene Wortzeiten steuern
+Hervorhebung und Pop-Animation. Untimed Legacy-Transkripte bleiben normale
+Untertitel; keine erfundene exakte Ausrichtung. Eine eindeutige
+Einzelwort-Textkorrektur erhält die vorhandenen Zeitstempel.
+
+Stil wird über Undo/Redo und Checkpoints gespeichert und beim Renderauftrag
+eingefroren, auch bei deaktivierter Spurkomposition. Render-Vorschau, MP4
+und Queue verwenden denselben ASS-Renderpfad. Der Quellplayer bleibt eine
+Orientierungsvorschau, keine vollständige Branding-Simulation. Fonts müssen
+lokal verfügbar sein. Übersetzung, Callouts, Thumbnail-Designer und weitere
+Branding-Funktionen bleiben M14-Aufgaben. Keine 0.8-Freigabe.
+
+M13: lokale Abnahme durch Owner am 24.11.2026 bestätigt. Keine eigenen
+GPU-Messprotokolle; Windows-CI 45452643337 meldet 174 passed, 1 skipped,
+anschließend Exit 1; Build nicht erfolgreich. Linux-CI PASS.
+
+
+#### Lokale Untertitelübersetzung (#23, Entwicklungsstand)
+
+Im **Branding-Menü → Untertitel übersetzen …** wird der ausgewählte
+Highlight-/Timeline-Bereich bearbeitet. Zielsprache (z. B. de/en) laden,
+Übersetzung manuell eingeben oder fehlende Texte mit einem explizit
+ausgewählten lokalen Marian-Modell erzeugen. Optionales Extra:
+`python -m pip install -e ".[translation]"` in der vorhandenen Python-Umgebung
+nach Prüfung der installierten Torch-/Transformers-Versionen.
+Modellordner muss ein vollständiges gerichtetes Marian-Modell mit
+config.json, model.safetensors und Tokenizer-Dateien enthalten. Passendes
+Sprachpaar und Modelllizenz sind vor Nutzung selbst zu prüfen. Kein
+automatischer Download, kein Cloud-Dienst, kein neuer Whisper-Lauf.
+Modellinitialisierung und Übersetzung laufen im Worker; Abbruch zwischen
+Abschnitten, nicht garantiert während eines einzelnen Modellaufrufs.
+
+Speichern aktiviert die Zielsprache für Render-Vorschau, MP4, Queue, CLI und
+Transkriptdatei. Original aktivieren schaltet ohne Verlust der Übersetzungen
+zurück. Quellplayer und Worteditor zeigen weiterhin die Originalfassung.
+Übersetzungen sind quelltext- und zeitgebunden; nach Originalkorrekturen
+fehlende Übersetzung ergänzen oder bewusst Original wählen. Keine gemischte
+Sprache durch stillen Fallback. Zieltext übernimmt Abschnittsgrenzen, keine
+behauptete Wortausrichtung; Word-Caption-Effekte verwenden dort den
+gewöhnlichen Abschnittsmodus. Undo/Redo, Autosave und Checkpoint erhalten
+beide Sprachfassungen. Regressionen mit manuellen Zieltexten vorhanden;
+echte Marian-Inferenz noch nicht gemessen. Ältere App-Versionen können
+zusätzliche Übersetzungsdaten bei erneutem Speichern verlieren.
+
+
+#### Text- und Callout-Editor (#28, Entwicklungsstand)
+
+Branding → Text / Callout hinzufügen …; vorhandenen Callout auf der
+Grafikspur auswählen und über Branding → Ausgewählten Callout bearbeiten …
+ändern. Text, Sprechblase, Pfeil (vier Richtungen), Rechteck und Ellipse.
+Zeitbereich, normalisierte Ausgabeposition, Größe, Deckkraft, Text-,
+Hintergrund- und Akzentfarbe. Rahmen können ungefüllt sein. Standardfont
+aus Pillow (GUI-Abhängigkeit ab 10.1). Sehr kleine Textboxen werden bei
+nicht passendem Text abgelehnt. Keine freie Fontwahl im Callout-Editor.
+
+Metadaten bleiben editierbar und werden im Projekt/Checkpoint und Queue
+gespeichert; Undo/Redo und vorhandene Timeline-Aktionen gelten. Der
+Renderworker erzeugt die RGBA-Dateien erst im temporären Arbeitsordner
+und nutzt dieselbe Grafikspur-Komposition wie vorhandene Logos/PiP.
+Grafiken werden nach dem Kamera-Crop, vor den eingebrannten Untertiteln
+komponiert. Die Elementvorschau nutzt dieselbe Rasterfunktion, zeigt
+aber nicht den vollständigen Clip; dafür Render-Vorschau öffnen.
+Die Spurkomposition wird beim Hinzufügen explizit aktiviert.
+Tests für zeitliche Aktivierung, Transparenz, Persistenz und
+MP4-Vorschauparität sind hinzugefügt; neue CI und native GUI-Abnahme
+noch offen. Keine automatische 0.8-Freigabe.
+
+
+#### Thumbnail Designer und Branding-Profile (M14)
+
+**Branding → Thumbnail Designer …**: gewähltes Highlight vollständig rendern
+(bis 60 Sekunden; gleiche Kamera, Szenenreihenfolge, aktivierte Spuren und
+Untertitel wie beim MP4-Export). Bildzeit in Sekunden des fertigen Clips
+auswählen und Renderframe laden. Vier Formate, Crop oder Einpassen,
+Titel, Farben und normalisierte Titelbox. Designvorschau und PNG-/JPEG-
+Export nutzen dieselbe Bildfunktion; vorhandene Dateien werden nicht
+überschrieben. Eine neue Bildzeit erfordert momentan einen erneuten Render.
+Keine automatische Veröffentlichung und keine KI-Bilderzeugung.
+Thumbnail-Datei wird als separate fertige Grafik gespeichert; noch kein
+persistenter editierbarer Thumbnail-Projektstand.
+
+**Branding → Branding-Profil speichern …**: aktuellen Untertitelstil und
+optional ausgewählte Grafikspur-Datei als Logo (inkl. Position, Größe,
+Deckkraft) in lokale JSON-Vorlage übernehmen. **Branding-Profil anwenden …**
+setzt nach Bestätigung den Projektstil und fügt das Logo im ausgewählten
+Zeitbereich hinzu. Die Grafik bleibt eine lokale Dateireferenz, keine
+eingebettete Kopie. Identische Anwendung auf denselben Bereich dupliziert
+den Clip nicht. Undo/Redo über den bestehenden Projektverlauf.
+Die Farben des Untertitelstils stehen auch im Thumbnail-Dialog als
+Startwerte zur Verfügung. Callouts und Titel nutzen derzeit Pillow-
+Standardschrift. Neue Regressionen inkl. realer umsortierter MP4-Frames
+vorhanden; neue CI und native GUI-/Modellabnahme offen.

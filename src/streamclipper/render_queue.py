@@ -26,6 +26,8 @@ from .models import TranscriptSegment, TranscriptWord, VideoInfo
 from .portable import installation_directory
 from .render_contract import RenderRequest, render_request
 from .scene_selection import selection_from_dict
+from .caption_style import caption_style_from_dict
+from .editor_project import item_from_dict
 
 QUEUE_VERSION = 1
 MAX_JOBS = 200
@@ -71,10 +73,12 @@ def _rehydrate(record: dict) -> RenderRequest:
         doc["project"] = EditorProject(
             project["schema_version"], VideoInfo(**project["source"]),
             tuple(Track(**t) for t in project["tracks"]),
-            tuple(TimelineItem(**item) for item in project["items"]),
-            tuple(selection_from_dict(p) for p in project.get("scene_plans", [])))
+            tuple(item_from_dict(item) for item in project["items"]),
+            tuple(selection_from_dict(p) for p in project.get("scene_plans", [])),
+            caption_style_from_dict(project.get("caption_style")))
     if doc.get('scene_plan') is not None:
         doc['scene_plan'] = selection_from_dict(doc['scene_plan'])
+    doc['caption_style']=caption_style_from_dict(doc.get('caption_style'))
     request = RenderRequest(**doc)
     return request.validate()
 

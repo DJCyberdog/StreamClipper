@@ -10,6 +10,7 @@ import re
 from typing import Sequence
 
 from .models import TranscriptSegment
+from .caption_style import CaptionStyle, ass_color
 
 
 def _ass_timestamp(seconds: float) -> str:
@@ -92,19 +93,24 @@ def clip_captions(segments: Sequence[TranscriptSegment], start: float, end: floa
 
 def render_ass(segments: Sequence[TranscriptSegment], start: float, end: float,
                *, width: int = 1920, height: int = 1080,
-               offset_seconds: float = 0.0, safe_position: str = 'bottom') -> str:
+               offset_seconds: float = 0.0, safe_position: str = 'bottom',
+               caption_style: CaptionStyle = CaptionStyle()) -> str:
     """Create a self-contained subtitle track meant to be burned by libass."""
+    caption_style.validate()
+    if caption_style.position != 'scene':
+        safe_position = caption_style.position
     if safe_position not in ('bottom', 'top'):
         raise ValueError('Ungültige Untertitelposition')
     if width <= 0 or height <= 0:
         raise ValueError("Ungültige Exportauflösung")
     # Scale font with canvas width, while accounting for a narrow portrait view.
-    font_size = 53 if width >= height else 46
+    font_size = round((53 if width >= height else 46)*caption_style.scale)
     side_margin = round(width * .07)
     bottom_margin = round(height * (.11 if width >= height else .17))
     alignment = 8 if safe_position == 'top' else 2
     style = (
-        f"Style: Main,Arial,{font_size},&H00FFFFFF,&H00FFFFFF,&H00000000,&H96000000,"
+        f"Style: Main,{caption_style.font},{font_size},{ass_color(caption_style.text_color)},"
+        f"{ass_color(caption_style.text_color if caption_style.mode == 'legacy' else caption_style.accent_color)},{ass_color(caption_style.outline_color)},&H96000000,"
         f"-1,0,0,0,100,100,0,0,1,3,1,{alignment},{side_margin},{side_margin},{bottom_margin},1"
     )
     output = [
@@ -118,8 +124,11 @@ def render_ass(segments: Sequence[TranscriptSegment], start: float, end: float,
         style, "", "[Events]",
         "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",
     ]
+    if caption_style.mode != 'legacy':
+        output.extend(_styled_word_events(segments,start,end,offset_seconds,caption_style))
+        return '\n'.join(output) + '\n'
     for a, b, text in clip_captions(
-            segments, start, end, offset_seconds=offset_seconds):
+            segments, start, end, offset_seconds=offset_seconds, max_words=caption_style.group_words):
         safe = _plain_ass_text(text, 36 if width >= height else 22)
         if safe:
             output.append(
@@ -144,3 +153,33 @@ def subtitle_text_at_time(segments: Sequence[TranscriptSegment], position: float
             if a + segment.start + offset_seconds <= position < b + segment.start + offset_seconds:
                 return text
     return None
+
+
+def _styled_word_events(segments,start,end,offset,style):
+    """Highlight current word; pop adds a short scale animation.
+    Untimed legacy segments keep ordinary cues, not fictitious word timing.
+    Only generated ASS tags are trusted; all user words are escaped first.
+    """
+    for seg in segments:
+        if not seg.words:
+            for a,b,text in clip_captions([seg],start,end,offset_seconds=offset,max_words=style.group_words):
+                safe=_plain_ass_text(text,36)
+                yield f"Dialogue: 0,{_ass_timestamp(a)},{_ass_timestamp(b)},Main,,0,0,0,,{safe}"
+            continue
+        for j,word in enumerate(seg.words):
+            a=max(start,word.start+offset)-start
+            b=min(end,word.end+offset)-start
+            if b<=a+.005:continue
+            first=j//style.group_words*style.group_words
+            group=seg.words[first:first+style.group_words]
+            pieces=[]
+            for index,token in enumerate(group,first):
+                safe=_plain_ass_text(token.text,200)
+                if index==j:
+                    color=ass_color(style.accent_color)[2:]
+                    tags=r"{\1c&H"+color+"&"
+                    if style.mode=="pop":
+                        tags+=r"\fscx115\fscy115\t(0,120,\fscx100\fscy100)"
+                    safe=tags+"}"+safe+r"{\r}"
+                pieces.append(safe)
+            yield f"Dialogue: 0,{_ass_timestamp(a)},{_ass_timestamp(b)},Main,,0,0,0,,{' '.join(pieces)}"
