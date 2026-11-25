@@ -477,7 +477,7 @@ Zertifizierung. Keine Cloud- oder Autopublish-Funktion.
 ### 5.5 M14–M19 – Domänenweise fertigstellen
 
 - **M14 Untertitel & Branding:** Worttiming, Word Captions, Übersetzung, Callouts und Thumbnails in **einem** Bearbeitungsworkflow.
-- **M15 Audio & Sprache:** Mischspuren, Cleanup, Sprechererkennung, Ducking und Voice-over teilen sich die Audiotimeline.
+- **M15 Audio & Speech Intelligence:** Mischspuren, Cleanup, Sprechererkennung, Ducking und Voice-over teilen sich die Audiotimeline. Audiotrennung, robuste ASR und sprachsignalbasierte Timing-Korrektur siehe M15a–M15f (Abschnitt 5.5.2).
 - **M16 Gameplay Intelligence:** Benchmark, zweistufiges temporales Screening, bessere multimodale Fusion, Sprachreaktionen, Spielprofile, Feedback-Learning, Dubletten/Kontaktbögen sowie optional Twitch-Chat und semantische Suche – **mit unabhängigen Vergleichstests**; siehe M16a–M16f.
 - **M17 Montage:** Story-aware Clipgrenzen (Aufbau, Aktion, Pointe/Reaktion), Hooks/Kapitel, Geschwindigkeit, Standbilder, Sounds, Farbe, mehrere Längen und A/B-Varianten; siehe M17a.
 - **M18 Streaming-Integrationen & Multi-Plattform-Import:** Einmalige URL-Imports für Twitch/YouTube/Kick und weitere unterstützte Plattformen mit einer gemeinsamen Download-Engine; OBS, Stream Deck, NLE, Tastatur-/Sprachoberfläche, Watch Folders und **separater** optionaler Kanalimport. **#36 Shortcuts sind bereits M11 zugeordnet**, damit sie von Beginn an editorweit wirken.
@@ -557,6 +557,82 @@ Automatisierung als vermeintlich vollwertigen Provider-Upload tarnen.
 **Status:** Geplant und fachlich M19 / B-B2 zugeordnet, **noch nicht
 implementiert**. Die bestehende 60-Feature-Tierliste bleibt unverändert.
 
+
+#### 5.5.2 M15 – Audio & Speech Intelligence (Owner-Erweiterung 25.11.2026)
+
+Verbindliche Vertiefung bestehender Features #13–#16, #26, #33, #38 und S-B2;
+keine neuen Hauptfeature-IDs. Grundlage für M16 und M17a, nicht Ersatz für
+deren unabhängige Qualitätsprüfung. Offline-first; Quellvideo und Original-
+transkript unverändert, lokale Modelle optional und explizit bereitgestellt.
+
+**M15a – Audioquellen und Referenzdaten**
+- Alle vorhandenen Audio-Streams per FFprobe inventarisieren (Codec, Kanäle,
+  Sprache/Titel soweit vorhanden). Tatsächliche getrennte OBS-Spuren haben
+  Vorrang vor KI-Rekonstruktion. Keine Mikrofon-/Spieltonrolle aus Streamindex
+  oder Titel als bewiesene Tatsache ableiten; explizite Zuordnung.
+- Originalzeitbasis, Dauer, Sample-Rate, Kanalzahl und Provenienz sichern.
+  Mehrspur-/Einspur-Import und getrennte Ausgaben; bei nur einem Mix keine
+  behaupteten Original-Stems. Referenzmaterial aus freiwillig bereitgestellten
+  lokalen Aufnahmen, unabhängige Mischungs-/Sprecher-Holdouts.
+
+**M15b – Source Separation und Target Speaker Extraction (#13, #26)**
+- Musik-/Sprach-/Geräuschtrennung gegen reine Mix-Baseline vergleichen.
+  Dialog im Spiel ist ebenfalls Sprache: generische Vocal-Separation ist
+  nicht gleich Streamer-Isolation. Diarization optional; gezielte
+  Sprecherextraktion mit freiwilliger lokaler Stimmreferenz evaluieren
+  (z. B. WeSep als Kandidat, erst Lizenz/Checkpoint/Backend prüfen).
+- Keine Identifikation fremder Personen, keine Voice-Cloning-Funktion;
+  Referenz nur für Trennung in autorisierten Aufnahmen verwenden. Kein
+  erzwungener Voiceprint-Upload. Rekonstruierte Spuren kennzeichnen;
+  Residualmix und Artefakte, Übersprechen, Überlappungen und Phasenfehler
+  hörbar/quantitativ prüfen. Kein perfektes Entfernen von NPC-Stimmen versprechen.
+- Segment-/Chunk-Verarbeitung, Überlappung, Zeitachsen-/Pegel-Erhalt,
+  Ressourcenbudget auf RTX-5060-Ti-Klasse (16 GB), CPU-Fallback wo sinnvoll,
+  Abbruch/Wiederaufnahme und Cache. Originalmix jederzeit auswählbar.
+
+**M15c – Sprachsignalbasierte Timing-Korrektur (S-B2, #16)**
+- VAD auf ausgewählter Sprachspur bzw. belegter Sprachrekonstruktion; kein
+  globales Lautstärkegate für Spielsound. Leading/trailing silence bei
+  Cues begrenzen, natürliche Pausen für Segmentierung verwenden; kurze
+  konfigurierbare Lesbarkeits-Nachlaufzeit von Sprachendzeit unterscheiden.
+- Forced Alignment optional, Unsicherheit und nicht ausrichtbare Wörter
+  kenntlich machen; niemals exakte Zeiten erfinden. Keine automatische
+  Änderung manuell korrigierter Cue-/Wortzeiten. Korrekturvorschläge
+  nachvollziehbar, rückgängig machbar; keine Rohdaten überschreiben.
+- Bei unklarer Sprache, überlappenden NPC-Dialogen oder fehlender Evidenz
+  keine erzwungene Korrektur. Testfälle: nachlaufende Stille, Spielgeräusche,
+  leise Sprache, Musik, Unterbrechungen, Sprachwechsel, kurze Wörter.
+
+**M15d – ASR Quality Pipeline**
+- Whisper als Baseline, austauschbarer ASR-Adapter. DE/EN, Code-Switching,
+  Gaming-Namen und optionale Glossare/Kontext; kein blindes Ersetzen von
+  erkannten Wörtern. Confidence/No-speech-Signale soweit verfügbar,
+  Halluzinations-/Wiederholungsprüfung, gezieltes Reprocessing nur
+  unsicherer Fenster. Alternative lokale ASR-Modelle nur nach Lizenz-,
+  Ressourcen- und Qualitätsvergleich integrieren.
+- Versionierte Rohtranskripte, Korrektur-/Alignment-Provenienz und
+  cachebare Zwischenstände. Korrekturen ohne erneute Volltranskription;
+  manuelle Texte und Zeiten bleiben geschützt.
+
+**M15e – Audio-Editor und gemeinsame Timeline (#14, #15, #16, #33, #38)**
+- Original-/getrennte Spuren, Pegel, Normalisierung/True-Peak, Cleanup,
+  Ducking, Pausenvorschläge und Voice-over im bestehenden Editor.
+  Vorschau/Export/Queue verwenden gemeinsame, eingefrorene Parameter.
+  Keine automatische Entfernung von Pausen aus dem Quellvideo.
+
+**M15f – unabhängige Abnahme und Übergabe**
+- Vergleich Rohmix/Baseline vs. getrennte Sprache/ASR/Alignment an
+  annotierten Gaming-Aufnahmen (DE/EN, NPC/Streamer-Überlappung, Musik,
+  Geräusche, Stille). WER/CER, Sprecherleckage, SI-SDR bei echten Referenz-
+  stems, Anfangs-/Endzeitfehler, überlange Cues, verlorene/leise Wörter,
+  Hörqualität, Laufzeit und Peak-RAM/VRAM. Keine Qualitätsbehauptung
+  ohne unabhängige Messung; ungeeignete Modelle/Settings verwerfen.
+- M16 nutzt getrennte, mit Unsicherheit versehene Sprach-/Reaktionssignale;
+  M17a nutzt korrigierte Sprach-/Satzgrenzen plus visuelle Ereigniszeiten
+  für variable Cliplängen, nicht allein Whisper-Segmentenden.
+- Native Windows-/GPU-Prüfung, lange VODs, Originalintegrität, Cancel/Resume,
+  manuelle Korrekturen und Renderparität nachweisen. M15 nicht als abgenommen
+  deklarieren, solange wesentliche Gates offen sind.
 
 ### 5.6 M16 – Gaming Intelligence: verbindlicher Qualitätsausbau
 
