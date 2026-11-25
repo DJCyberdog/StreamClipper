@@ -1325,3 +1325,6 @@ hinzugefügt. Echte Whisper-/GPU-Abnahme offen.
 ### M15b – experimentelle lokale KI-Audiotrennung
 
 Audio → Audioquellen → KI-Audiotrennung. Optionales Extra `.[separation]` und separat bereitgestellter, geprüfter Offline-Checkpoint erforderlich. Erste Stufe: Vordergrundsprache und Restton als WAV, maximal zehn Minuten, 48 kHz Mono/Stereo. Kein automatischer Download, keine Sprecheridentifikation oder automatische Übernahme in Whisper. Details und Modellquellen: [M15b-Kandidatenentscheidung](docs/M15B_SEPARATION.md). Echte Modell-/GPU-Abnahme noch offen.
+
+
+M15b: zusätzlich experimenteller Modus **Referenzstimme · VoxLock (CPU)**. Mit eigener/autorisierter sauberer WAV (3–30 s) und lokalem INT8-Modell; Installationsanleitung in [M15b](docs/M15B_SEPARATION.md). Keine automatische Stimmwahl, kein Upload. Qualitätsabnahme offen.

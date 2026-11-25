@@ -73,3 +73,14 @@ manueller Cue-Provenienz; keine automatische Anwendung auf Alttranskripte.
   Modelllizenz/Checkpoint prüfen; lange VODs mit Resume und Cache; geprüfte
   rekonstruierte Sprachspur optional in ASR/VAD/Timeline übernehmen.
   Keine automatische Ersetzung der Originalspur.
+
+### M15b TSE pilot
+- Inworld 549e6edb CI Linux 45620170431 and Windows 45620170628 PASS.
+- WeSep standard release gate not met; VoxLock 1.3.0 alternative, explicit
+  reference WAV and local INT8 ONNX files, pinned opt-in download script.
+  Actual model license chain/bytes and inference quality not independently
+  accepted. CPU first; no automatic enrollment. New tests and CI pending.
+- Next: confirm CI; run actual model smoke and controlled target-present,
+  target-absent and overlapping speech benchmark; continuous recurrent
+  state, long VOD/cache, source-bound reconstructed-stem import to ASR/VAD.
+  No claims of recovered original mic or reliable speaker identification.

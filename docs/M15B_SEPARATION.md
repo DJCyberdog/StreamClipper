@@ -40,3 +40,45 @@ cue-end timing errors, clipping/artifacts/listening tests, runtime and peak
 RAM/VRAM. Compare with Demucs and a verified target-speaker adapter; do not
 equate signal reconstruction with separation quality. Test quiet streamer,
 equal-loudness and louder NPC, code switching, pauses and chunk boundaries.
+
+## Reference-conditioned candidate: VoxLock (25.11.2026)
+
+WeSep main still marks official pretrained packages/CLI as pending validation.
+REAL-TSE's baseline publishes model weights and inference instructions, but
+retained third-party speaker encoder parameters have separate license terms.
+Do not import arbitrary pickle checkpoints or claim their full license chain.
+VoxLock 1.3.0 is the alternative experimental candidate; its public package
+and model card declare Apache-2.0. Its upstream dependency/license chain
+still requires distribution review. No weights bundled in StreamClipper.
+
+Sources:
+- https://github.com/wenet-e2e/wesep
+- https://github.com/REAL-TSE/wesep-real-tse
+- https://github.com/arbazsiddiqui/voxlock/tree/v1.3.0
+- https://huggingface.co/arbazsiddiqui/voxlock
+- https://pypi.org/project/voxlock/1.3.0/
+
+Inspected v1.3.0 voxlock/core.py: explicit model_dir prevents download;
+VoxLock(...,precision="int8",threads=2), isolate(audio,sample=reference),
+16 kHz mono, minimum 3 s reference. Upstream pinned revision is
+2413b292bc2c337bfc19a9802aaf3e011e68e9c4.
+
+Opt-in installation in existing virtual environment:
+```powershell
+python -m pip install -e ".[target-speaker,models]"
+python scripts/setup_target_speaker.py
+```
+Select data/models/voxlock/onnx/v2 and a clean authorized reference WAV
+(3–30 s) in Audio → Audioquellen → KI-Audiotrennung → Referenzstimme.
+Only the setup script downloads models, not the inference path. Local model
+hashes are recorded, not verified against a separately authenticated publisher
+hash. Reference audio is read locally and not copied into output/provenance;
+no automatic enrollment or voiceprint persistence. No speaker identification.
+
+Existing 48 kHz input/output, 10 min cap and 8s/2s overlap reused. VoxLock
+resamples to 16 kHz and back, so estimated voice is bandwidth-limited.
+Recurrent state resets per overlapping window; continuous state and longer
+VOD support remain future work. CPU/ONNX first, no GPU acceleration claim.
+Synthetic/injected tests validate lengths, explicit reference, failure paths;
+actual model inference, target-absent rejection, speaker leakage, WER,
+German gaming quality and performance require real independent fixtures.
