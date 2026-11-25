@@ -64,7 +64,7 @@ def inventory(path):
         raise ValueError("Ungültige Aufnahmedauer (maximal 24 h)")
     streams=[]
     for s in doc.get("streams",[]):
-        tags=s.get("tags",{})
+        tags={str(k).lower():v for k,v in s.get("tags",{}).items()}
         streams.append(AudioStream(int(s["index"]),str(s.get("codec_name") or "unknown"),
             int(s.get("sample_rate") or 0),int(s.get("channels") or 0),
             str(s.get("channel_layout") or ""),str(tags.get("language") or ""),
