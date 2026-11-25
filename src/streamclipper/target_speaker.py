@@ -109,3 +109,33 @@ class VoxLockBackend:
                 yield out[:n]
         if seen!=count or emitted!=count or actual_output!=padded_count or low_input!=padded_count//3:
             raise ValueError("TSE-Stream unvollständig oder Zeitbasis ungültig")
+
+
+    def resume_identity(self,root,source,index):
+        """Opt-in byte identity, not a biometric speaker fingerprint.
+        A local random cache key scopes HMAC to this cache and recording.
+        Only derived cache filenames persist, not reference PCM/path/embedding.
+        Anyone with the cache directory AND a candidate recording can test
+        exact bytes, so this mode is explicitly opt-in and local only.
+        """
+        import hmac
+        import hashlib
+        import os
+        import secrets
+        import json
+        from dataclasses import asdict
+        import numpy as np
+        root=Path(root);root.mkdir(parents=True,exist_ok=True)
+        keyfile=root/"local-cache.key"
+        if not keyfile.exists():
+            try:
+                with os.fdopen(os.open(keyfile,os.O_CREAT|os.O_EXCL|os.O_WRONLY,0o600),"wb") as f:
+                    f.write(secrets.token_bytes(32));f.flush();os.fsync(f.fileno())
+            except FileExistsError:pass
+        if keyfile.stat().st_size!=32:raise ValueError("Lokaler TSE-Cache-Schlüssel ungültig")
+        key=keyfile.read_bytes()
+        binding=hmac.new(key,digestmod=hashlib.sha256)
+        binding.update(b"streamclipper-target-resume-v1\0")
+        binding.update(json.dumps({"source":asdict(source),"index":index},sort_keys=True,allow_nan=False).encode())
+        binding.update(np.asarray(self.reference,dtype="<f4").tobytes())
+        return binding.hexdigest()

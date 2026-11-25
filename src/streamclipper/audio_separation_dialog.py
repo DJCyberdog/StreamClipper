@@ -10,11 +10,11 @@ class SeparationWorker(QThread):
     ready=Signal(object)
     failed=Signal(str)
     progress=Signal(int)
-    def __init__(self,selection,checkpoint,folder,device,parent,*,kind='foreground',reference='',consent=False,use_cache=False):
+    def __init__(self,selection,checkpoint,folder,device,parent,*,kind='foreground',reference='',consent=False,use_cache=False,resume_target=False):
         super().__init__(parent)
         self.selection=selection;self.checkpoint=checkpoint;self.folder=folder
         self.device=device;self.stop=Event()
-        self.kind=kind;self.reference=reference;self.consent=consent;self.use_cache=use_cache
+        self.kind=kind;self.reference=reference;self.consent=consent;self.use_cache=use_cache;self.resume_target=resume_target
     def run(self):
         try:
             if self.kind=='target':
@@ -22,7 +22,7 @@ class SeparationWorker(QThread):
                 backend=VoxLockBackend(self.checkpoint,self.reference,consent=self.consent,cancelled=self.stop.is_set)
             else:backend=InworldBackend(self.checkpoint,self.device,cancelled=self.stop.is_set)
             result=separate_stream(self.selection,self.folder,backend=backend,
-                                    progress=self.progress.emit,cancelled=self.stop.is_set,use_cache=self.use_cache)
+                                    progress=self.progress.emit,cancelled=self.stop.is_set,use_cache=self.use_cache,resume_target=self.resume_target)
             self.ready.emit(result)
         except Exception as exc:self.failed.emit(str(exc))
 
@@ -53,6 +53,9 @@ class SeparationDialog(QDialog):
         form.addRow(self.consent)
         self.cache=QCheckBox('Vordergrund-Cache behalten (lokale PCM-Ausschnitte, Wiederaufnahme bei erneutem Lauf)')
         form.addRow(self.cache)
+        self.target_resume=QCheckBox('Zielstimmen-Wiederaufnahme (segmentierter Modus, lokale Audio-Cachedateien und referenzgebundene Dateischlüssel)')
+        self.target_resume.setToolTip('Optional: Modellzustand wird je 8-Sekunden-Fenster neu aufgebaut. Kein gespeicherter Voiceprint, aber lokale rekonstruierte Sprachdaten. Qualität kann von kontinuierlicher Inferenz abweichen.')
+        form.addRow(self.target_resume)
         self.device=QComboBox()
         for label,value in (("Automatisch","auto"),("NVIDIA CUDA","cuda"),("CPU","cpu")):self.device.addItem(label,value)
         form.addRow("Gerät",self.device);layout.addLayout(form)
@@ -74,17 +77,18 @@ class SeparationDialog(QDialog):
         self.kind.setEnabled(idle);self.device.setEnabled(idle and not target)
         self.reference_button.setEnabled(idle and target);self.consent.setEnabled(idle and target)
         self.cache.setEnabled(idle and not target)
+        self.target_resume.setEnabled(idle and target and self.consent.isChecked())
         self.start_button.setEnabled(idle and bool(self.checkpoint.text()) and (not target or (bool(self.reference.text()) and self.consent.isChecked())))
 
     def mode_changed(self):
-        self.checkpoint.clear();self.reference.clear();self.consent.setChecked(False);self.cache.setChecked(False)
+        self.checkpoint.clear();self.reference.clear();self.consent.setChecked(False);self.cache.setChecked(False);self.target_resume.setChecked(False)
         self.status.setText('Lokalen VoxLock-Ordner mit enroll.onnx und chunk_int8.onnx wählen.' if self.kind.currentData()=='target' else 'Lokalen denoiser.safetensors-Checkpoint auswählen.')
         self.controls()
 
     def choose_reference(self):
         if self.worker:return
         path,_=QFileDialog.getOpenFileName(self,'Autorisierte Stimmreferenz','','WAV (*.wav)')
-        if path:self.reference.setText(path);self.consent.setChecked(False);self.controls()
+        if path:self.reference.setText(path);self.consent.setChecked(False);self.target_resume.setChecked(False);self.controls()
 
     def choose_model(self):
         if self.worker:return
@@ -97,7 +101,7 @@ class SeparationDialog(QDialog):
         folder=QFileDialog.getExistingDirectory(self,"Ordner für rekonstruierte Audiospuren")
         if not folder:return
         self.progress.setValue(0);self.status.setText("Prüfe Modell und trenne Audio …")
-        self.worker=SeparationWorker(self.selection,self.checkpoint.text(),folder,self.device.currentData(),self,kind=self.kind.currentData(),reference=self.reference.text(),consent=self.consent.isChecked(),use_cache=self.cache.isChecked() and self.kind.currentData()=='foreground')
+        self.worker=SeparationWorker(self.selection,self.checkpoint.text(),folder,self.device.currentData(),self,kind=self.kind.currentData(),reference=self.reference.text(),consent=self.consent.isChecked(),use_cache=(self.cache.isChecked() if self.kind.currentData()=='foreground' else self.target_resume.isChecked()),resume_target=self.kind.currentData()=='target' and self.target_resume.isChecked())
         self.worker.progress.connect(self.progress.setValue)
         self.worker.ready.connect(lambda p:self.status.setText("Gespeichert: "+str(p)+" · voice_estimate.wav / residual.wav"))
         self.worker.failed.connect(self.status.setText)

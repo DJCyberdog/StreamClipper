@@ -86,3 +86,43 @@ def test_continuous_stream_state_and_flush(reference,tmp_path,monkeypatch):
     data=np.concatenate(list(model.stream_estimates(iter(chunks),n)))
     assert data.shape==x.shape and len(enroll)==1 and enroll[0].calls==3
     np.testing.assert_allclose(data[500:-500],x[500:-500]*.5,atol=2e-4)
+
+
+def test_opt_in_reference_bound_resume(reference,tmp_path,monkeypatch):
+    import importlib.metadata
+    from dataclasses import replace
+    from streamclipper.audio_sources import inventory,SpeechSource
+    from streamclipper.audio_separation import separate_stream
+    import json
+    import shutil
+    if not shutil.which("ffmpeg") or not shutil.which("ffprobe"):pytest.skip("FFmpeg required")
+    models=tmp_path/"models";models.mkdir()
+    for name in FILES:(models/name).write_bytes(b"x"*2048)
+    calls=[]
+    class Fake:
+        def __init__(self,**kw):pass
+        def isolate(self,audio,*,sample):
+            calls.append(len(audio));return audio*.5
+    monkeypatch.setattr(importlib.metadata,"version",lambda name:"1.3.0")
+    monkeypatch.setitem(sys.modules,"voxlock",SimpleNamespace(VoxLock=Fake))
+    backend=VoxLockBackend(models,reference,consent=True)
+    path=tmp_path/"source.wav"
+    x=np.arange(48000*15,dtype=np.float32)
+    sf.write(path,(.2*np.sin(x/40)*(1+x/len(x))).astype(np.float32),48000,subtype="FLOAT")
+    snap=inventory(path);selection=SpeechSource(snap,0,"mix");root=tmp_path/"stems"
+    with pytest.raises(CancelledError):
+        separate_stream(selection,root,backend=backend,use_cache=True,resume_target=True,cancelled=lambda:bool(calls))
+    cache=root/".streamclipper-target-resume-cache"
+    assert len(list(cache.glob("*.pcm")))==1
+    out=separate_stream(selection,root,backend=backend,use_cache=True,resume_target=True)
+    manifest=json.loads((out/"provenance.json").read_text())
+    assert manifest["cache"]["reused_windows"]==1 and manifest["processing_mode"]=="overlap_windows"
+    assert manifest["backend"]["state"]=="segmented_overlap_resume"
+    assert "local_binding" not in manifest["backend"] and str(reference) not in json.dumps(manifest)
+    voice,_=sf.read(out/"voice_estimate.wav",dtype="float32")
+    before=len(calls)
+    backend.reference=backend.reference*.8
+    changed=separate_stream(selection,root,backend=backend,use_cache=True,resume_target=True)
+    assert len(calls)>before
+    assert json.loads((changed/"provenance.json").read_text())["cache"]["reused_windows"]==0
+    np.testing.assert_array_equal(voice,sf.read(changed/"voice_estimate.wav",dtype="float32")[0])

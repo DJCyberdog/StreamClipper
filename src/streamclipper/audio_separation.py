@@ -63,7 +63,7 @@ class InworldBackend:
         return result.detach().cpu().numpy()
 
 
-def separate_stream(selection,folder,*,backend,progress=None,cancelled=None,use_cache=False):
+def separate_stream(selection,folder,*,backend,progress=None,cancelled=None,use_cache=False,resume_target=False):
     """Bounded 8s/2s overlap, float32 WAV; mono/stereo input 8–192 kHz; aligned output at 48 kHz.
     Speech estimate broadcast equally to each original channel. Residual =
     input minus estimate; no peak normalization/clipping or identity claim.
@@ -82,15 +82,25 @@ def separate_stream(selection,folder,*,backend,progress=None,cancelled=None,use_
     def check():
         if cancelled and cancelled():raise CancelledError("Audiotrennung abgebrochen")
     check()
-    if type(use_cache) is not bool or (use_cache and backend.metadata.get("speaker_targeted") is not False):
-        raise ValueError("Persistenter Cache nur für Vordergrundsprache ohne Stimmreferenz")
+    targeted=backend.metadata.get("speaker_targeted") is True
+    if type(use_cache) is not bool or type(resume_target) is not bool or (resume_target and (not targeted or not use_cache)) or (use_cache and targeted and not resume_target):
+        raise ValueError("Zielstimmen-Cache benötigt ausdrückliche Zustimmung zur segmentierten Wiederaufnahme mit Stimmreferenz")
+    if resume_target and not callable(getattr(backend,"resume_identity",None)):
+        raise ValueError("Zielstimmenmodell unterstützt keine sichere Cachebindung")
     root=Path(folder).resolve();root.mkdir(parents=True,exist_ok=True)
     count=round(source.duration*RATE)
     file_format=output_format(count,stream.channels)
     cache_budget=(count+((count+CHUNK-OVERLAP-1)//(CHUNK-OVERLAP))*OVERLAP)*4 if use_cache else 0
     if shutil.disk_usage(root).free<count*stream.channels*4*3+cache_budget+64*1024*1024:
         raise OSError("Nicht genügend Speicherplatz für drei PCM-Spuren")
-    cache=WindowCache(root/".streamclipper-separation-cache",backend.metadata) if use_cache else None
+    cache_root=root/".streamclipper-separation-cache"
+    metadata=dict(backend.metadata)
+    cache_identity=metadata
+    if resume_target:
+        cache_root=root/".streamclipper-target-resume-cache"
+        metadata={**metadata,"state":"segmented_overlap_resume"}
+        cache_identity={**metadata,"local_binding":backend.resume_identity(cache_root,source,selection.index)}
+    cache=WindowCache(cache_root,cache_identity) if use_cache else None
     staging=Path(tempfile.mkdtemp(prefix=".separation-",dir=root))
     final=root/("separation-"+staging.name.removeprefix(".separation-"))
     began=time.monotonic()
@@ -103,7 +113,7 @@ def separate_stream(selection,folder,*,backend,progress=None,cancelled=None,use_
                 stream.channels,subtype="FLOAT",format=file_format) as residual:
                 if src.frames!=count or src.samplerate!=RATE or src.channels!=stream.channels:
                     raise ValueError("PCM-Zeitbasis ungültig")
-                continuous=callable(getattr(backend,"stream_estimates",None))
+                continuous=not resume_target and callable(getattr(backend,"stream_estimates",None))
                 if continuous:
                     # A second bounded reader feeds the model while the first
                     # reads exact source samples for the residual, including
@@ -179,7 +189,7 @@ def separate_stream(selection,folder,*,backend,progress=None,cancelled=None,use_
             outputs[name]={"sha256":sha256_file(path,cancelled=cancelled),"frames":count}
         manifest={"schema_version":1,"kind":("reconstructed_target_voice_and_residual" if backend.metadata.get("speaker_targeted") is True else "reconstructed_foreground_voice_and_residual"),
             "source":asdict(source),"selected_stream":asdict(stream),"role_user_selected":selection.role,
-            "backend":backend.metadata,"sample_rate":RATE,"channels":stream.channels,"samples":count,
+            "backend":metadata,"sample_rate":RATE,"channels":stream.channels,"samples":count,
             "timeline_origin":"container_start","container_format":file_format,"chunk_samples":CHUNK,"overlap_samples":0 if continuous else OVERLAP,"processing_mode":"continuous" if continuous else "overlap_windows",
             "voice_projection":"mono_equal_channels","residual_definition":"aligned_48khz_pcm_minus_voice_estimate","input_sample_rate":stream.sample_rate,"resampled":stream.sample_rate!=RATE,
             "outputs":outputs,"cache":{"enabled":use_cache,"reused_windows":reused,"computed_windows":computed},"elapsed_seconds":time.monotonic()-began}
