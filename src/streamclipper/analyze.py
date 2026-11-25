@@ -61,7 +61,7 @@ def analyze(path: str, clip_seconds: int = 25, max_clips: int = 8,
             cancelled: Callable[[], bool] | None = None,
             speech_model: str | None = None, vision_model: str | None = None,
             max_visual_frames: int = 180, detector_model: str | None = None,
-            max_object_frames: int = 90, speech_source=None) -> AnalysisResult:
+            max_object_frames: int = 90, speech_source=None, asr_cache_root=None) -> AnalysisResult:
     """Analyze audio and, when requested, local transcript / gameplay images.
 
     No model downloads and no external API calls. Model paths are opt-in.
@@ -122,9 +122,13 @@ def analyze(path: str, clip_seconds: int = 25, max_clips: int = 8,
             from .reconstructed_speech import ReconstructedSpeech,transcribe_reconstructed
             transcribe = transcribe_reconstructed if isinstance(speech_source,ReconstructedSpeech) else transcribe_selected_stream
             from functools import partial
-            session_transcriber=partial(transcribe_video,model_cache={}) if isinstance(speech_source,ReconstructedSpeech) else transcribe_video
+            session_transcriber=partial(transcribe_video,model_cache={})
+            cache=None
+            if asr_cache_root is not None:
+                from .asr_window_cache import ASRWindowCache
+                cache=ASRWindowCache.for_whisper(asr_cache_root,speech_model,cancelled=cancelled)
             transcript = transcribe(video,speech_model,speech_source,
-                transcriber=session_transcriber,progress=stage('speech'),cancelled=cancelled)
+                transcriber=session_transcriber,progress=stage('speech'),cancelled=cancelled,window_cache=cache)
         evidence.extend(transcript_cues(((s.start, s.end, s.text) for s in transcript),
                                         rules=speech_rules))
     if visual_activity:

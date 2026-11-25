@@ -145,3 +145,40 @@ def test_import_replaces_original_mix_and_survives_roundtrip(source,tmp_path):
     assert rms_and_frequency(preview,1.,440)[1]<.005
     silent=render_request(replace(req,project=replace(original,base_audio_enabled=False)),tmp_path/"silent.mp4")
     assert not probe_video(silent).has_audio
+
+
+def test_window_cache_restart_and_integrity(tmp_path,monkeypatch):
+    import numpy as np
+    import soundfile as sf
+    import streamclipper.reconstructed_speech as rs
+    from streamclipper.asr_window_cache import ASRWindowCache
+    from streamclipper.audio_sources import SpeechSource,transcribe_selected_stream
+    from streamclipper.models import VideoInfo,TranscriptSegment,TranscriptWord
+    path=tmp_path/"long.wav"
+    x=np.arange(48000*9,dtype=np.float32)
+    sf.write(path,.1*np.sin(x/32)*(1+x/len(x)),48000,subtype="FLOAT")
+    snap=inventory(path);selection=SpeechSource(snap,0,"microphone")
+    video=VideoInfo(str(path),9,1,1,1,True)
+    real=rs.audio_windows
+    monkeypatch.setattr(rs,"audio_windows",lambda path,**kw:real(path,**{**kw,"block_seconds":3,"context_seconds":.5}))
+    cache=ASRWindowCache(tmp_path/"cache",{"model":"fake"})
+    calls=[]
+    def transcribe(v,model,**kw):
+        calls.append(v.path)
+        if len(calls)==2:raise CancelledError("Testabbruch")
+        return [TranscriptSegment(1,2,"Test",(TranscriptWord(1,2,"Test"),),"asr")]
+    with pytest.raises(CancelledError):transcribe_selected_stream(video,"mock",selection,transcriber=transcribe,window_cache=cache,temp_root=tmp_path)
+    assert len(list(cache.root.glob("*.json")))==1
+    def retry(v,model,**kw):
+        calls.append(v.path)
+        return [TranscriptSegment(1,2,"Test",(TranscriptWord(1,2,"Test"),),"asr")]
+    result=transcribe_selected_stream(video,"mock",selection,transcriber=retry,window_cache=cache,temp_root=tmp_path)
+    assert cache.hits==1 and len(result)==3
+    assert [c.start for c in result]==[1,3.5,6.5]
+    count=len(calls)
+    assert transcribe_selected_stream(video,"mock",selection,transcriber=retry,window_cache=cache,temp_root=tmp_path)==result
+    assert len(calls)==count
+    corrupted=next(cache.root.glob("*.json"))
+    doc=json.loads(corrupted.read_text());doc["sha256"]="x";corrupted.write_text(json.dumps(doc))
+    with pytest.raises(ValueError,match="Cache beschädigt"):
+        transcribe_selected_stream(video,"mock",selection,transcriber=retry,window_cache=cache,temp_root=tmp_path)

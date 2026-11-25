@@ -162,7 +162,7 @@ class SpeechSource:
         return f"|asr:stream={self.index},role={self.role},size={self.inventory.size},mtime={self.inventory.mtime_ns}"
 
 
-def transcribe_selected_stream(video,model,selection,*,transcriber,progress=None,cancelled=None,temp_root=None):
+def transcribe_selected_stream(video,model,selection,*,transcriber,progress=None,cancelled=None,temp_root=None,window_cache=None):
     """Decode selected stream to aligned temporary WAV, then run existing ASR.
     The analysis result retains the original video identity. No fallback to mix.
     """
@@ -176,11 +176,13 @@ def transcribe_selected_stream(video,model,selection,*,transcriber,progress=None
     with tempfile.TemporaryDirectory(prefix="asr-stream-",dir=root) as folder:
         wav=extract_audio_stream(selection.inventory,selection.index,folder,role=selection.role,
                                  cancelled=cancelled)
-        aligned=replace(video,path=str(wav),has_audio=True)
-        result=transcriber(aligned,model,progress=progress,cancelled=cancelled)
+        from .reconstructed_speech import transcribe_aligned
+        result=transcribe_aligned(video,model,wav,duration=selection.inventory.duration,transcriber=transcriber,
+            progress=progress,cancelled=cancelled,temp_root=root,window_cache=window_cache)
         if cancelled and cancelled():raise CancelledError("Analyse abgebrochen")
         if inventory(selection.inventory.source)!=selection.inventory:
             raise ValueError("Originalaufnahme während Analyse verändert")
+        if progress:progress(100)
         return result
 
 

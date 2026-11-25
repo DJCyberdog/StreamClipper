@@ -107,28 +107,42 @@ def audio_windows(path,*,duration,block_seconds=BLOCK_SECONDS,context_seconds=CO
             finally:file.unlink(missing_ok=True)
 
 
-def transcribe_reconstructed(video,model,selection,*,transcriber,progress=None,cancelled=None,temp_root=None):
+def transcribe_reconstructed(video,model,selection,*,transcriber,progress=None,cancelled=None,temp_root=None,window_cache=None):
     if Path(video.path).resolve()!=Path(selection.inventory.source).resolve() or abs(video.duration-selection.inventory.duration)>.1:
         raise ValueError("KI-Sprachspur gehört zu einer anderen Aufnahme")
     selection.validate(cancelled=cancelled)
-    result=[]
+    result=transcribe_aligned(video,model,selection.path,duration=selection.inventory.duration,
+        transcriber=transcriber,progress=progress,cancelled=cancelled,temp_root=temp_root,window_cache=window_cache)
+    selection.validate(cancelled=cancelled)
+    if progress:progress(100)
+    return result
+
+
+def transcribe_aligned(video,model,path,*,duration,transcriber,progress=None,cancelled=None,temp_root=None,window_cache=None):
+    """Shared bounded windows for actual and estimated speech, with midpoint ownership."""
     from contextlib import closing
-    with closing(audio_windows(selection.path,duration=selection.inventory.duration,cancelled=cancelled,temp_root=temp_root)) as windows:
-        for file,origin,a,b,duration in windows:
-            aligned=replace(video,path=str(file),duration=duration,has_audio=True)
+    from .transcript_editor import validate_segments
+    result=[]
+    with closing(audio_windows(path,duration=duration,cancelled=cancelled,temp_root=temp_root)) as windows:
+        for file,origin,a,b,window_duration in windows:
+            if cancelled and cancelled():raise CancelledError("Sprachanalyse abgebrochen")
+            aligned=replace(video,path=str(file),duration=window_duration,has_audio=True)
             def step(v):
-                if progress:progress(min(99,round(100*(a+(b-a)*max(0,min(100,v))/100)/selection.inventory.duration)))
-            cues=transcriber(aligned,model,progress=step,cancelled=cancelled)
+                if progress:progress(min(99,round(100*(a+(b-a)*max(0,min(100,v))/100)/duration)))
+            cues=window_cache.load(file,window_duration,cancelled=cancelled) if window_cache is not None else None
+            if cues is None:
+                cues=transcriber(aligned,model,progress=step,cancelled=cancelled)
+                validate_segments(cues,window_duration)
+                if cancelled and cancelled():raise CancelledError("Sprachanalyse abgebrochen")
+                if window_cache is not None:window_cache.save(file,window_duration,cues,cancelled=cancelled)
+            step(100)
             for cue in cues:
                 start,end=cue.start+origin,cue.end+origin
-                if not math.isfinite(start) or not math.isfinite(end) or not 0<=cue.start<cue.end<=duration+.1:
+                if not math.isfinite(start) or not math.isfinite(end) or not 0<=cue.start<cue.end<=window_duration+.1:
                     raise ValueError("ASR lieferte ungültige Fensterzeiten")
                 if not a<=(start+end)/2<b:continue
                 words=tuple(replace(w,start=round(w.start+origin,3),end=round(w.end+origin,3)) for w in cue.words)
                 result.append(replace(cue,start=round(start,3),end=round(min(end,video.duration),3),words=words))
-    selection.validate(cancelled=cancelled)
-    from .transcript_editor import validate_segments
     result.sort(key=lambda cue:(cue.start,cue.end))
     validate_segments(result,video.duration)
-    if progress:progress(100)
     return result

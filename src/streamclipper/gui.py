@@ -90,9 +90,10 @@ class AnalysisThread(QThread):
 
     def __init__(self, source: str, length: int, parent=None,
                  speech_model: str | None = None, vision_model: str | None = None,
-                 detector_model: str | None = None, speech_source=None):
+                 detector_model: str | None = None, speech_source=None, asr_cache_root=None):
         super().__init__(parent)
         self.speech_source=speech_source
+        self.asr_cache_root=asr_cache_root
         self.source = source
         self.length = length
         self.speech_model = speech_model
@@ -111,7 +112,8 @@ class AnalysisThread(QThread):
                              speech_model=self.speech_model,
                              vision_model=self.vision_model,
                              detector_model=self.detector_model,
-                             **({'speech_source':self.speech_source} if self.speech_source is not None else {}))
+                             **({'speech_source':self.speech_source} if self.speech_source is not None else {}),
+                             **({'asr_cache_root':self.asr_cache_root} if self.asr_cache_root is not None else {}))
             if self._cancelled.is_set():
                 raise CancelledError("Analyse abgebrochen")
             if result.transcript:
@@ -1440,6 +1442,9 @@ class MainWindow(QMainWindow):
         audio_menu.addAction("Originalton in Komposition ein-/ausschalten", self._toggle_base_audio)
         audio_menu.addAction("Untertitel-Zeitstempel prüfen …",self._review_speech_timing)
         audio_menu.addAction("ASR-Qualität prüfen …",self._review_asr_quality)
+        self.asr_cache_action=audio_menu.addAction("ASR-Zwischenstände lokal behalten (explizite Sprachspur)")
+        self.asr_cache_action.setCheckable(True)
+        self.asr_cache_action.setToolTip("Speichert rohe Transkriptfenster lokal; nach Abbruch mit gleicher Quelle und Modell wiederverwendbar.")
         audio_menu.addAction("KI-Stems / Audio-Mix …",self._edit_stem_mix)
         audio_menu.addAction("Voice-over-Datei auf ausgewählte Audiospur …",self._add_audio_file_to_track)
         branding = self.menuBar().addMenu("Branding")
@@ -3393,7 +3398,8 @@ class MainWindow(QMainWindow):
         self.progress.setValue(0)
         self.worker = AnalysisThread(self.source, self.length.value(), self,
                                      speech_model=speech, vision_model=vision,
-                                     detector_model=detector,speech_source=self.speech_source if speech else None)
+                                     detector_model=detector,speech_source=self.speech_source if speech else None,
+                                     asr_cache_root=installation_directory()/ "data"/"projects"/"asr_windows" if speech and self.speech_source and self.asr_cache_action.isChecked() else None)
         self.worker.progress_changed.connect(self.progress.setValue)
         self.worker.done.connect(self.analysis_finished)
         self.worker.failed.connect(self.job_failed)
