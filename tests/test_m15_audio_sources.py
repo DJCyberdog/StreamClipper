@@ -92,3 +92,56 @@ def test_one_stream_is_not_separation(tmp_path):
     assert manifest["role_user_selected"]=="unspecified"
     assert manifest["kind"]=="decoded_container_stream"
     assert inventory(wav).streams[0].sample_rate==44100
+
+
+def test_selected_stream_transcription_preserves_time_and_source(source,tmp_path):
+    from streamclipper.audio_sources import SpeechSource,transcribe_selected_stream
+    from streamclipper.media import probe_video
+    from streamclipper.models import TranscriptSegment
+    video=probe_video(source)
+    selection=SpeechSource(inventory(source),2,"microphone")
+    seen=[]
+    def fake_asr(aligned,model,**kw):
+        seen.append(aligned.path)
+        assert aligned.duration==video.duration and aligned.has_audio
+        assert rms_and_frequency(aligned.path,.1,880)[0]<.001
+        assert rms_and_frequency(aligned.path,1.,880)[1]>.08
+        assert rms_and_frequency(aligned.path,1.,440)[1]<.005
+        return [TranscriptSegment(.75,1.75,"test speech")]
+    result=transcribe_selected_stream(video,"mock",selection,transcriber=fake_asr,temp_root=tmp_path)
+    assert result[0].start==.75
+    assert not Path(seen[0]).exists()
+    assert "stream=2,role=microphone" in selection.method_suffix
+    with pytest.raises(ValueError,match="nicht gefunden"):
+        transcribe_selected_stream(video,"mock",replace(selection,index=99),transcriber=fake_asr,temp_root=tmp_path)
+
+
+def test_import_replaces_original_mix_and_survives_roundtrip(source,tmp_path):
+    from streamclipper.audio_sources import import_extracted_audio
+    from streamclipper.media import probe_video
+    from streamclipper.editor_project import initial_project,save_project,load_project
+    from streamclipper.render_contract import RenderRequest,render_request
+    from streamclipper.render_queue import _snapshot,_rehydrate
+    from streamclipper.project_checkpoints import create_checkpoint,load_checkpoint
+    video=probe_video(source)
+    original=initial_project(video)
+    wav=extract_audio_stream(inventory(source),2,tmp_path/"exports",role="microphone")
+    project=import_extracted_audio(original,wav,"mic")
+    assert not project.base_audio_enabled and original.base_audio_enabled
+    assert project.items[-1].timeline_start==0
+    assert import_extracted_audio(project,wav,"mic")==project
+    save_project(project,root=tmp_path)
+    assert load_project(video,root=tmp_path)==project
+    cp=create_checkpoint(project,"Remix",root=tmp_path)
+    assert load_checkpoint(video,cp.id,root=tmp_path)[0]==project
+    req=RenderRequest(video,0,3,"crop",width=160,height=128,project=project)
+    assert _rehydrate(json.loads(json.dumps(_snapshot(req))))==req
+    full=render_request(req,tmp_path/"remix.mp4")
+    assert rms_and_frequency(full,1.,880)[1]>.06
+    assert rms_and_frequency(full,1.,440)[1]<.005
+    assert rms_and_frequency(full,.1,440)[0]<.005
+    preview=render_request(req.preview_excerpt(2),tmp_path/"preview.mp4")
+    assert rms_and_frequency(preview,1.,880)[1]>.06
+    assert rms_and_frequency(preview,1.,440)[1]<.005
+    silent=render_request(replace(req,project=replace(original,base_audio_enabled=False)),tmp_path/"silent.mp4")
+    assert not probe_video(silent).has_audio
