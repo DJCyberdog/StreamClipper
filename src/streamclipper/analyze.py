@@ -119,7 +119,9 @@ def analyze(path: str, clip_seconds: int = 25, max_clips: int = 8,
                                           cancelled=cancelled)
         else:
             from .audio_sources import transcribe_selected_stream
-            transcript = transcribe_selected_stream(video,speech_model,speech_source,
+            from .reconstructed_speech import ReconstructedSpeech,transcribe_reconstructed
+            transcribe = transcribe_reconstructed if isinstance(speech_source,ReconstructedSpeech) else transcribe_selected_stream
+            transcript = transcribe(video,speech_model,speech_source,
                 transcriber=transcribe_video,progress=stage('speech'),cancelled=cancelled)
         evidence.extend(transcript_cues(((s.start, s.end, s.text) for s in transcript),
                                         rules=speech_rules))

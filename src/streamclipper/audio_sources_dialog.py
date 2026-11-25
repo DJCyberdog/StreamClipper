@@ -51,6 +51,7 @@ class AudioSourcesDialog(QDialog):
         self.extract.clicked.connect(self.start_extract);buttons.addWidget(self.extract)
         self.separate=QPushButton("KI-Audiotrennung …");self.separate.clicked.connect(self.start_separation);buttons.addWidget(self.separate)
         self.use=QPushButton("Für Whisper wählen");self.use.clicked.connect(self.choose_speech);buttons.addWidget(self.use)
+        self.use_estimate=QPushButton('KI-Sprachspur für Whisper wählen …');self.use_estimate.clicked.connect(self.choose_estimate);layout.addWidget(self.use_estimate)
         self.reset=QPushButton("Whisper: Standardspur");self.reset.clicked.connect(self.reset_speech);buttons.addWidget(self.reset)
         self.add=QPushButton("Extrahierte WAV auf Timeline");self.add.clicked.connect(self.choose_extracted);buttons.addWidget(self.add)
         close=QPushButton("Schließen / Abbrechen");close.clicked.connect(self.reject);buttons.addWidget(close)
@@ -64,6 +65,7 @@ class AudioSourcesDialog(QDialog):
         self.separate.setEnabled(not busy and self.snapshot is not None and self.table.currentRow()>=0)
         self.use.setEnabled(not busy and self.snapshot is not None and self.table.currentRow()>=0)
         self.reset.setEnabled(not busy)
+        self.use_estimate.setEnabled(not busy and self.snapshot is not None)
         self.add.setEnabled(not busy and self.extracted is not None)
         self.role.setEnabled(not busy)
         self.table.setEnabled(not busy)
@@ -108,6 +110,15 @@ class AudioSourcesDialog(QDialog):
         row=self.table.currentRow()
         if not 0<=row<len(self.snapshot.streams):return
         self.selection=SpeechSource(self.snapshot,self.snapshot.streams[row].index,self.role.currentData()).validate()
+        self.action="speech";self.accept()
+
+    def choose_estimate(self):
+        if self.worker or self.snapshot is None:return
+        path,_=QFileDialog.getOpenFileName(self,"Rekonstruierte Sprachspur","","WAV (*.wav)")
+        if not path:return
+        from .reconstructed_speech import select_reconstructed
+        try:self.selection=select_reconstructed(self.snapshot,path)
+        except Exception as exc:self.status.setText(str(exc));return
         self.action="speech";self.accept()
 
     def reset_speech(self):

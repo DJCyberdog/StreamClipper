@@ -1465,7 +1465,7 @@ class MainWindow(QMainWindow):
         if dialog.exec()!=QDialog.DialogCode.Accepted:return
         if dialog.action=='speech':
             self.speech_source=dialog.selection
-            self.statusBar().showMessage('Whisper: '+(f'Stream {self.speech_source.index} ({self.speech_source.role})' if self.speech_source else 'Standardspur')+' · nächste Analyse')
+            self.statusBar().showMessage('Whisper: '+(getattr(self.speech_source,'label',f'Stream {self.speech_source.index} ({self.speech_source.role})') if self.speech_source else 'Standardspur')+' · nächste Analyse')
         elif dialog.action=='timeline':
             self._import_extracted_audio(dialog.extracted)
 
@@ -3344,7 +3344,7 @@ class MainWindow(QMainWindow):
         self.worker.failed.connect(self.job_failed)
         self.worker.finished.connect(lambda: self._busy(False))
         self._busy(True)
-        self.statusBar().showMessage("Analyse läuft lokal (Audio / optionale Modelle) …" + (f' · Whisper Stream {self.speech_source.index}' if speech and self.speech_source else ''))
+        self.statusBar().showMessage("Analyse läuft lokal (Audio / optionale Modelle) …" + (' · Whisper: '+getattr(self.speech_source,'label',f'Stream {self.speech_source.index}') if speech and self.speech_source else ''))
         self.worker.start()
 
     def refresh_highlight_table(self) -> None:

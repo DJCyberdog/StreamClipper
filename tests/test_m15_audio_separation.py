@@ -85,8 +85,8 @@ def test_model_hash_checked_before_import(tmp_path):
 
 def test_declared_limits(mix,tmp_path):
     _,_,selection=mix
-    with pytest.raises(ValueError,match="zehn Minuten"):
-        separate_stream(replace(selection,inventory=replace(selection.inventory,duration=601)),
+    with pytest.raises(ValueError,match="sechs Stunden"):
+        separate_stream(replace(selection,inventory=replace(selection.inventory,duration=21601)),
                         tmp_path,backend=TestBackend())
     with pytest.raises(ValueError,match="gemischte Spur"):
         separate_stream(replace(selection,role="microphone"),tmp_path,backend=TestBackend())
@@ -94,3 +94,50 @@ def test_declared_limits(mix,tmp_path):
     with pytest.raises(ValueError,match="48 kHz"):
         separate_stream(replace(selection,inventory=replace(selection.inventory,streams=streams)),
                         tmp_path,backend=TestBackend())
+
+
+def test_large_wave_container_choice(tmp_path):
+    from streamclipper.audio_separation import output_format
+    assert output_format(RATE*600,2)=="WAV"
+    assert output_format(RATE*21600,2)=="RF64"
+    # Real small RF64 roundtrip tests library/FFprobe compatibility without
+    # allocating gigabytes on CI. Whole six-hour run still a native gate.
+    path=tmp_path/"rf64.wav"
+    sf.write(path,np.zeros((RATE,2),dtype=np.float32),RATE,subtype="FLOAT",format="RF64")
+    assert sf.info(path).format=="RF64"
+    if shutil.which("ffprobe"):
+        snap=inventory(path)
+        assert snap.duration==1 and snap.streams[0].channels==2
+
+
+def test_reconstructed_selection_and_mock_asr_vad(mix,tmp_path,monkeypatch):
+    from streamclipper.reconstructed_speech import select_reconstructed,transcribe_reconstructed
+    from streamclipper.speech_activity import detect_speech
+    from streamclipper.models import VideoInfo,TranscriptSegment,TranscriptWord
+    import streamclipper.reconstructed_speech as rs
+    path,_,selection=mix
+    bundle=separate_stream(selection,tmp_path/"stems",backend=TestBackend())
+    chosen=select_reconstructed(selection.inventory,bundle/"voice_estimate.wav")
+    assert chosen.role=="foreground_voice_estimate"
+    assert "reconstructed=" in chosen.method_suffix
+    with pytest.raises(ValueError):select_reconstructed(selection.inventory,bundle/"residual.wav")
+    video=VideoInfo(str(path),selection.inventory.duration,320,240,25,True)
+    seen=[]
+    def mock_asr(v,model,**kw):
+        seen.append(v.path)
+        return [TranscriptSegment(1,2,"test",(TranscriptWord(1,2,"test"),))] if v.duration>=2 else []
+    real_windows=rs.audio_windows
+    monkeypatch.setattr(rs,"audio_windows",lambda path,**kw:real_windows(path,**{**kw,"block_seconds":5,"context_seconds":1}))
+    cues=transcribe_reconstructed(video,"mock",chosen,transcriber=mock_asr,temp_root=tmp_path)
+    assert [c.start for c in cues]==[1,5,10]
+    assert all(c.words[0].start==c.start for c in cues)
+    assert all(not __import__("pathlib").Path(p).exists() for p in seen)
+    def vad(file):
+        return [(0.,sf.info(file).duration)]
+    spans=detect_speech(chosen,detector=vad,temp_root=tmp_path)
+    assert len(spans)==1 and spans[0][0]==0 and abs(spans[0][1]-video.duration)<.002
+    # Same geometry but altered content must be rejected before ASR.
+    with sf.SoundFile(chosen.path,"r+") as audio:
+        audio.seek(0);audio.write(np.ones((1,2),dtype=np.float32)*.5)
+    with pytest.raises(ValueError,match="Prüfsumme"):
+        transcribe_reconstructed(video,"mock",chosen,transcriber=mock_asr)
