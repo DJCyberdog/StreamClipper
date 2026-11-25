@@ -44,6 +44,10 @@ class TranscriptSegment:
     end: float
     text: str
     words: tuple[TranscriptWord, ...] = ()
+    review_origin: str = "legacy"  # legacy/unknown protected; asr, manual, vad
+    avg_logprob: float | None = None
+    no_speech_prob: float | None = None
+    compression_ratio: float | None = None
 
 
 @dataclass(frozen=True)
@@ -74,6 +78,9 @@ class AnalysisResult:
         for section in report['transcript']:
             if not section['words']:
                 section.pop('words')
+            if section['review_origin']=='legacy':section.pop('review_origin')
+            for key in ('avg_logprob','no_speech_prob','compression_ratio'):
+                if section[key] is None:section.pop(key)
         if not self.translations:
             report.pop('translations')
         if not self.caption_language:

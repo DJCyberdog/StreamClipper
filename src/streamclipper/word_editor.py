@@ -69,7 +69,8 @@ def edit_word(result: AnalysisResult, segment_index: int, word_index: int,
                      start=min(segment.start, *(w.start for w in words)),
                      end=max(segment.end, *(w.end for w in words)),
                      text=' '.join(w.text for w in words),
-                     words=tuple(words))
+                     words=tuple(words),review_origin='manual' if segment.review_origin!='legacy' else 'legacy',
+                     avg_logprob=None,no_speech_prob=None,compression_ratio=None)
     updated = list(result.transcript)
     updated[segment_index] = parent
     validate_segments(updated, result.video.duration)

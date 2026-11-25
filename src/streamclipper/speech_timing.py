@@ -26,7 +26,7 @@ def propose_timings(cues, speech_intervals, *, duration, protected_rows=(), padd
     protected=set(protected_rows)
     proposals=[]
     for i,cue in enumerate(cues):
-        if i in protected or any(w.origin=="manual" for w in cue.words):continue
+        if i in protected or cue.review_origin=="manual" or any(w.origin=="manual" for w in cue.words):continue
         if not 0<=cue.start<cue.end<=duration+.1:raise ValueError("Ungültiger Cue")
         hits=[(max(a,cue.start),min(b,cue.end)) for a,b in spans if a<cue.end and b>cue.start]
         if not hits:continue
@@ -43,7 +43,7 @@ def propose_timings(cues, speech_intervals, *, duration, protected_rows=(), padd
         if cue.end-b<minimum_change:b=cue.end
         a,b=round(a,3),round(b,3)
         if b-a<.15 or (a,b)==(cue.start,cue.end):continue
-        proposals.append(TimingProposal(i,cue,replace(cue,start=a,end=b),
+        proposals.append(TimingProposal(i,cue,replace(cue,start=a,end=b,review_origin="vad" if cue.review_origin!="legacy" else "legacy"),
             "Sprachintervall begrenzt Vor-/Nachlauf; Wortzeiten unverändert"))
     return tuple(proposals)
 
@@ -55,6 +55,8 @@ def apply_proposals(result, proposals):
     for p in proposals:
         if not 0<=p.row<len(cues) or p.row in seen or cues[p.row]!=p.before:
             raise ValueError("Timingvorschlag ist veraltet oder doppelt")
+        if p.before.review_origin=="manual" or any(w.origin=="manual" for w in p.before.words):
+            raise ValueError("Manuell korrigierte Zeile geschützt")
         if p.after.text!=p.before.text or p.after.words!=p.before.words or not p.before.start<=p.after.start<p.after.end<=p.before.end:
             raise ValueError("Timingvorschlag verändert Text, Wörter oder erweitert Grenzen")
         seen.add(p.row);cues[p.row]=p.after

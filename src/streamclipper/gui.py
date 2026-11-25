@@ -1433,6 +1433,7 @@ class MainWindow(QMainWindow):
         audio_menu = self.menuBar().addMenu("Audio")
         audio_menu.addAction("Audioquellen / Originalspuren …", self._inspect_audio_sources)
         audio_menu.addAction("Originalton in Komposition ein-/ausschalten", self._toggle_base_audio)
+        audio_menu.addAction("Untertitel-Zeitstempel prüfen …",self._review_speech_timing)
         branding = self.menuBar().addMenu("Branding")
         branding.addAction("Untertitel gestalten …", self._edit_caption_style)
         branding.addAction("Untertitel übersetzen …", self._edit_translations)
@@ -1468,6 +1469,19 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage('Whisper: '+(getattr(self.speech_source,'label',f'Stream {self.speech_source.index} ({self.speech_source.role})') if self.speech_source else 'Standardspur')+' · nächste Analyse')
         elif dialog.action=='timeline':
             self._import_extracted_audio(dialog.extracted)
+
+    def _review_speech_timing(self):
+        if not self.analysis or not self.analysis.transcript or self._history_blocked or (self.worker and self.worker.isRunning()):return
+        selection=self.speech_source
+        if selection is None or not self.analysis.method.endswith(selection.method_suffix):
+            QMessageBox.warning(self,"Sprachzeiten","Bitte zuerst mit der gewählten Mikrofon- oder KI-Sprachspur analysieren. Alte Berichte ohne passende Provenienz bleiben unverändert.");return
+        if not self.apply_word_editor() or not self.apply_transcript_editor():return
+        from .timing_review_dialog import TimingReviewDialog
+        dialog=TimingReviewDialog(self.analysis,selection,self)
+        if dialog.exec()==QDialog.DialogCode.Accepted:
+            before=self.analysis
+            self.analysis_finished(dialog.value,preserve_history=True)
+            self._register_edit(before)
 
     def _toggle_base_audio(self):
         if not self.editor_project or self._history_blocked:return

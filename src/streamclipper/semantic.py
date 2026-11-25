@@ -136,7 +136,11 @@ def transcribe_video(video: VideoInfo, model_directory: str, *,
                     if word_cues:
                         start = min(start, *(word.start for word in word_cues))
                         end = max(end, *(word.end for word in word_cues))
-                    spans.append(TranscriptSegment(start, end, phrase, tuple(word_cues)))
+                    def metric(name):
+                        value=getattr(seg,name,None)
+                        return float(value) if isinstance(value,(int,float)) and math.isfinite(value) else None
+                    spans.append(TranscriptSegment(start,end,phrase,tuple(word_cues),"asr",
+                        metric("avg_logprob"),metric("no_speech_prob"),metric("compression_ratio")))
                 if progress:
                     progress(min(100, int(100 * seg.end / video.duration)))
         except TypeError as exc:

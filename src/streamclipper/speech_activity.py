@@ -17,21 +17,11 @@ def detect_speech(selection,*,detector=None,cancelled=None,temp_root=None):
     def check():
         if cancelled and cancelled():raise CancelledError("Spracherkennung abgebrochen")
     check()
-    if selection.inventory.duration>600:
-        raise ValueError('VAD-Prototyp: maximal 10 Minuten; Chunk-Verarbeitung folgt.')
+    if selection.inventory.duration>21600:
+        raise ValueError("VAD: maximal sechs Stunden")
     with tempfile.TemporaryDirectory(prefix="vad-stream-",dir=temp_root) as folder:
         wav=extract_audio_stream(selection.inventory,selection.index,folder,role=selection.role,cancelled=cancelled)
-        if detector is None:
-            from faster_whisper.audio import decode_audio
-            from faster_whisper.vad import get_speech_timestamps,VadOptions
-            def detector(path):
-                # Faster-Whisper decodes into memory; cap this initial adapter.
-                audio=decode_audio(str(path),sampling_rate=16000)
-                check()
-                return [(x["start"]/16000,x["end"]/16000) for x in get_speech_timestamps(
-                    audio,VadOptions(min_silence_duration_ms=250,speech_pad_ms=0))]
-        check()
-        spans=tuple(detector(wav))
+        spans=_detect_windows(wav,selection.inventory.duration,detector=detector,cancelled=cancelled,temp_root=temp_root)
         check()
         if inventory(selection.inventory.source)!=selection.inventory:
             raise ValueError("Originalaufnahme während VAD verändert")
@@ -40,10 +30,16 @@ def detect_speech(selection,*,detector=None,cancelled=None,temp_root=None):
 
 def detect_reconstructed(selection,*,detector=None,cancelled=None,temp_root=None):
     """Bounded VAD on a deliberately selected estimate; not speaker truth."""
+    selection.validate(cancelled=cancelled)
+    result=_detect_windows(selection.path,selection.inventory.duration,detector=detector,cancelled=cancelled,temp_root=temp_root)
+    selection.validate(cancelled=cancelled)
+    return result
+
+
+def _detect_windows(path,duration,*,detector=None,cancelled=None,temp_root=None):
     import math
     from contextlib import closing
     from .reconstructed_speech import audio_windows
-    selection.validate(cancelled=cancelled)
     if detector is None:
         from faster_whisper.audio import decode_audio
         from faster_whisper.vad import get_speech_timestamps,VadOptions
@@ -52,7 +48,7 @@ def detect_reconstructed(selection,*,detector=None,cancelled=None,temp_root=None
             return [(x["start"]/16000,x["end"]/16000) for x in get_speech_timestamps(
                 audio,VadOptions(min_silence_duration_ms=250,speech_pad_ms=0))]
     result=[]
-    with closing(audio_windows(selection.path,duration=selection.inventory.duration,
+    with closing(audio_windows(path,duration=duration,
             block_seconds=60,context_seconds=1,cancelled=cancelled,temp_root=temp_root)) as windows:
         for file,origin,a,b,duration in windows:
             if cancelled and cancelled():raise CancelledError("Spracherkennung abgebrochen")
@@ -67,5 +63,4 @@ def detect_reconstructed(selection,*,detector=None,cancelled=None,temp_root=None
                     result[-1]=(result[-1][0],max(result[-1][1],y))
                 else:result.append((x,y))
     if cancelled and cancelled():raise CancelledError("Spracherkennung abgebrochen")
-    selection.validate(cancelled=cancelled)
     return tuple(result)

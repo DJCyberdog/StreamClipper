@@ -58,6 +58,13 @@ def validate_segments(segments: list[TranscriptSegment], duration: float) -> Non
             raise ValueError(f'Abschnitt {i}: Untertitel darf nicht leer sein')
         if len(cue.text) > 10000:
             raise ValueError(f'Abschnitt {i}: Text zu lang')
+        if cue.review_origin not in {"legacy","asr","manual","vad"}:
+            raise ValueError("Ungültige Untertitelherkunft")
+        for value in (cue.avg_logprob,cue.no_speech_prob,cue.compression_ratio):
+            if value is not None and (not isinstance(value,(int,float)) or not math.isfinite(value)):
+                raise ValueError("Ungültiger ASR-Messwert")
+        if cue.no_speech_prob is not None and not 0<=cue.no_speech_prob<=1:
+            raise ValueError("Ungültige No-Speech-Wahrscheinlichkeit")
         for j, word in enumerate(cue.words, start=1):
             if not (isinstance(word, TranscriptWord) and
                     math.isfinite(word.start) and math.isfinite(word.end) and
@@ -108,7 +115,8 @@ def load_analysis_report(filename: str | Path, expected_video: str | Path) -> An
             raise ValueError("Unbekannte Highlight-Herkunft")
         transcript = [TranscriptSegment(
             float(entry['start']), float(entry['end']), str(entry['text']),
-            tuple(TranscriptWord(**word) for word in entry.get('words', [])))
+            tuple(TranscriptWord(**word) for word in entry.get('words', [])),
+            entry.get('review_origin','legacy'),entry.get('avg_logprob'),entry.get('no_speech_prob'),entry.get('compression_ratio'))
             for entry in data.get('transcript', [])]
         validate_segments(transcript, video.duration)
         for candidate in candidates:
@@ -144,6 +152,8 @@ def _preserve_word_times(old,new):
     """
     if (old.start,old.end,old.text)==(new.start,new.end,new.text):
         return old
+    new=replace(new,review_origin='manual' if old.review_origin!='legacy' else 'legacy',
+                avg_logprob=None,no_speech_prob=None,compression_ratio=None)
     if not old.words or (old.start,old.end)!=(new.start,new.end):
         return replace(new,words=())
     tokens=new.text.split()

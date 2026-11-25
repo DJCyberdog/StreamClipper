@@ -161,7 +161,8 @@ def load_checkpoint(video: VideoInfo, checkpoint_id: str, *,
         if a is not None:
             cues = [TranscriptSegment(
                 float(cue["start"]), float(cue["end"]), str(cue["text"]),
-                tuple(TranscriptWord(**word) for word in cue.get("words", [])))
+                tuple(TranscriptWord(**word) for word in cue.get("words", [])),
+                cue.get("review_origin","legacy"),cue.get("avg_logprob"),cue.get("no_speech_prob"),cue.get("compression_ratio"))
                 for cue in a.get("transcript", [])]
             analysis = AnalysisResult(VideoInfo(**a["video"]),
                                       [Candidate(**clip) for clip in a.get("candidates", [])],
