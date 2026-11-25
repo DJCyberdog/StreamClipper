@@ -1425,6 +1425,8 @@ class MainWindow(QMainWindow):
     def _install_workspace_controls(self) -> None:
         scene_menu = self.menuBar().addMenu("Szenen")
         scene_menu.addAction("Highlight in Szenen bearbeiten …", self._edit_scene_selection)
+        audio_menu = self.menuBar().addMenu("Audio")
+        audio_menu.addAction("Audioquellen / Originalspuren …", self._inspect_audio_sources)
         branding = self.menuBar().addMenu("Branding")
         branding.addAction("Untertitel gestalten …", self._edit_caption_style)
         branding.addAction("Untertitel übersetzen …", self._edit_translations)
@@ -1448,6 +1450,12 @@ class MainWindow(QMainWindow):
         for dock in (self.project_dock, self.timeline_dock, self.inspector_dock):
             menu.addAction(dock.toggleViewAction())
         self.tabs.currentChanged.connect(lambda _index: self._update_inspector())
+
+    def _inspect_audio_sources(self):
+        if not self.source or self._history_blocked or (self.worker and self.worker.isRunning()) or (self.queue_worker and self.queue_worker.isRunning()):
+            return
+        from .audio_sources_dialog import AudioSourcesDialog
+        AudioSourcesDialog(self.source,self).exec()
 
     def _edit_translations(self):
         if not self.analysis or not self.analysis.transcript or self._history_blocked:
