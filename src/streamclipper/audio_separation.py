@@ -46,7 +46,10 @@ class InworldBackend:
         if device not in ("auto","cpu","cuda"):raise ValueError("Unbekanntes Inferenzgerät")
         if version("inworld-voice-isolation")!="1.0.0":raise ValueError("Inworld-Paketversion 1.0.0 erforderlich")
         import torch
-        from inworld import voice_isolation
+        try:
+            from inworld import voice_isolation
+        except (ImportError,OSError) as exc:
+            raise RuntimeError('Inworld benötigt kompatible Torch-/Torchaudio-Builds (CPU oder dieselbe CUDA-Version). Bestehende GPU-Umgebung nicht ungeprüft ersetzen.') from exc
         actual="cuda" if device=="auto" and torch.cuda.is_available() else "cpu" if device=="auto" else device
         if actual=="cuda" and not torch.cuda.is_available():raise ValueError("CUDA ist nicht verfügbar")
         self.model=voice_isolation.VoiceIsolator(str(path),device=actual,mode="offline")
