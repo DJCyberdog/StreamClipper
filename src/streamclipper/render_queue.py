@@ -75,7 +75,7 @@ def _rehydrate(record: dict) -> RenderRequest:
             tuple(Track(**t) for t in project["tracks"]),
             tuple(item_from_dict(item) for item in project["items"]),
             tuple(selection_from_dict(p) for p in project.get("scene_plans", [])),
-            caption_style_from_dict(project.get("caption_style")))
+            caption_style_from_dict(project.get("caption_style")),project.get("base_audio_enabled",True))
     if doc.get('scene_plan') is not None:
         doc['scene_plan'] = selection_from_dict(doc['scene_plan'])
     doc['caption_style']=caption_style_from_dict(doc.get('caption_style'))
