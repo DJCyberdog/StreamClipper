@@ -30,7 +30,7 @@ M15a erster Funktionsschnitt:
   Originalton-Schalter, Undo/Redo, Checkpoints, Queue und Szenenrender.
   Import deaktiviert den Originalmix erst nach Bestätigung; keine
   automatische Stem-Erkennung. Tests mit realem Audio und Mock-ASR
-  geschrieben, neue CI offen.
+  geschrieben. Head 64248971 Linux 45609780087 PASS, Windows 45609780028 PASS.
 
 Nächste Schritte:
 1. Neue CI auswerten und reale Zeitbasis-/Mehrspurtests korrigieren falls nötig.
@@ -44,3 +44,13 @@ Nächste Schritte:
    RTX 5060 Ti 16 GB native Abnahme und längere VODs nicht durch Mock ersetzen.
 
 Quellcode-Update analog M9; .venv und data erhalten. Keine automatischen Merges.
+
+M15c Vorarbeit: speech_timing.py erzeugt konservative, explizit zu bestätigende
+Kürzungsvorschläge aus Sprachintervallen; Wortzeiten unverändert, geschützte
+Zeilen und manuelle Wörter ausgeschlossen, stale Vorschläge abgelehnt.
+speech_activity.py: lokaler Faster-Whisper-Silero-VAD auf ausdrücklich
+als Mikrofon zugeordneter Originalspur, maximal 10 Minuten, kein RMS-Fallback.
+Noch keine GUI-Anbindung, keine persistente manuelle Cue-Provenienz, kein
+realer VAD-Modelllauf, keine Chunk-Verarbeitung oder TSE. Tests eingecheckt.
+Nächster Schritt: M15b Modellvergleich und M15c Review-UI mit persistenter
+manueller Cue-Provenienz; keine automatische Anwendung auf Alttranskripte.
