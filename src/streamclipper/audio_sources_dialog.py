@@ -49,6 +49,7 @@ class AudioSourcesDialog(QDialog):
         buttons=QHBoxLayout()
         self.extract=QPushButton("Ausgewählte Spur als WAV extrahieren …")
         self.extract.clicked.connect(self.start_extract);buttons.addWidget(self.extract)
+        self.separate=QPushButton("KI-Audiotrennung …");self.separate.clicked.connect(self.start_separation);buttons.addWidget(self.separate)
         self.use=QPushButton("Für Whisper wählen");self.use.clicked.connect(self.choose_speech);buttons.addWidget(self.use)
         self.reset=QPushButton("Whisper: Standardspur");self.reset.clicked.connect(self.reset_speech);buttons.addWidget(self.reset)
         self.add=QPushButton("Extrahierte WAV auf Timeline");self.add.clicked.connect(self.choose_extracted);buttons.addWidget(self.add)
@@ -60,6 +61,7 @@ class AudioSourcesDialog(QDialog):
     def controls(self):
         busy=self.worker is not None
         self.extract.setEnabled(not busy and self.snapshot is not None and self.table.currentRow()>=0)
+        self.separate.setEnabled(not busy and self.snapshot is not None and self.table.currentRow()>=0)
         self.use.setEnabled(not busy and self.snapshot is not None and self.table.currentRow()>=0)
         self.reset.setEnabled(not busy)
         self.add.setEnabled(not busy and self.extracted is not None)
@@ -84,7 +86,7 @@ class AudioSourcesDialog(QDialog):
                     self.table.setItem(row,col,QTableWidgetItem(str(field)))
             if value.streams:self.table.selectRow(0)
             self.status.setText(f"{len(value.streams)} Audiospur(en) gefunden. "
-                +("Einspuraufnahme: KI-Trennung ist ein separater späterer Schritt." if len(value.streams)==1 else ""))
+                +("Einspuraufnahme: KI-Trennung ist als Pilot verfügbar." if len(value.streams)==1 else ""))
         else:
             self.extracted=value
             self.status.setText("Extrahiert: "+str(value)+" · provenance.json im gleichen Ordner.")
@@ -92,6 +94,14 @@ class AudioSourcesDialog(QDialog):
     def done(self):
         worker=self.worker;self.worker=None;worker.deleteLater();self.controls()
         if self.closing:super().reject()
+
+    def start_separation(self):
+        if self.worker or self.snapshot is None:return
+        row=self.table.currentRow()
+        if not 0<=row<len(self.snapshot.streams):return
+        from .audio_separation_dialog import SeparationDialog
+        selection=SpeechSource(self.snapshot,self.snapshot.streams[row].index,self.role.currentData()).validate()
+        SeparationDialog(selection,self).exec()
 
     def choose_speech(self):
         if self.worker or self.snapshot is None:return
