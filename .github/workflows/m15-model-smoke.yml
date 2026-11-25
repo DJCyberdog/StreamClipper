@@ -1,0 +1,54 @@
+name: M15 neural CPU smoke
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'scripts/m15_model_smoke.py'
+      - '.github/workflows/m15-model-smoke.yml'
+permissions:
+  contents: read
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    strategy:
+      fail-fast: false
+      matrix:
+        backend: [voxlock, inworld]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install system test tools
+        run: |
+          sudo apt-get -o Acquire::Retries=2 update
+          sudo apt-get -o Acquire::Retries=2 install -y espeak-ng ffmpeg
+      - name: Install VoxLock and download pinned public test model
+        if: matrix.backend == 'voxlock'
+        run: |
+          python -m pip install -e '.[dev,target-speaker,models]'
+          python scripts/setup_target_speaker.py --directory "$RUNNER_TEMP/voxlock"
+      - name: Install Inworld and download public test model
+        if: matrix.backend == 'inworld'
+        run: |
+          python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install -e '.[dev,separation,models]'
+          python -c "from huggingface_hub import hf_hub_download; hf_hub_download('inworld/voice-isolator','denoiser.safetensors',local_dir='$RUNNER_TEMP/inworld')"
+      - name: Real inference on generated speech only (offline)
+        env:
+          HF_HUB_OFFLINE: '1'
+          TRANSFORMERS_OFFLINE: '1'
+          HF_HUB_DISABLE_TELEMETRY: '1'
+        run: |
+          if [ "${{ matrix.backend }}" = "voxlock" ]; then
+            model="$RUNNER_TEMP/voxlock/onnx/v2"
+          else
+            model="$RUNNER_TEMP/inworld/denoiser.safetensors"
+          fi
+          python scripts/m15_model_smoke.py "${{ matrix.backend }}" "$model" "$RUNNER_TEMP/m15-smoke"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: m15-neural-smoke-${{ matrix.backend }}
+          path: ${{ runner.temp }}/m15-smoke/smoke.json
+          if-no-files-found: error
