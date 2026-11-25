@@ -1278,3 +1278,20 @@ Die Farben des Untertitelstils stehen auch im Thumbnail-Dialog als
 Startwerte zur Verfügung. Callouts und Titel nutzen derzeit Pillow-
 Standardschrift. Neue Regressionen inkl. realer umsortierter MP4-Frames
 vorhanden; neue CI und native GUI-/Modellabnahme offen.
+
+
+### M15 – Audioquellen (erster Entwicklungsstand)
+
+**Audio → Audioquellen / Originalspuren …** listet die im Container tatsächlich
+vorhandenen Audio-Streams und ihre Metadaten. Eine Spur bewusst wählen und
+optional als Mikrofon, Spielton, Musik oder Mix zuordnen. Die Zuordnung ist
+eine Nutzerangabe, keine Erkennung. Exportiert eine lokale Float32-PCM-WAV
+in einem eindeutigen Ordner mit provenance.json. Sample-Rate/Kanäle bleiben
+erhalten, Zeitbasis ist der Containerstart; FFmpeg kann zum Zeiterhalt
+Samples auffüllen bzw. kompensieren. Das ist keine verlustlose Paketkopie.
+Lange Aufnahmen benötigen entsprechend freien Speicherplatz. WAV und
+Provenienz werden erst nach erfolgreicher Prüfung fertiggestellt; keine
+Originaldatei wird überschrieben. Bei einem gemischten Audio-Stream wird
+noch keine KI-Trennung durchgeführt. Analyse, Timeline-Integration,
+Source Separation, Target Speaker Extraction und VAD/ASR/Alignment
+folgen gemäß ROADMAP.md M15a–M15f. Neue CI noch offen.
