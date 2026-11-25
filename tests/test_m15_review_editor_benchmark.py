@@ -180,3 +180,41 @@ def test_source_selection_persistence(source,tmp_path):
     with pytest.raises(ValueError,match="verändert"):load_selection(video.path,root=root)
     save_selection(video.path,None,root=root)
     assert load_selection(video.path,root=root) is None
+
+
+def test_baked_audio_preview_export_queue_and_aac_peak(tmp_path):
+    from streamclipper.media import probe_video,measure_loudness,tool_path
+    from streamclipper.render_contract import RenderRequest,render_request
+    from streamclipper.render_queue import _snapshot,_rehydrate
+    import subprocess
+    if not shutil.which("ffmpeg") or not shutil.which("ffprobe"):pytest.skip("FFmpeg required")
+    path=tmp_path/"real_source.mkv"
+    subprocess.run([tool_path("ffmpeg"),"-v","error","-nostdin","-f","lavfi","-i",
+        "color=black:s=160x128:r=20:d=4","-f","lavfi","-i",
+        "sine=frequency=440:sample_rate=48000:duration=4","-map","0:v:0","-map","1:a:0",
+        "-c:v","libx264","-pix_fmt","yuv420p","-c:a","pcm_f32le",str(path)],check=True,timeout=90)
+    digest=sha256_file(path)
+    snap=inventory(path)
+    bundle=separate_stream(SpeechSource(snap,snap.streams[0].index,"mix"),tmp_path/"stems",backend=Estimate())
+    video=probe_video(path);project=initial_project(video)
+    baked=create_processed_mix(project,bundle/"voice_estimate.wav",tmp_path/"mix",
+                               MixOptions(-3,-8,True,True,True))
+    req=RenderRequest(video,0,video.duration,"crop",width=160,height=128,project=baked)
+    queued=_rehydrate(json.loads(json.dumps(_snapshot(req))))
+    assert queued==req
+    outputs=[render_request(r,tmp_path/(name+".mp4")) for name,r in
+             (("export",req),("preview",req.preview_excerpt(video.duration)),("queue",queued))]
+    def decode(path):
+        raw=subprocess.run([tool_path("ffmpeg"),"-v","error","-nostdin","-i",str(path),
+            "-map","0:a:0","-f","f32le","-ar","48000","-ac","1","pipe:1"],check=True,capture_output=True,timeout=90).stdout
+        return np.frombuffer(raw,dtype="<f4")
+    pcm=[decode(p) for p in outputs]
+    assert len(pcm[0])>48000 and np.max(np.abs(pcm[0]))>.001
+    np.testing.assert_allclose(pcm[0],pcm[1],atol=1e-6)
+    np.testing.assert_allclose(pcm[0],pcm[2],atol=1e-6)
+    measures=[measure_loudness(p,duration=video.duration) for p in outputs]
+    assert all(isinstance(m["true_peak_dbtp"],float) for m in measures)
+    assert measures[0]==measures[1]==measures[2]
+    assert measures[0]["true_peak_dbtp"]<=0
+    assert sha256_file(path)==digest
+    print("M15 AAC acceptance:",json.dumps(measures[0]))
