@@ -1295,3 +1295,28 @@ Originaldatei wird überschrieben. Bei einem gemischten Audio-Stream wird
 noch keine KI-Trennung durchgeführt. Analyse, Timeline-Integration,
 Source Separation, Target Speaker Extraction und VAD/ASR/Alignment
 folgen gemäß ROADMAP.md M15a–M15f. Neue CI noch offen.
+
+
+#### M15a – Sprachspur und Remix (Entwicklungsstand)
+
+Im Audioquellen-Dialog **Für Whisper wählen** aktiviert den ausdrücklich
+ausgewählten Stream für die nächste Analyse dieser geöffneten Aufnahme.
+**Whisper: Standardspur** setzt die Wahl zurück. Der Worker extrahiert eine
+temporäre zeitbasierte WAV, nutzt den vorhandenen lokalen Whisper-Adapter
+und räumt temporäre Dateien auf; Originalvideo bleibt Analysequelle für
+RMS/Gameplay. Stream-ID, manuelle Rolle und Quellgröße/mtime stehen im
+Analyse-method-Feld. Die Auswahl ist sitzungslokal und wird beim Öffnen
+einer anderen Aufnahme zurückgesetzt. Kein stiller Fallback bei geänderter
+Quelle. Keine zusätzliche VAD-/Alignment-Korrektur oder KI-Stem-Trennung.
+
+Nach WAV-Extraktion **Extrahierte WAV auf Timeline** wählen, Zielspur
+angeben und Ersetzung des Originalmixes bestätigen. Der gespeicherte
+Projekt-Schalter deaktiviert Originalton nur in aktivierter Komposition.
+Mit **Audio → Originalton in Komposition ein-/ausschalten** wieder ändern.
+Der Quellplayer spielt unverändert die Originalaufnahme. Die neue WAV
+bleibt lokale externe Referenz; nicht löschen, solange Projekte/Queue
+sie verwenden. Mehrere gewünschte Originalspuren einzeln übernehmen;
+nicht zugleich Mix und seine Bestandteile hinzufügen. Alte Projekte
+laden mit Originalton an. Tests für ASR-Routing (Mock-Modell, echtes
+Audio), fehlenden Mix, persistente Render-Requests und MP4-Vorschau
+hinzugefügt. Echte Whisper-/GPU-Abnahme offen.
