@@ -8,7 +8,7 @@ import numpy as np
 import soundfile as sf
 import soxr
 from streamclipper.audio_sources import inventory,SpeechSource
-from streamclipper.audio_separation import InworldBackend,separate_stream
+from streamclipper.audio_separation import InworldBackend,separate_stream,sha256_file
 from streamclipper.target_speaker import VoxLockBackend
 from streamclipper.speech_benchmark import signal_metrics
 
@@ -55,7 +55,28 @@ def main():
             row["baseline"]=signal_metrics(root/"target.wav",path,root/"interferer.wav")
             row["estimate"]=signal_metrics(root/"target.wav",bundle/"voice_estimate.wav",root/"interferer.wav")
         rows.append(row)
-    report={"evidence_kind":"generated_tts_neural_smoke","model":backend.metadata,"cases":rows,
+    resume=None
+    if args.kind=="voxlock":
+        from streamclipper.media import CancelledError
+        path=root/"target_present.wav";snap=inventory(path);selected=SpeechSource(snap,snap.streams[0].index,"mix")
+        resume_root=root/"resume";progress=[];digest=sha256_file(path)
+        try:
+            separate_stream(selected,resume_root,backend=backend,use_cache=True,resume_target=True,
+                            progress=progress.append,cancelled=lambda:bool(progress))
+        except CancelledError:pass
+        else:raise AssertionError("Expected interruption")
+        assert not list(resume_root.glob("separation-*"))
+        bundle=separate_stream(selected,resume_root,backend=backend,use_cache=True,resume_target=True)
+        provenance=json.loads((bundle/"provenance.json").read_text())
+        assert provenance["cache"]["reused_windows"]>=1
+        v,_=sf.read(bundle/"voice_estimate.wav",dtype="float32")
+        rem,_=sf.read(bundle/"residual.wav",dtype="float32")
+        original,_=sf.read(path,dtype="float32")
+        np.testing.assert_allclose(v+rem,original,atol=2e-6,rtol=1e-5)
+        assert sha256_file(path)==digest
+        resume={"technical_contract":"PASS","cache":provenance["cache"],"mode":provenance["backend"]["state"],
+                "estimate":signal_metrics(root/"target.wav",bundle/"voice_estimate.wav",root/"interferer.wav")}
+    report={"evidence_kind":"generated_tts_neural_smoke","model":backend.metadata,"cases":rows,"segmented_resume":resume,
             "technical_contract":"PASS","gaming_quality_acceptance":"NOT_EVALUATED"}
     (root/"smoke.json").write_text(json.dumps(report,indent=2,ensure_ascii=False,allow_nan=False),encoding="utf-8")
     print(json.dumps(report,indent=2,ensure_ascii=False,allow_nan=False))

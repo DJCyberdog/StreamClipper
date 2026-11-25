@@ -1,3 +1,20 @@
+# NEXT_TASK — M15 acceptance follow-up
+
+Owner asked to execute docs/M15F_ACCEPTANCE.md. Prior c8f688cb all hosted CI
+PASS. Added input sample-rate conversion, bounded explicit-source ASR and
+raw cache, real Whisper/VAD and AAC parity, opt-in segmented TSE resume,
+pause split review, license source review, native acceptance runner.
+See appended evidence in docs/M15F_ACCEPTANCE.md. Verify exact head CI;
+do not treat optional new features as quality-approved.
+
+Remaining blockers are independent authorized annotated gaming recordings,
+native RTX 5060 Ti/Windows six-hour execution and listening review, exact
+distribution/license chain, ASR model selection/optional alignment. Never
+relabel synthetic TTS as real gaming quality. No merge or M16 start before
+actual acceptance.
+
+## Historical development notes
+
 # NEXT_TASK – M15 implementation / acceptance
 
 Owner asked to complete M15a–f. Technical paths across all six implemented;
