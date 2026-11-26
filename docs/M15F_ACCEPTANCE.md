@@ -255,3 +255,11 @@ Do not tune against holdout. Real independent recordings and native local
 RTX/6h listening evidence are still unavailable; distribution review stays
 open, no weights bundled, optional alignment/model selection deferred until
 actual evidence. No merge or M16 start.
+
+For ASR-only model comparisons, repeat the same locked corpus with the same
+separation backend and different local Whisper models, on the same ASR
+runtime/device. Use `compare ... --factor asr`; it additionally requires
+byte-identical estimated WAVs, and records both ASR model fingerprints.
+If repeated inference is nondeterministic, it refuses the comparison; reuse
+exact estimates in a future dedicated ASR runner rather than attributing
+separation changes to ASR. Model selection still requires real evidence.

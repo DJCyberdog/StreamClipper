@@ -70,3 +70,19 @@ def test_evaluated_report_pairing_and_weighted_wer(corpus,tmp_path):
     with pytest.raises(ValueError,match="case metadata"):compare_reports(pa,pb)
     b=deepcopy(a);b["asr_model_sha256"]="different";save(pb,b)
     with pytest.raises(ValueError,match="asr_model_sha256"):compare_reports(pa,pb)
+
+def test_asr_factor_requires_identical_estimates(corpus,tmp_path):
+    lock=freeze_corpus(corpus)
+    row={"id":"1","split":"holdout","language":"de","conditions":[],
+         "frozen_case_sha256":digest(lock["cases"][1]),
+         "inputs_sha256":{"reference":"ref","mix":"mix","estimate":"same-estimate"},
+         "variant":{"interference_projection_ratio":None}}
+    a={"corpus_sha256":lock["corpus_sha256"],"commit":"b"*40,
+       "asr_model_sha256":"a"*64,"model":"inworld","cases":[row]}
+    b=deepcopy(a);b["asr_model_sha256"]="c"*64
+    pa=save(tmp_path/"a.json",a);pb=save(tmp_path/"b.json",b)
+    result=compare_reports(pa,pb,factor="asr")
+    assert result["factor"]=="asr"
+    assert result["asr_model_sha256"]==["a"*64,"c"*64]
+    b["cases"][0]["inputs_sha256"]["estimate"]="different";save(pb,b)
+    with pytest.raises(ValueError,match="byte-identical"):compare_reports(pa,pb,factor="asr")

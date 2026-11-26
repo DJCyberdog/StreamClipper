@@ -91,10 +91,14 @@ def verify_corpus(manifest,lock):
     if current!=read(lock):raise ValueError("Frozen corpus changed")
     return current
 
-def compare_reports(left,right):
+def compare_reports(left,right,*,factor="separation"):
+    if factor not in ("separation","asr"):raise ValueError("Unknown comparison factor")
     a,b=read(left),read(right)
-    for key in ("corpus_sha256","commit","asr_model_sha256"):
+    keys=("corpus_sha256","commit","asr_model_sha256") if factor=="separation" else ("corpus_sha256","commit","model")
+    for key in keys:
         if not a.get(key) or a[key]!=b.get(key):raise ValueError("Incompatible reports: "+key)
+    if factor=="asr" and (not a.get("asr_model_sha256") or not b.get("asr_model_sha256")):
+        raise ValueError("Missing ASR model hash")
     def index(report):
         rows=report["cases"];out={x["id"]:x for x in rows}
         if len(out)!=len(rows):raise ValueError("Duplicate result case")
@@ -109,6 +113,8 @@ def compare_reports(left,right):
         if not x.get("frozen_case_sha256"):raise ValueError("Missing case hash")
         for key in ("reference","mix","interferer"):
             if x["inputs_sha256"].get(key)!=y["inputs_sha256"].get(key):raise ValueError("Different reference audio")
+        if factor=="asr" and (not x["inputs_sha256"].get("estimate") or x["inputs_sha256"]["estimate"]!=y["inputs_sha256"].get("estimate")):
+            raise ValueError("ASR comparison requires byte-identical estimated audio")
         if x["split"]=="holdout":pairs.append((x,y))
     if not pairs:raise ValueError("No holdout")
     def summary(rows):
@@ -134,7 +140,8 @@ def compare_reports(left,right):
             out[name]=q
         return out
     return {"schema_version":1,"corpus_sha256":a["corpus_sha256"],"commit":a["commit"],
-        "left_model":a.get("model"),"right_model":b.get("model"),
+        "factor":factor,"left_model":a.get("model"),"right_model":b.get("model"),
+        "asr_model_sha256":[a.get("asr_model_sha256"),b.get("asr_model_sha256")],
         "reports_sha256":[sha256_file(left),sha256_file(right)],"holdout":summary(pairs),
         "by_language":{lang:summary([p for p in pairs if p[0]["language"]==lang])
                        for lang in sorted({p[0]["language"] for p in pairs})},
@@ -146,8 +153,8 @@ def main():
     import argparse
     p=argparse.ArgumentParser(description=__doc__);sub=p.add_subparsers(dest="action",required=True)
     f=sub.add_parser("freeze");f.add_argument("manifest");f.add_argument("output")
-    c=sub.add_parser("compare");c.add_argument("left");c.add_argument("right");c.add_argument("output")
+    c=sub.add_parser("compare");c.add_argument("left");c.add_argument("right");c.add_argument("output");c.add_argument("--factor",choices=("separation","asr"),default="separation")
     a=p.parse_args()
-    result=freeze_corpus(a.manifest) if a.action=="freeze" else compare_reports(a.left,a.right)
+    result=freeze_corpus(a.manifest) if a.action=="freeze" else compare_reports(a.left,a.right,factor=a.factor)
     with Path(a.output).open("x",encoding="utf-8") as out:json.dump(result,out,indent=2,ensure_ascii=False,allow_nan=False)
 if __name__=="__main__":main()
