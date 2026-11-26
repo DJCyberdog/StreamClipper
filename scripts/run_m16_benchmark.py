@@ -19,6 +19,8 @@ def main():
     p.add_argument("--visual-budget",type=int,default=180);p.add_argument("--object-budget",type=int,default=90)
     p.add_argument("--profile",choices=["generic","open-world"],default="generic")
     p.add_argument("--clip-seconds",type=int,default=25)
+    p.add_argument("--tune-development",action="store_true")
+    p.add_argument("--fast-vision",action="store_true")
     args=p.parse_args()
     manifest=Path(args.manifest).resolve(strict=True)
     lock=json.loads(Path(args.lock).read_text(encoding="utf-8"))
@@ -30,18 +32,31 @@ def main():
     shared={"schema_version":1,"corpus_sha256":lock["corpus_sha256"],"source_commit":args.commit,
             "model_sha256":digest(models),"settings_sha256":digest({"clip_seconds":args.clip_seconds,
                     "visual_budget":args.visual_budget,"object_budget":args.object_budget,"profile":args.profile}),
-            "profile":args.profile,"model_fingerprints":models}
+            "profile":args.profile,"model_fingerprints":models,
+            "fast_vision_variant":args.fast_vision,"tune_development":args.tune_development}
     out=Path(args.output);out.mkdir(parents=True,exist_ok=False)
     reports={name:{**shared,"engine":name,"predictions":{},"resources":{}} for name in ("baseline","m16")}
-    for vod in lock["vods"]:
+    dev_evidence={};tuned=None
+    ordered=sorted(lock["vods"],key=lambda v:(v["split"]!="development",v["id"]))
+    for vod in ordered:
+        if args.tune_development and vod["split"]=="holdout" and tuned is None:
+            from streamclipper.m16_tuning import tune_weights
+            tuning=tune_weights(lock,dev_evidence,args.profile,args.clip_seconds)
+            atomic_json(out/"development_tuning.json",tuning)
+            tuned=tuning["selection"]["weights"]
+            reports["m16"]["ranking_weights"]=tuned
         key=vod["id"];path=sources[key]
         if abs(probe_video(path).duration-vod["duration"])>.1:raise ValueError("Duration differs from corpus")
         if file_hash(path)!=vod["sha256"]:raise ValueError("Source differs from corpus")
         for name,engine in (("baseline",analyze),("m16",analyze_m16)):
             print(key,name,flush=True);started=time.monotonic()
             with ResourceSampler() as resources:
-                result=engine(str(path),args.clip_seconds,8,**options,
-                    **({"profile":args.profile} if name=="m16" else {}))
+                extra={}
+                if name=="m16":
+                    extra={"profile":args.profile,"fast_vision":args.fast_vision,"ranking_weights":tuned}
+                    if args.tune_development and vod["split"]=="development":
+                        extra["evidence_sink"]=lambda rows:dev_evidence.__setitem__(key,rows)
+                result=engine(str(path),args.clip_seconds,8,**options,**extra)
             elapsed=time.monotonic()-started
             reports[name]["predictions"][key]=[asdict(c) for c in result.candidates]
             reports[name]["resources"][key]={"elapsed_seconds":elapsed,
