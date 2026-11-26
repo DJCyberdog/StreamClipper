@@ -151,11 +151,44 @@ def _load_detector_model(model_class, folder: Path):
         raise
 
 
+def relative_motion_evidence(detections, *, max_evidence=120):
+    """Sparse camera-relative track motion. Not a calibrated physical velocity."""
+    import statistics
+    tracks=group_tracklets(detections)
+    pairs={}
+    for idx,track in enumerate(tracks):
+        for a,b in zip(track,track[1:]):
+            dt=b.at-a.at
+            if not 0<dt<=1.35:continue
+            x,y=_center(a.box);xx,yy=_center(b.box)
+            pairs.setdefault((a.at,b.at),[]).append((idx,(xx-x)/dt,(yy-y)/dt))
+    residuals={}
+    for (a,b),rows in sorted(pairs.items()):
+        # A shared translation from >=3 simultaneous tracks is only an
+        # approximate camera motion estimate; zoom/rotation remain unresolved.
+        if len(rows)<3:continue
+        for idx,x,y in rows:
+            others=[r for r in rows if r[0]!=idx]
+            dx=statistics.median(r[1] for r in others)
+            dy=statistics.median(r[2] for r in others)
+            residuals.setdefault(idx,[]).append((a,b,x-dx,y-dy))
+    hints=[]
+    for idx,rows in residuals.items():
+        for left,right in zip(rows,rows[1:]):
+            if abs(left[1]-right[0])>.01:continue
+            delta=math.hypot(right[2]-left[2],right[3]-left[3])
+            if delta<.045:continue
+            hints.append(EventEvidence(round(right[0],3),"object",min(.68,.40+delta),
+                "Relative Tracklet-Bewegung ändert sich; gemeinsame Bildverschiebung näherungsweise entfernt; kein bestätigtes Ereignis"))
+    return sorted(hints,key=lambda e:(-e.strength,e.at))[:max_evidence]
+
+
 def detect_and_track(video: VideoInfo, model_directory: str | Path, *,
                      anchors: Sequence[EventEvidence], max_frames: int = 90,
                      cancelled: Cancelled | None = None,
                      progress: Progress | None = None,
-                     timestamps: list[float] | None = None, device_override: str | None = None) -> list[EventEvidence]:
+                     timestamps: list[float] | None = None, device_override: str | None = None,
+                     relative_motion: bool = False) -> list[EventEvidence]:
     """Sample <=90 images (default) around interesting timestamps, track locally.
 
     Uses existing optional torch/transformers/Pillow installation. No remote
@@ -203,4 +236,5 @@ def detect_and_track(video: VideoInfo, model_directory: str | Path, *,
             progress(min(99, round(100*(index+1)/max(len(stamps),1))))
     if progress:
         progress(100)
-    return object_track_evidence(detections, anchors)
+    standard=object_track_evidence(detections, anchors)
+    return standard+relative_motion_evidence(detections) if relative_motion else standard
