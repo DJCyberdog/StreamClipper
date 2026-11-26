@@ -96,10 +96,9 @@ def build_part(video,beat,aspect,encoder,work,destination):
     if beat.lut:filters+=",lut3d=file=look.cube"
     if beat.freeze:
         filters+=f",tpad=stop_mode=clone:stop_duration={beat.freeze:.6f}"
-        if beat.zoom>1:
-            # Static zoom on the held image only, preserving moving frames.
-            cw=max(2,int(w/beat.zoom)//2*2);ch=max(2,int(h/beat.zoom)//2*2)
-            filters+=f",crop=w={cw}:h={ch},scale={w}:{h}"
+    if beat.freeze and beat.zoom>1:
+        cw=max(2,int(w/beat.zoom)//2*2);ch=max(2,int(h/beat.zoom)//2*2)
+        filters+=f",split=2[normal][zoomsrc];[zoomsrc]crop={cw}:{ch},scale={w}:{h}[zoom];[normal][zoom]overlay=0:0:enable='gte(t,{active:.6f})'"
     filters+=",format=yuv420p[v0]"
     if overlay_idx is not None:
         filters+=f";[v0][{overlay_idx}:v:0]overlay=0:0:enable='gte(t,{active:.6f})'[v]"
