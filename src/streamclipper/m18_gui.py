@@ -4,6 +4,7 @@ from pathlib import Path
 import time
 from PySide6.QtCore import QObject,QTimer
 from PySide6.QtWidgets import (QFileDialog,QInputDialog,QMessageBox,QLineEdit,QLabel,QApplication)
+from .m18_language import tr
 from .portable import installation_directory
 from .local_integrations import root,record_marker,markers,take_commands,WatchFolder,obs_seconds
 from .channel_ingestion import Channel,parse_channel,load,save,poll
@@ -42,14 +43,14 @@ class Integrations(QObject):
                    (w.proxy_worker and w.proxy_worker.isRunning()) or
                    (w.queue_worker and w.queue_worker.isRunning()))
     def error(self,title,exc):
-        QMessageBox.warning(self.w,title,str(exc))
+        QMessageBox.warning(self.w,tr(title),tr(str(exc)))
     def run(self,operation,completed):
         if not self.idle():return
         from .gui import M16ReviewThread
         w=self.w;worker=M16ReviewThread(operation,w);w.worker=worker
         worker.done.connect(completed);worker.failed.connect(w.job_failed)
         worker.finished.connect(lambda:w._busy(False))
-        w._busy(True);w.statusBar().showMessage("M18-Integration läuft …");worker.start()
+        w._busy(True);w.statusBar().showMessage(tr("M18-Integration läuft …"));worker.start()
     def set_deck(self,value):
         if value:
             # Drop old commands instead of replaying them when enabled.
@@ -57,38 +58,38 @@ class Integrations(QObject):
         self.deck=value
     def configure_obs(self):
         choices=["OBS-Aufnahme","OBS-Stream","Editor-Modus (OBS trennen)"]
-        choice,ok=QInputDialog.getItem(self.w,"OBS","Zeitbasis:",choices,0,False)
+        choice,ok=QInputDialog.getItem(self.w,tr("OBS"),tr("Zeitbasis:"),choices,0,False)
         if not ok:return
         if choice==choices[2]:
             self.obs_password=None;self.obs_session=None;return
-        session,ok=QInputDialog.getText(self.w,"OBS","Eindeutiger Sitzungsname (später der Aufnahme zuordnen):")
+        session,ok=QInputDialog.getText(self.w,tr("OBS"),tr("Eindeutiger Sitzungsname (später der Aufnahme zuordnen):"))
         if not ok or not session.strip():return
-        port,ok=QInputDialog.getInt(self.w,"OBS","Lokaler WebSocket-Port",4455,1024,65535)
+        port,ok=QInputDialog.getInt(self.w,tr("OBS"),tr("Lokaler WebSocket-Port"),4455,1024,65535)
         if not ok:return
-        secret,ok=QInputDialog.getText(self.w,"OBS","WebSocket-Passwort (nur Sitzung)",QLineEdit.EchoMode.Password)
+        secret,ok=QInputDialog.getText(self.w,tr("OBS"),tr("WebSocket-Passwort (nur Sitzung)"),QLineEdit.EchoMode.Password)
         if not ok:return
         self.obs_password=secret;self.obs_session=session.strip();self.obs_port=port
         self.obs_kind="obs-record" if choice==choices[0] else "obs-stream"
-        self.w.statusBar().showMessage("OBS-Zeitbasis gewählt – Verbindung beim nächsten Marker")
+        self.w.statusBar().showMessage(tr("OBS-Zeitbasis gewählt – Verbindung beim nächsten Marker"))
     def mark(self):
         if self.obs_session is not None:
             session=self.obs_session;kind=self.obs_kind;password=self.obs_password;port=self.obs_port
             # Network request off GUI; reject if an unrelated job is active.
             self.run(lambda cancel:record_marker(session,obs_seconds(password,kind,port),kind),
-                     lambda _:self.w.statusBar().showMessage("OBS-Zeitmarke gespeichert"))
+                     lambda _:self.w.statusBar().showMessage(tr("OBS-Zeitmarke gespeichert")))
         elif self.w.source and self.idle():
             try:record_marker(str(Path(self.w.source).resolve()),self.w._source_position_seconds())
             except (ValueError,OSError) as exc:self.error("Zeitmarke",exc);return
-            self.w.statusBar().showMessage("Editor-Zeitmarke gespeichert")
+            self.w.statusBar().showMessage(tr("Editor-Zeitmarke gespeichert"))
     def import_markers(self):
         if not self.idle() or not self.w._video_info:return
-        kind,ok=QInputDialog.getItem(self.w,"Marker","Zeitbasis auswählen:",["source","obs-record","obs-stream"],0,False)
+        kind,ok=QInputDialog.getItem(self.w,tr("Marker"),tr("Zeitbasis auswählen:"),["source","obs-record","obs-stream"],0,False)
         if not ok:return
         if kind=="source":session=str(Path(self.w.source).resolve())
         else:
-            session,ok=QInputDialog.getText(self.w,"Marker","OBS-Sitzungsname:",text=self.obs_session or "")
+            session,ok=QInputDialog.getText(self.w,tr("Marker"),tr("OBS-Sitzungsname:"),text=self.obs_session or "")
             if not ok:return
-        offset,ok=QInputDialog.getDouble(self.w,"Marker","Zeitversatz zur geöffneten Originalaufnahme (s):",0,-86400,86400,3)
+        offset,ok=QInputDialog.getDouble(self.w,tr("Marker"),tr("Zeitversatz zur geöffneten Originalaufnahme (s):"),0,-86400,86400,3)
         if not ok:return
         points=[t+offset for t in markers(session,kind) if 0<=t+offset<self.w._video_info.duration]
         if not points:self.error("Marker","Keine passenden Marker");return
@@ -98,9 +99,9 @@ class Integrations(QObject):
             if z-a>=.2:
                 self.w.manual_label.setText("OBS / Stream Deck Marker");self.w.add_manual_interval(a,z)
     def configure_watch(self):
-        if self.watch and QMessageBox.question(self.w,"Watch Folder","Aktuellen Ordner pausieren?") == QMessageBox.StandardButton.Yes:
+        if self.watch and QMessageBox.question(self.w,tr("Watch Folder"),tr("Aktuellen Ordner pausieren?")) == QMessageBox.StandardButton.Yes:
             self.watch=None;return
-        path=QFileDialog.getExistingDirectory(self.w,"Aufnahmen überwachen (nur diese Sitzung)")
+        path=QFileDialog.getExistingDirectory(self.w,tr("Aufnahmen überwachen (nur diese Sitzung)"))
         if path:
             try:self.watch=WatchFolder(path);self.ready=[];self.next_watch=0.
             except (OSError,ValueError) as exc:self.error("Watch Folder",exc)
@@ -109,7 +110,7 @@ class Integrations(QObject):
         self.ready=[p for p in self.ready if p.is_file()]
         if not self.ready:self.error("Watch Folder","Keine neuen stabilen Aufnahmen");return
         labels=[str(p) for p in self.ready]
-        choice,ok=QInputDialog.getItem(self.w,"Watch Folder","Aufnahme auswählen:",labels,0,False)
+        choice,ok=QInputDialog.getItem(self.w,tr("Watch Folder"),tr("Aufnahme auswählen:"),labels,0,False)
         if ok and self.w.confirm_discard_edits():
             if self.w.load_video_source(choice):self.ready.remove(Path(choice))
     def manage_channels(self):
@@ -117,27 +118,27 @@ class Integrations(QObject):
         try:self.channels=load(self.channels_path)
         except (OSError,ValueError,TypeError,KeyError) as exc:self.error("Kanalaufnahme",exc);return
         labels=["Neuen autorisierten Kanal hinzufügen"]+[f"{i+1}. {c.url} · {'pausiert' if c.paused else 'aktiv'}" for i,c in enumerate(self.channels)]
-        choice,ok=QInputDialog.getItem(self.w,"Kanalaufnahme","Konfiguration (kein Abruf ohne Sitzungsfreigabe):",labels,0,False)
+        choice,ok=QInputDialog.getItem(self.w,tr("Kanalaufnahme"),tr("Konfiguration (kein Abruf ohne Sitzungsfreigabe):"),labels,0,False)
         if not ok:return
         if choice==labels[0]:
-            raw,ok=QInputDialog.getText(self.w,"Kanal","Eigener / ausdrücklich autorisierter Kanal:")
+            raw,ok=QInputDialog.getText(self.w,tr("Kanal"),tr("Eigener / ausdrücklich autorisierter Kanal:"))
             if not ok:return
             try:s=parse_channel(raw)
             except (ValueError,TypeError) as exc:self.error("Kanal",exc);return
             if any(c.url==s.url for c in self.channels):self.error("Kanal","Bereits registriert");return
-            if QMessageBox.question(self.w,"Nutzungsrechte","Automatische Downloads dieses Kanals sind ausdrücklich autorisiert? Plattformbedingungen gelten.")!=QMessageBox.StandardButton.Yes:return
-            target=QFileDialog.getExistingDirectory(self.w,"Kanal-Zielordner")
+            if QMessageBox.question(self.w,tr("Nutzungsrechte"),tr("Automatische Downloads dieses Kanals sind ausdrücklich autorisiert? Plattformbedingungen gelten."))!=QMessageBox.StandardButton.Yes:return
+            target=QFileDialog.getExistingDirectory(self.w,tr("Kanal-Zielordner"))
             if not target:return
-            interval,ok=QInputDialog.getInt(self.w,"Abrufintervall","Minuten",60,15,1440)
+            interval,ok=QInputDialog.getInt(self.w,tr("Abrufintervall"),tr("Minuten"),60,15,1440)
             if not ok:return
-            count,ok=QInputDialog.getInt(self.w,"Mengenlimit","Maximal neue Videos je Prüfung",1,1,5)
+            count,ok=QInputDialog.getInt(self.w,tr("Mengenlimit"),tr("Maximal neue Videos je Prüfung"),1,1,5)
             if not ok:return
-            size,ok=QInputDialog.getInt(self.w,"Speicherlimit","Maximal GiB pro Video",4,1,32)
+            size,ok=QInputDialog.getInt(self.w,tr("Speicherlimit"),tr("Maximal GiB pro Video"),4,1,32)
             if not ok:return
             self.channels.append(Channel(s.url,s.provider,target,interval,count,size*1024**3,paused=False))
         else:
             i=labels.index(choice)-1;c=self.channels[i]
-            action,ok=QInputDialog.getItem(self.w,"Kanal","Aktion:",["Aktivieren/Pausieren","Registrierung löschen (keine Medien löschen)"],0,False)
+            action,ok=QInputDialog.getItem(self.w,tr("Kanal"),tr("Aktion:"),["Aktivieren/Pausieren","Registrierung löschen (keine Medien löschen)"],0,False)
             if not ok:return
             if action.startswith("Registrierung"):self.channels.pop(i)
             else:self.channels[i]=replace(c,paused=not c.paused)
@@ -146,12 +147,12 @@ class Integrations(QObject):
     def toggle_channels(self):
         if self.channels_enabled:
             self.channels_enabled=False
-            self.w.statusBar().showMessage("Kanalaufnahme pausiert – laufenden Import bei Bedarf abbrechen");return
+            self.w.statusBar().showMessage(tr("Kanalaufnahme pausiert – laufenden Import bei Bedarf abbrechen"));return
         if not self.idle():return
         try:self.channels=load(self.channels_path)
         except (ValueError,OSError,TypeError,KeyError) as exc:self.error("Kanal",exc);return
         if not any(not c.paused for c in self.channels):self.error("Kanal","Kein aktiver Kanal");return
-        if QMessageBox.question(self.w,"Kanalaufnahme","Autorisierte Kanäle während dieser App-Sitzung prüfen und neue Videos automatisch innerhalb der Limits importieren? Erster Abruf speichert nur den Ausgangsbestand.")!=QMessageBox.StandardButton.Yes:return
+        if QMessageBox.question(self.w,tr("Kanalaufnahme"),tr("Autorisierte Kanäle während dieser App-Sitzung prüfen und neue Videos automatisch innerhalb der Limits importieren? Erster Abruf speichert nur den Ausgangsbestand."))!=QMessageBox.StandardButton.Yes:return
         self.channels_enabled=True;self.next_channel=0
     def tick(self):
         if QApplication.activeModalWidget() is not None:return
@@ -164,7 +165,7 @@ class Integrations(QObject):
                     self.ready=list(dict.fromkeys(self.ready+found))[-1000:]
                     self.w.statusBar().showMessage(f"Watch Folder: {len(self.ready)} stabile Aufnahme(n) verfügbar")
             except OSError:
-                self.watch=None;self.w.statusBar().showMessage("Watch Folder nicht erreichbar – pausiert")
+                self.watch=None;self.w.statusBar().showMessage(tr("Watch Folder nicht erreichbar – pausiert"))
         if self.deck:
             for cmd in take_commands():
                 if not self.idle():continue
@@ -186,12 +187,12 @@ class Integrations(QObject):
                 def completed(success):
                     try:self.channels=load(self.channels_path)
                     except Exception:self.channels_enabled=False
-                    self.w.statusBar().showMessage("Kanalprüfung abgeschlossen" if success else "Kanalprüfung fehlgeschlagen – nächster regulärer Abruf")
+                    self.w.statusBar().showMessage(tr("Kanalprüfung abgeschlossen" if success else "Kanalprüfung fehlgeschlagen – nächster regulärer Abruf"))
                 self.run(operation,completed)
     def nle(self):
         w=self.w
         if not self.idle() or not w.analysis:return
-        path,_=QFileDialog.getSaveFileName(w,"Schnittliste (nur Schnitte, keine Effekte)","Highlights.fcpxml","FCPXML (*.fcpxml);;CMX3600 (*.edl)")
+        path,_=QFileDialog.getSaveFileName(w,tr("Schnittliste (nur Schnitte, keine Effekte)"),"Highlights.fcpxml","FCPXML (*.fcpxml);;CMX3600 (*.edl)")
         if not path:return
         from .nle_export import export_nle
         intervals=[]
@@ -219,13 +220,13 @@ class Integrations(QObject):
             subtitle_offset=w.caption_offset.value(),caption_style=w._current_caption_style(),
             project=w.editor_project if w.include_track_audio.isChecked() else None,
             scene_plan=scene,encoder=str(w.encoder_mode.currentData()))
-        path,_=QFileDialog.getSaveFileName(w,"Alternative Ausgabe","Highlight.webm","WebM (*.webm);;GIF ohne Ton (*.gif)")
+        path,_=QFileDialog.getSaveFileName(w,tr("Alternative Ausgabe"),"Highlight.webm","WebM (*.webm);;GIF ohne Ton (*.gif)")
         if path:self.run(lambda cancel:export_alternative(req,path,cancelled=cancel),
                          lambda p:QMessageBox.information(w,"Export",str(p)))
     def subtitles(self):
         w=self.w
         if not self.idle() or not w._video_info or not w.apply_word_editor() or not w.apply_transcript_editor():return
-        path,_=QFileDialog.getOpenFileName(w,"Vorhandene Untertitel","","Untertitel (*.srt *.vtt)")
+        path,_=QFileDialog.getOpenFileName(w,tr("Vorhandene Untertitel"),"","Untertitel (*.srt *.vtt)")
         if not path:return
         from .subtitle_import import load_subtitles
         from .models import AnalysisResult
@@ -239,10 +240,10 @@ class Integrations(QObject):
         if not self.idle():return
         from .publish_prepare import authorize_youtube
         from . import publish_credentials as vault
-        action,ok=QInputDialog.getItem(self.w,"YouTube OAuth (M18)","Nur Kontovorbereitung, kein Upload:",
+        action,ok=QInputDialog.getItem(self.w,tr("YouTube OAuth (M18)"),tr("Nur Kontovorbereitung, kein Upload:"),
             ["Registrierte Desktop-App verbinden","Gespeicherten Token laden","Lokalen Token entfernen"],0,False)
         if not ok:return
-        client,ok=QInputDialog.getText(self.w,"Google Desktop Client","Registrierte OAuth-Client-ID:")
+        client,ok=QInputDialog.getText(self.w,tr("Google Desktop Client"),tr("Registrierte OAuth-Client-ID:"))
         if not ok:return
         try:vault.target(client)
         except ValueError as exc:self.error("YouTube",exc);return
@@ -256,12 +257,12 @@ class Integrations(QObject):
             if not vault.supported():self.error("YouTube","Windows-Tokenspeicher nicht verfügbar");return
             try:self.youtube_token=vault.read(client)
             except (OSError,RuntimeError) as exc:self.error("YouTube",exc);return
-            self.w.statusBar().showMessage("Token lokal geladen; API-Zugriff noch nicht validiert" if self.youtube_token else "Kein Token gespeichert")
+            self.w.statusBar().showMessage(tr("Token lokal geladen; API-Zugriff noch nicht validiert" if self.youtube_token else "Kein Token gespeichert"))
             return
-        secret,ok=QInputDialog.getText(self.w,"Google Desktop Client","Client-Secret (nur Sitzung):",QLineEdit.EchoMode.Password)
+        secret,ok=QInputDialog.getText(self.w,tr("Google Desktop Client"),tr("Client-Secret (nur Sitzung):"),QLineEdit.EchoMode.Password)
         if not ok:return
-        if QMessageBox.question(self.w,"YouTube OAuth","Offiziellen Google-Systembrowser-Login mit Upload-Scope öffnen? Es werden keine Medien übertragen.")!=QMessageBox.StandardButton.Yes:return
-        remember=vault.supported() and QMessageBox.question(self.w,"Tokenspeicher","Token in Windows Credential Manager speichern? Nein = nur Sitzung.")==QMessageBox.StandardButton.Yes
+        if QMessageBox.question(self.w,tr("YouTube OAuth"),tr("Offiziellen Google-Systembrowser-Login mit Upload-Scope öffnen? Es werden keine Medien übertragen."))!=QMessageBox.StandardButton.Yes:return
+        remember=vault.supported() and QMessageBox.question(self.w,tr("Tokenspeicher"),tr("Token in Windows Credential Manager speichern? Nein = nur Sitzung."))==QMessageBox.StandardButton.Yes
         def operation(cancel):
             return authorize_youtube(client,secret,authorized=True,cancelled=cancel)
         def complete(token):
@@ -269,11 +270,11 @@ class Integrations(QObject):
             if remember:
                 try:vault.save(client,token)
                 except (ValueError,OSError,RuntimeError) as exc:self.error("Tokenspeicher",exc)
-            self.w.statusBar().showMessage("OAuth-Autorisierung erhalten – kein Upload, keine API-Abnahme")
+            self.w.statusBar().showMessage(tr("OAuth-Autorisierung erhalten – kein Upload, keine API-Abnahme"))
         self.run(operation,complete)
     def language(self):
         from .m18_language import apply_language,english_enabled
-        choice,ok=QInputDialog.getItem(self.w,"Language / Sprache","Interface / Oberfläche:",["Deutsch","English (partial)"],int(english_enabled()),False)
+        choice,ok=QInputDialog.getItem(self.w,tr("Language / Sprache"),tr("Interface / Oberfläche:"),["Deutsch","English (partial)"],int(english_enabled()),False)
         if ok:
             try:apply_language(self.w,choice.startswith("English"))
             except OSError as exc:self.error("Language",exc)
