@@ -31,6 +31,23 @@ def fingerprint_model(path,cancelled):
     if not files or len(files)>512:raise ValueError("Invalid model inventory")
     return {str(f.relative_to(root)):sha256_file(f,cancelled=cancelled) for f in files}
 
+def visual_retry(fn):
+    """Retry only explicit CUDA runtime/memory failures; propagate other errors."""
+    try:return fn(None)
+    except (RuntimeError,OSError) as exc:
+        msg=str(exc).lower()
+        if not ("cuda" in msg and any(k in msg for k in ("out of memory","driver","not available","not compiled","initialization","no kernel image"))):
+            raise
+        import warnings
+        warnings.warn("M16 visual CUDA failed; retrying on CPU",RuntimeWarning)
+    import gc
+    gc.collect()
+    try:
+        import torch
+        torch.cuda.empty_cache()
+    except (RuntimeError,ImportError):pass
+    return fn("cpu")
+
 def analyze_m16(path,clip_seconds=25,max_clips=8,*,progress=None,cancelled=None,
                 speech_model=None,vision_model=None,max_visual_frames=180,
                 detector_model=None,max_object_frames=90,speech_source=None,
@@ -39,6 +56,7 @@ def analyze_m16(path,clip_seconds=25,max_clips=8,*,progress=None,cancelled=None,
     from .audio_sources import inventory,SpeechSource,extract_audio_stream,transcribe_selected_stream
     from .reconstructed_speech import ReconstructedSpeech,transcribe_reconstructed
     from functools import partial
+    if clip_seconds<5 or not 1<=max_clips<=1000:raise ValueError('Invalid clip configuration')
     if profile not in PROFILES or not 5<=max_visual_frames<=2000 or not 3<=max_object_frames<=300:
         raise ValueError("Invalid M16 settings")
     if speech_source is not None and not speech_model:raise ValueError("Speech source requires Whisper")
@@ -118,12 +136,13 @@ def analyze_m16(path,clip_seconds=25,max_clips=8,*,progress=None,cancelled=None,
         evidence.extend(EventEvidence(**e) for e in run("reaction",reaction))
     if vision_model:
         stamps=adaptive_samples(evidence,video.duration,max_visual_frames)
-        evidence.extend(EventEvidence(**e) for e in run("visual",lambda p:event_rows(recognize_gameplay(
-            video,vision_model,max_frames=max_visual_frames,timestamps=stamps,profile=profile,progress=p,cancelled=cancelled)),stamps))
+        evidence.extend(EventEvidence(**e) for e in run("visual",lambda p:event_rows(visual_retry(lambda device:recognize_gameplay(
+            video,vision_model,max_frames=max_visual_frames,timestamps=stamps,profile=profile,progress=p,cancelled=cancelled,device_override=device))),stamps))
     if detector_model:
         anchors=checked_events(evidence,video.duration)
-        evidence.extend(EventEvidence(**e) for e in run("object",lambda p:event_rows(detect_and_track(
-            video,detector_model,anchors=anchors,max_frames=max_object_frames,progress=p,cancelled=cancelled)),event_rows(anchors)))
+        stamps=adaptive_samples(anchors,video.duration,max(5,max_object_frames))[:max_object_frames]
+        evidence.extend(EventEvidence(**e) for e in run("object",lambda p:event_rows(visual_retry(lambda device:detect_and_track(
+            video,detector_model,anchors=anchors,max_frames=max_object_frames,timestamps=stamps,progress=p,cancelled=cancelled,device_override=device))),[event_rows(anchors),stamps]))
     if chat_messages is not None:
         from .gaming_intelligence import chat_hints
         evidence.extend(chat_hints(chat_messages,video.duration))
