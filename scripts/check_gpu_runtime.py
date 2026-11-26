@@ -22,7 +22,7 @@ def main() -> int:
     enable_local_cuda_runtime()
     absent = missing_runtime_dlls()
     if absent:
-        print("Fehlende CUDA-Laufzeit-DLLs in der lokalen .venv:", ", ".join(absent))
+        print("Fehlende CUDA-Laufzeit-DLLs in der lokalen Runtime:", ", ".join(absent))
         for folder in runtime_directories():
             print("Pruefen:", folder)
         return 2
