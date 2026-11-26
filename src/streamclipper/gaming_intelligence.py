@@ -61,7 +61,7 @@ def adaptive_samples(events, duration, budget=180):
     for i in range(centers):
         if len(picks)>=centers: break
         add(duration*(i+.5)/centers)
-    return sorted({round(max(0., min(max(0.,duration-.03), t+o)),3)
+    return sorted({min(round(max(0., min(max(0.,duration-.03), t+o)),3),math.nextafter(duration,0.))
                    for t in picks for o in (-2.,-1.,0.,1.,2.)})[:budget]
 
 def rank(events, duration, clip_seconds=25, max_clips=8, profile="generic", preferences=None):
@@ -84,7 +84,9 @@ def rank(events, duration, clip_seconds=25, max_clips=8, profile="generic", pref
             if group not in best or score>best[group][0]:
                 best[group]=(score,e)
         if not best: continue
-        values=sorted((v[0] for v in best.values()),reverse=True)
+        # Mix RMS may already contain the same spoken reaction. Never count it
+        # as an additional independent vote when speech evidence is present.
+        values=sorted((v[0] for k,v in best.items() if not (k=='audio' and 'speech' in best)),reverse=True)
         score=100*(values[0]+.35*sum(values[1:]))
         if anchor.kind=="motion" and "speech" not in best:
             score*=.7
@@ -125,15 +127,15 @@ def speech_reaction_hints(levels, duration, *, designated_microphone=False):
 
 def atomic_json(path, value):
     path=Path(path);path.parent.mkdir(parents=True,exist_ok=True)
-    with tempfile.NamedTemporaryFile(dir=path.parent,mode="w",encoding="utf-8",delete=False) as f:
-        tmp=Path(f.name)
-        try:
+    tmp=None
+    try:
+        with tempfile.NamedTemporaryFile(dir=path.parent,mode="w",encoding="utf-8",delete=False) as f:
+            tmp=Path(f.name)
             json.dump(value,f,ensure_ascii=False,allow_nan=False,sort_keys=True)
             f.flush();os.fsync(f.fileno())
-        except BaseException:
-            tmp.unlink(missing_ok=True);raise
-    try: os.replace(tmp,path)
-    finally: tmp.unlink(missing_ok=True)
+        os.replace(tmp,path)
+    finally:
+        if tmp is not None:tmp.unlink(missing_ok=True)
 
 def digest(obj):
     return hashlib.sha256(json.dumps(obj,sort_keys=True,ensure_ascii=False,allow_nan=False).encode()).hexdigest()
