@@ -2,7 +2,7 @@
 from dataclasses import replace
 from PySide6.QtWidgets import (QDialog,QVBoxLayout,QHBoxLayout,QListWidget,QComboBox,
     QPushButton,QLabel,QInputDialog,QFileDialog,QMessageBox)
-from .montage import Beat,Montage,speed_ramp,LOOKS
+from .montage import Beat,Montage,sampled_ramp,LOOKS
 
 class MontageDialog(QDialog):
     def __init__(self,analysis,parent=None,request_factory=None):
@@ -34,7 +34,7 @@ class MontageDialog(QDialog):
         layout.addWidget(self.encoder)
         self.total=QLabel();layout.addWidget(self.total)
         row=QHBoxLayout();layout.addLayout(row)
-        for label,fn in [("Abbrechen",self.reject),("Zur Renderqueue",self.enqueue),("Montage exportieren",self.finish)]:
+        for label,fn in [("Abbrechen",self.reject),("Zur Renderqueue",self.enqueue),("Montage exportieren",self.direct)]:
             btn=QPushButton(label);btn.clicked.connect(fn);row.addWidget(btn)
         self.refresh()
 
@@ -73,11 +73,19 @@ class MontageDialog(QDialog):
     def ramp(self):
         i,b=self.selected()
         if b is None:return
-        try:
-            parts=speed_ramp(b.start,b.end)
-            if len(self.beats)+len(parts)-1>64:raise ValueError("Maximal 64 Teile")
+        initial,ok=QInputDialog.getDouble(self,"Tempo-Rampe","Starttempo",.5,.25,4,2)
+        if not ok:return
+        final,ok=QInputDialog.getDouble(self,"Tempo-Rampe","Endtempo",2,.25,4,2)
+        if not ok:return
+        limit=min(32,65-len(self.beats),int((b.end-b.start)/.2))
+        if limit<2:QMessageBox.warning(self,"Tempo-Rampe","Abschnitt zu kurz oder zu viele Teile");return
+        steps,ok=QInputDialog.getInt(self,"Tempo-Rampe","Stützstellen (diskrete Annäherung)",min(8,limit),2,limit)
+        if not ok:return
+        curve,ok=QInputDialog.getItem(self,"Tempo-Rampe","Kurve:",["smooth","linear"],0,False)
+        if not ok:return
+        try:parts=sampled_ramp(b.start,b.end,initial,final,steps,curve)
         except ValueError as e:QMessageBox.warning(self,"Rampe",str(e));return
-        if QMessageBox.question(self,"Tempo-Rampe","Teil durch drei Tempoabschnitte (0,5× / 1× / 2×) ersetzen? Effekte dieses Teils werden zurückgesetzt.")!=QMessageBox.StandardButton.Yes:return
+        if QMessageBox.question(self,"Tempo-Rampe",f"Teil durch {steps} editierbare Tempoabschnitte ersetzen? Effekte dieses Teils werden zurückgesetzt.")!=QMessageBox.StandardButton.Yes:return
         self.beats[i:i+1]=parts;self.refresh(i)
     def freeze(self):
         i,b=self.selected()
@@ -139,6 +147,9 @@ class MontageDialog(QDialog):
         if self.request is not None and plan==self.request.plan and self.compose.isChecked()==bool(self.request.compositions):
             return self.request.validate(verify_media=True)
         if self.request_factory is not None:
+            if self.request is not None and QMessageBox.question(self,"Montageplan geändert",
+                "Geänderter Plan: Editor-Kompositionen aus der aktuellen Sitzung neu erstellen?")!=QMessageBox.StandardButton.Yes:
+                raise ValueError("Neuaufbau abgebrochen")
             return self.request_factory(plan,self.compose.isChecked())
         return MontageRequest.create(self.analysis.video,plan)
 
@@ -162,6 +173,9 @@ class MontageDialog(QDialog):
         self.encoder.setCurrentIndex(self.encoder.findData(req.plan.encoder))
         self.compose.setChecked(bool(req.compositions))
         self.refresh()
+
+    def direct(self):
+        self.destination_mode="direct";self.finish()
 
     def enqueue(self):
         self.destination_mode="queue";self.finish()
