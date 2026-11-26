@@ -4,6 +4,8 @@ cd /d "%~dp0"
 call "%~dp0portable_env.bat"
 "%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\bootstrap_portable.ps1"
 if errorlevel 1 goto :error
+"%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File "%~dp0create_shortcut.ps1"
+if errorlevel 1 echo HINWEIS: Verknuepfung konnte nicht erstellt werden. Start per run_windows.bat moeglich.
 echo Einrichtung abgeschlossen. Modelle bei Bedarf im GUI herunterladen.
 echo Start mit run_windows.bat.
 pause
