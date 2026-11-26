@@ -43,7 +43,7 @@ def visual_search(video,query,model_directory,*,anchors=(),budget=240,limit=20,
     if cancelled and cancelled():raise CancelledError("Bildsuche abgebrochen")
     processor=AutoProcessor.from_pretrained(str(folder),local_files_only=True)
     model=CLIPModel.from_pretrained(str(folder),local_files_only=True)
-    device="cuda" if torch.cuda.is_available() else "cpu"
+    device=__import__("streamclipper.hardware_media",fromlist=["torch_device"]).torch_device(torch)
     model.to(device).eval()
     report_vision_device("CLIP-Bildsuche",device)
     # One query versus a fixed neutral prompt: logits rather than softmax over
