@@ -671,38 +671,40 @@ def sampled_jpeg_frames(video: VideoInfo, *, max_frames: int = 180,
         count = max(1, min(max_frames, int(math.ceil(video.duration / 3.0))))
         interval = video.duration / count
         positions = [(index + 0.5) * interval for index in range(count)]
-    ffmpeg = tool_path("ffmpeg")
-    for at in positions:
-        if cancelled and cancelled():
-            raise CancelledError("Analyse abgebrochen")
-        cmd = [ffmpeg, "-hide_banner", "-nostdin", "-loglevel", "error",
-               "-ss", f"{at:.3f}", "-i", video.path,
-               "-map", "0:v:0", "-an", "-sn", "-frames:v", "1",
-               "-vf", "scale=320:-2:flags=fast_bilinear", "-q:v", "6",
-               "-f", "image2pipe", "-vcodec", "mjpeg", "pipe:1"]
-        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    from .hardware_media import choose_decode,decode_options,notify
+    ffmpeg=tool_path("ffmpeg")
+    gpu=choose_decode(ffmpeg,video,sparse=True)
+    notify("Frame-Extraktion: "+("NVDEC / scale_cuda" if gpu else "FFmpeg CPU"))
+    def extract(at,use_gpu):
+        prefix,filters=decode_options(320,-2) if use_gpu else ([], "scale=320:-2:flags=fast_bilinear")
+        cmd=[ffmpeg,"-hide_banner","-nostdin","-loglevel","error",*prefix,
+             "-ss",f"{at:.3f}","-i",video.path,"-map","0:v:0","-an","-sn",
+             "-frames:v","1","-vf",filters,"-q:v","6","-f","image2pipe","-vcodec","mjpeg","pipe:1"]
+        proc=subprocess.Popen(cmd,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL)
         try:
             while True:
-                if cancelled and cancelled():
-                    raise CancelledError("Analyse abgebrochen")
-                try:
-                    frame, _ = proc.communicate(timeout=0.2)
-                    break
-                except subprocess.TimeoutExpired:
-                    continue
-            if proc.returncode != 0:
-                raise RuntimeError(f"FFmpeg konnte Frame bei {at:.2f}s nicht dekodieren.")
+                if cancelled and cancelled():raise CancelledError("Analyse abgebrochen")
+                try:frame,_=proc.communicate(timeout=.2);break
+                except subprocess.TimeoutExpired:continue
+            if proc.returncode!=0:raise RuntimeError(f"FFmpeg konnte Frame bei {at:.2f}s nicht dekodieren.")
             if not frame.startswith(b"\xff\xd8") or not frame.endswith(b"\xff\xd9"):
                 raise RuntimeError(f"Ungültiger JPEG-Frame bei {at:.2f}s.")
-            if len(frame) > 8_000_000:
-                raise RuntimeError("Ein einzelnes Video-Frame überschreitet 8 MB.")
-            yield round(at, 3), frame
+            if len(frame)>8_000_000:raise RuntimeError("Ein einzelnes Video-Frame überschreitet 8 MB.")
+            return frame
         finally:
-            if proc.poll() is None:
-                proc.kill()
+            if proc.poll() is None:proc.kill()
             proc.wait()
-            if proc.stdout:
-                proc.stdout.close()
+            if proc.stdout:proc.stdout.close()
+    for at in positions:
+        if cancelled and cancelled():raise CancelledError("Analyse abgebrochen")
+        try:frame=extract(at,gpu)
+        except CancelledError:raise
+        except RuntimeError:
+            if not gpu:raise
+            gpu=False
+            notify("NVDEC-Frame fehlgeschlagen – weitere Frames auf CPU")
+            frame=extract(at,False)
+        yield round(at,3),frame
 
 
 def waveform_peaks(video: VideoInfo, *, max_bins: int = 8192,
