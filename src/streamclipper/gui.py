@@ -157,6 +157,22 @@ class AnalysisThread(QThread):
             stage_notice.reset(stage_token)
 
 
+class MontageRenderThread(QThread):
+    progress_changed=Signal(int)
+    encoder_notice=Signal(str)
+    done=Signal(object)
+    failed=Signal(str)
+    def __init__(self,request,destination,parent=None):
+        super().__init__(parent)
+        self.request=request;self.destination=destination
+        self._cancelled=threading.Event()
+    def cancel(self):self._cancelled.set()
+    def run(self):
+        try:self.done.emit(self.request.render(self.destination,cancelled=self._cancelled.is_set,
+                    progress=self.progress_changed.emit,encoder_notice=self.encoder_notice.emit))
+        except Exception as exc:self.failed.emit(str(exc))
+
+
 class M16ReviewThread(QThread):
     done = Signal(object)
     failed = Signal(str)
@@ -3555,21 +3571,57 @@ class MainWindow(QMainWindow):
         choice,ok=QInputDialog.getItem(self,"Kapitel","Grobgliederung nach Ereignisankern (keine Missionsklassifikation):",labels,0,False)
         if ok:self.seek_to(round(rows[labels.index(choice)][0]*1000))
 
+    def _m17_request(self,plan,compose):
+        from .montage_request import MontageRequest
+        from .montage import dimensions
+        if not compose:return MontageRequest.create(self.analysis.video,plan)
+        video=self.analysis.video
+        intervals=[(b.start,b.end) for b in plan.beats]
+        if not self._scene_render_allowed(video,intervals):
+            raise ValueError("Szenenplan für Montageabschnitt erforderlich")
+        w,h=dimensions(plan.aspect)
+        requests=[]
+        for beat in plan.beats:
+            scene=scene_plan_for(self.editor_project,beat.start,beat.end)
+            transcript=render_transcript(self.analysis,beat.start,beat.end,scene,
+                                          self.burn_subtitles.isChecked(),self.caption_offset.value())
+            requests.append(RenderRequest(video=video,start=beat.start,end=beat.end,
+                mode="smart16" if plan.aspect=="16:9" else ("smart9" if plan.aspect=="9:16" else "crop"),
+                width=w,height=h,transcript=tuple(transcript),
+                burn_subtitles=self.burn_subtitles.isChecked() and bool(transcript),
+                subtitle_offset=self.caption_offset.value(),caption_style=self._current_caption_style(),
+                project=self.editor_project if self.include_track_audio.isChecked() else None,
+                scene_plan=scene,encoder="cpu_h264").validate())
+        return MontageRequest.create(video,plan,requests)
+
     def _m17_montage(self):
-        if self._history_blocked or not self.analysis:return
+        if self._history_blocked or not self.analysis or not self.apply_word_editor() or not self.apply_transcript_editor():return
         from .m17_montage_dialog import MontageDialog
-        dialog=MontageDialog(self.analysis,self)
+        dialog=MontageDialog(self.analysis,self,request_factory=self._m17_request)
         if dialog.exec()!=QDialog.DialogCode.Accepted:return
-        if QMessageBox.question(self,"Separater Montage-Export",
-            "Montage verwendet Originalvideo/-ton und die hier gewählten Effekte. Bestehende Projektspuren, Untertitel und Szenenpläne werden NICHT übernommen. Fortfahren?")!=QMessageBox.StandardButton.Yes:return
+        request=dialog.request
+        if not request.compositions and QMessageBox.question(self,"Originalmedien-Montage",
+            "Montage ohne Editor-Komposition: Projektspuren, Untertitel und Szenenpläne bleiben unberücksichtigt. Fortfahren?")!=QMessageBox.StandardButton.Yes:return
+        if dialog.destination_mode=="queue":
+            if not self._ensure_render_queue():return
+            directory=QFileDialog.getExistingDirectory(self,"Zielordner für Montage")
+            if not directory:return
+            try:self.render_queue.enqueue(request,directory,label="M17 Montage")
+            except (OSError,ValueError,RuntimeError) as exc:
+                QMessageBox.warning(self,"Renderqueue",str(exc));return
+            self._refresh_queue()
+            self.statusBar().showMessage("Montage in Renderqueue aufgenommen – noch nicht gestartet")
+            return
         path,_=QFileDialog.getSaveFileName(self,"Montage exportieren","Montage.mp4","MP4 (*.mp4)")
         if not path:return
-        from .montage import render_montage
-        video=self.analysis.video;plan=dialog.plan
-        self.progress.setRange(0,0);self.progress.setFormat("Montage wird gerendert")
-        self._m16_review_job(lambda cancel:render_montage(video,plan,path,cancelled=cancel),
-                             lambda output:self._m17_montage_done(output))
-        self.worker.finished.connect(lambda:self.progress.setRange(0,100))
+        self.progress.setRange(0,100);self.progress.setValue(0);self.progress.setFormat("Montage · %p %")
+        self.worker=MontageRenderThread(request,path,self)
+        self.worker.progress_changed.connect(self.progress.setValue)
+        self.worker.encoder_notice.connect(self.phase_status.setText)
+        self.worker.done.connect(self._m17_montage_done)
+        self.worker.failed.connect(self.job_failed)
+        self.worker.finished.connect(lambda:self._busy(False))
+        self._busy(True);self.worker.start()
 
     def _m17_montage_done(self,output):
         self.progress.setRange(0,100);self.progress.setValue(100);self.progress.setFormat("Montage · %p %")
