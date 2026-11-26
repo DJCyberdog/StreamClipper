@@ -284,13 +284,14 @@ class VideoImportWorker(QThread):
     done=Signal(object)
     failed=Signal(str)
     def __init__(self,source,directory=None,options=None,parent=None):
-        super().__init__(parent);self.source=source;self.directory=directory;self.options=options or {};self.stop=threading.Event()
+        super().__init__(parent);self.source=source;self.directory=directory;self.options=options or {};self.stop=threading.Event();self.result=None
     def cancel(self):self.stop.set()
     def run(self):
         from .video_import import preflight,download
         try:
             if self.directory is None:result=preflight(self.source,authorized=True,cancelled=self.stop.is_set)
             else:result=download(self.source,self.directory,authorized=True,cancelled=self.stop.is_set,progress=self.progress_changed.emit,**self.options)
+            self.result=result
             self.done.emit(result)
         except Exception as exc:self.failed.emit(str(exc))
 
@@ -3293,9 +3294,8 @@ class MainWindow(QMainWindow):
         self.progress.setRange(0,0);self.progress.setFormat("Video-Metadaten")
         worker=VideoImportWorker(source.url,parent=self)
         self.worker=worker
-        worker.done.connect(lambda meta,w=worker:self._video_preflight_done(w,meta))
         worker.failed.connect(self.job_failed)
-        worker.finished.connect(lambda w=worker:self._video_import_finished_worker(w))
+        worker.finished.connect(lambda w=worker:self._video_preflight_done(w,w.result))
         self._busy(True);worker.start()
 
     def _video_import_finished_worker(self,worker):
@@ -3306,9 +3306,9 @@ class MainWindow(QMainWindow):
     def _video_preflight_done(self,worker,meta):
         # The completion signal arrives before QThread.finished. Wait for
         # the metadata-only worker before replacing it with a download worker.
-        worker.wait()
         if self.worker is not worker:return
-        self.worker=None;self.progress.setRange(0,100);self._busy(False)
+        self._video_import_finished_worker(worker)
+        if meta is None:return
         from .video_import import choose_formats
         from PySide6.QtWidgets import QDialog,QVBoxLayout,QLabel,QComboBox,QCheckBox,QDialogButtonBox
         dialog=QDialog(self);dialog.setWindowTitle("Videoimport · "+meta.source.provider)
@@ -3344,7 +3344,6 @@ class MainWindow(QMainWindow):
         default=installation_directory()/"data"/"imports";default.mkdir(parents=True,exist_ok=True)
         folder=QFileDialog.getExistingDirectory(self,"Import speichern",str(default))
         if not folder:return
-        if opened.isChecked() and not self.confirm_discard_edits():return
         worker=VideoImportWorker(meta,folder,{"height":quality.currentData(),"audio_id":audio.currentData(),
             "subtitles":subs.isChecked(),"max_bytes":limit.currentData()},self)
         self.worker=worker
