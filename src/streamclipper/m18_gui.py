@@ -272,6 +272,8 @@ class Integrations(QObject):
             self.w.statusBar().showMessage("OAuth-Autorisierung erhalten – kein Upload, keine API-Abnahme")
         self.run(operation,complete)
     def language(self):
-        from .m18_language import apply_language
-        choice,ok=QInputDialog.getItem(self.w,"Language / Sprache","Primary controls / Hauptbedienung:",["Deutsch","English (partial)"],0,False)
-        if ok:apply_language(self.w,choice.startswith("English"))
+        from .m18_language import apply_language,english_enabled
+        choice,ok=QInputDialog.getItem(self.w,"Language / Sprache","Interface / Oberfläche:",["Deutsch","English (partial)"],int(english_enabled()),False)
+        if ok:
+            try:apply_language(self.w,choice.startswith("English"))
+            except OSError as exc:self.error("Language",exc)
