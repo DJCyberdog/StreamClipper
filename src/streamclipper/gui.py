@@ -1527,6 +1527,8 @@ class MainWindow(QMainWindow):
         self._load_workspace_on_start()
         from .m18_gui import Integrations
         self.integrations=Integrations(self)
+        from .m18_language import apply_language,load_preference
+        apply_language(self,load_preference(),persist=False)
 
     def _poll_resources(self):
         import time
@@ -1936,7 +1938,7 @@ class MainWindow(QMainWindow):
         project = self.editor_project
         clip_id = self._selected_clip_id() if project else None
         track_id = self._selected_track_id() if project else None
-        is_tracks = self.tabs.tabText(self.tabs.currentIndex()) == "Spuren"
+        is_tracks = self.tabs.currentWidget() is self.tracks_page
         clip = next((item for item in project.items if item.id == clip_id),
                     None) if project else None
         track = next((item for item in project.tracks if item.id == track_id),
@@ -2056,7 +2058,7 @@ class MainWindow(QMainWindow):
         """Open the *existing* editor rather than maintaining duplicate state."""
         if self._history_blocked:
             return
-        if (self.tabs.tabText(self.tabs.currentIndex()) == "Spuren"
+        if (self.tabs.currentWidget() is self.tracks_page
                 and self.editor_project is not None):
             if self._selected_clip_id() is not None and self.inspector_apply_button.isEnabled():
                 self.inspector_source_start.setFocus()
