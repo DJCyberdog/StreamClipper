@@ -46,13 +46,13 @@ def sanitize_metadata(source,info):
     if info.get("availability") not in (None,"public","unlisted") or info.get("has_drm") or (number(info.get("age_limit")) or 0)>=18:
         raise ValueError("Zugangsbeschränkte Medien nicht unterstützt")
     ident=str(info.get("id",""))
-    if not SAFE_ID.fullmatch(ident) or (source.expected_id is not None and ident!=source.expected_id):
+    if ident in (".","..") or not SAFE_ID.fullmatch(ident) or (source.expected_id is not None and ident!=source.expected_id):
         raise ValueError("Video-ID stimmt nicht überein")
     formats=[]
     for f in info.get("formats",[])[:2000]:
         if not isinstance(f,dict) or f.get("has_drm") or f.get("protocol") not in PROTOCOLS:continue
         fid=str(f.get("format_id",""))
-        if not SAFE_ID.fullmatch(fid):continue
+        if fid in (".","..") or not SAFE_ID.fullmatch(fid) or fid.startswith("-"):continue
         ext=str(f.get("ext",""))
         if not re.fullmatch(r"[a-z0-9]{2,5}",ext):continue
         size=number(f.get("filesize")) or number(f.get("filesize_approx"))
@@ -99,7 +99,8 @@ def kill_tree(proc):
 def run_worker(source,args,*,budget,timeout,cancelled=None,on_line=None,cwd=None):
     if cancelled and cancelled():raise CancelledError("Import abgebrochen")
     with guarded_proxy(budget) as (proxy,gate):
-        cmd=[sys.executable,"-m","yt_dlp","--ignore-config","--no-plugin-dirs","--no-remote-components","--no-cookies","--no-cookies-from-browser","--no-netrc","--proxy",proxy,
+        if getattr(sys,"frozen",False):raise RuntimeError("Videoimport erfordert die portable Python-Runtime")
+        cmd=[sys.executable,"-m","streamclipper.import_worker",proxy,tool_path("ffmpeg"),tool_path("ffprobe"),"--ignore-config","--no-plugin-dirs","--no-remote-components","--no-js-runtimes","--no-cookies","--no-cookies-from-browser","--no-netrc","--proxy",proxy,
              "--no-playlist","--playlist-end","1","--no-cache-dir",
              "--socket-timeout","15","--retries","3","--fragment-retries","3","--downloader","native","--abort-on-unavailable-fragments","--downloader-args","ffmpeg_i:-protocol_whitelist file,pipe",
              "--ffmpeg-location",str(Path(tool_path("ffmpeg")).parent),"--no-warnings",
@@ -156,7 +157,7 @@ def download(meta,directory,*,height=None,audio_id=None,subtitles=False,authoriz
     if not authorized or not 1024**2<=max_bytes<=MAX_BYTES:raise ValueError("Berechtigung oder Downloadlimit fehlt")
     # Revalidate current metadata and exact identity before starting any download.
     fresh=preflight(meta.source.url,authorized=True,cancelled=cancelled)
-    if fresh.id!=meta.id:raise ValueError("Video-ID hat sich geändert")
+    if fresh.id!=meta.id or fresh.source!=meta.source:raise ValueError("Video-ID hat sich geändert")
     formats=choose_formats(fresh,height,audio_id)
     estimate=sum(f.bytes or 0 for f in formats)
     folder=Path(directory).resolve(strict=True)
@@ -209,7 +210,9 @@ def download(meta,directory,*,height=None,audio_id=None,subtitles=False,authoriz
         elif path.suffix.lower()==".ts":valid=len(head)>=377 and head[0]==head[188]==head[376]==0x47
         else:valid=False
         if not valid:raise ValueError("Importdatei enthält keinen unterstützten lokalen Mediencontainer")
-        video=probe_video(path)
+        # Restrict even local container probing to local protocols/demuxers.
+        from .media import probe_video_local_container
+        video=probe_video_local_container(path)
         # Verify an actual decoded frame from the start and near the end.
         for t in (0.,max(0.,video.duration-1.)):
             if cancelled and cancelled():raise CancelledError("Import abgebrochen")
