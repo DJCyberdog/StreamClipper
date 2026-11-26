@@ -91,6 +91,7 @@ def kill_tree(proc):
             try:child.kill()
             except psutil.Error:pass
     except (ImportError,OSError):pass
+    except Exception:pass # Process may disappear between poll and child lookup
     try:proc.kill()
     except OSError:pass
     proc.wait(timeout=10)
@@ -98,15 +99,15 @@ def kill_tree(proc):
 def run_worker(source,args,*,budget,timeout,cancelled=None,on_line=None,cwd=None):
     if cancelled and cancelled():raise CancelledError("Import abgebrochen")
     with guarded_proxy(budget) as (proxy,gate):
-        cmd=[sys.executable,"-m","yt_dlp","--ignore-config","--no-plugin-dirs","--proxy",proxy,
-             "--no-playlist","--playlist-end","1","--max-downloads","1","--no-cache-dir",
-             "--socket-timeout","15","--retries","3","--fragment-retries","3","--downloader","native",
+        cmd=[sys.executable,"-m","yt_dlp","--ignore-config","--no-plugin-dirs","--no-remote-components","--no-cookies","--no-cookies-from-browser","--no-netrc","--proxy",proxy,
+             "--no-playlist","--playlist-end","1","--no-cache-dir",
+             "--socket-timeout","15","--retries","3","--fragment-retries","3","--downloader","native","--abort-on-unavailable-fragments","--downloader-args","ffmpeg_i:-protocol_whitelist file,pipe",
              "--ffmpeg-location",str(Path(tool_path("ffmpeg")).parent),"--no-warnings",
              *args,"--",source.url]
         proc=subprocess.Popen(cmd,cwd=cwd,env=worker_env(),stdin=subprocess.DEVNULL,
              stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,encoding="utf-8",errors="replace",
              creationflags=getattr(subprocess,"CREATE_NO_WINDOW",0))
-        q=queue.Queue(maxsize=256);done=threading.Event()
+        q=queue.Queue(maxsize=4);done=threading.Event()
         def read():
             try:
                 while not done.is_set():
@@ -131,7 +132,7 @@ def run_worker(source,args,*,budget,timeout,cancelled=None,on_line=None,cwd=None
                 if line is None:break
                 if len(line)>8*1024*1024:raise ValueError("Metadaten zu groß")
                 if on_line:on_line(line.rstrip("\r\n"))
-            if proc.wait(timeout=10)!=0:
+            if proc.wait(timeout=10) not in (0,101):
                 raise RuntimeError("Quelle nicht verfügbar oder Download fehlgeschlagen (Netzwerk, Plattform, yt-dlp oder Zugriffsbeschränkung)")
         finally:
             done.set();kill_tree(proc);thread.join(2)
@@ -168,13 +169,15 @@ def download(meta,directory,*,height=None,audio_id=None,subtitles=False,authoriz
     staging.mkdir(exist_ok=True)
     from .render_queue import _lock_file,_unlock_file
     lock=(staging/".lock").open("a+b")
+    acquired=False
     try:
-        _lock_file(lock)
+        _lock_file(lock);acquired=True
         if any(p.is_symlink() for p in staging.iterdir()):raise ValueError("Unsicheres Staging")
         # IDs/formats are restricted to literal safe characters, not user templates.
         args=["--quiet","--progress","--newline","--no-overwrites","--continue","--part",
               "--max-filesize",str(max_bytes),"--format",fmt,
-              "--match-filters",f"id = {fresh.id} & !is_live",
+              "--break-match-filters",f"id = {fresh.id} & !is_live & !has_drm & age_limit <=? 17",
+              "--max-downloads","1",
               "--merge-output-format","mkv","--windows-filenames","--output","video.%(ext)s",
               "--progress-template","download:SC_PROGRESS:%(progress)j",
               "--progress-template","postprocess:SC_MERGE:%(progress.status)s",
@@ -213,4 +216,5 @@ def download(meta,directory,*,height=None,audio_id=None,subtitles=False,authoriz
         if progress:progress({"stage":"complete"})
         return result
     finally:
-        _unlock_file(lock);lock.close()
+        if acquired:_unlock_file(lock)
+        lock.close()
