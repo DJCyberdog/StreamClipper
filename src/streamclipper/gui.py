@@ -85,6 +85,7 @@ def display_time(seconds: float) -> str:
 
 class AnalysisThread(QThread):
     progress_changed = Signal(int)
+    backend_notice = Signal(str)
     done = Signal(object)
     failed = Signal(str)
 
@@ -105,6 +106,8 @@ class AnalysisThread(QThread):
         self._cancelled.set()
 
     def run(self) -> None:
+        from .vision_device import device_notice
+        token = device_notice.set(self.backend_notice.emit)
         try:
             result = analyze(self.source, clip_seconds=self.length,
                              progress=self.progress_changed.emit,
@@ -123,6 +126,8 @@ class AnalysisThread(QThread):
             self.done.emit(result)
         except Exception as exc:
             self.failed.emit(str(exc))
+        finally:
+            device_notice.reset(token)
 
 
 class ExportThread(QThread):
@@ -3401,6 +3406,7 @@ class MainWindow(QMainWindow):
                                      detector_model=detector,speech_source=self.speech_source if speech else None,
                                      asr_cache_root=installation_directory()/ "data"/"projects"/"asr_windows" if speech and self.speech_source and self.asr_cache_action.isChecked() else None)
         self.worker.progress_changed.connect(self.progress.setValue)
+        self.worker.backend_notice.connect(lambda message: self.statusBar().showMessage(message))
         self.worker.done.connect(self.analysis_finished)
         self.worker.failed.connect(self.job_failed)
         self.worker.finished.connect(lambda: self._busy(False))
