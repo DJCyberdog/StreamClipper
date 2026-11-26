@@ -90,11 +90,12 @@ def _analyze_m16(path,clip_seconds=25,max_clips=8,*,progress=None,cancelled=None
     stages=["audio"]+(["speech"] if speech_model else [])+["motion"]+(["reaction"] if isinstance(speech_source,SpeechSource) and speech_source.role=="microphone" else [])+(["visual"] if vision_model else [])+(["object"] if detector_model else [])
     def run(name,fn,dependency=None):
         check()
-        from .hardware_media import notify
+        from .hardware_media import notify,stage_update
         names={'audio':'Audioanalyse · CPU','speech':'Whisper · Sprachinferenz','motion':'Bewegungsanalyse','reaction':'Akustische Reaktionen','visual':'CLIP · Bildanalyse','object':'DETR · Objektspuren'}
-        notify(names[name])
+        notify(names[name]);stage_update(names[name],0)
         number=stages.index(name)
         def tick(n):
+            stage_update(names[name],n)
             if progress:progress(min(99,round(100*(number+max(0,min(100,n))/100)/len(stages))))
         target=Path(cache_root)/ (digest([identity,name,dependency])+".json") if identity else None
         if target is not None and target.exists():
