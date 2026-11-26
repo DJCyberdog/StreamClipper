@@ -1,3 +1,7 @@
+# NEXT_TASK — M16 second implementation pass
+
+M15 hosted workflows all green at 0aec35ee and merged into M16. New M16 paths: CUDA FP16/batching, ASR window resume, acoustic classifier and pitch, visual search, explicit local Twitch chat helper/export, development-only weight search and grouped confidence intervals. See appended docs/M16_ACCEPTANCE.md. Check exact latest CI, fix any concrete failures. Native model/GUI/6h RTX tests and >=100 independently annotated authorized gaming moments with holdout remain hard gates. No synthetic quality claims, automatic release/merge, or M17 until acceptance.
+
 # NEXT_TASK — M16 integrated pilot (Owner 2026-11-26)
 
 Owner authorized parallel M16 development while locally testing M15; previous no-start gate is superseded for stacked development only, not merge/acceptance. PR #54, see docs/M16_ACCEPTANCE.md. Check exact head CI; fix concrete failures; acquire authorized frozen >=100-moment corpus, run baseline/M16 paired benchmark and native 6h RTX evidence. Remaining scope and gates documented; no quality claim, merge or M17. M15 remains separately testable.
