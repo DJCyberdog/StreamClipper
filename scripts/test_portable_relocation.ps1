@@ -14,7 +14,7 @@ try {
     $env:STREAMCLIPPER_HOME=$target
     $env:STREAMCLIPPER_FFMPEG_DIR=Join-Path $target 'bin'
     $env:QT_QPA_PLATFORM='offscreen'
-    & (Join-Path $target 'runtime\python.exe') -I -c "import sys,pathlib,streamclipper; from PySide6.QtWidgets import QApplication; from streamclipper.media import tool_path; import subprocess; root=pathlib.Path(sys.prefix).parent; assert pathlib.Path(streamclipper.__file__).is_relative_to(root/'src'); app=QApplication([]); assert pathlib.Path(tool_path('ffmpeg')).is_relative_to(root/'bin'); subprocess.run([tool_path('ffprobe'),'-version'],check=True)"
+    & (Join-Path $target 'runtime\python.exe') -I -c "import sys,pathlib,streamclipper; from PySide6.QtWidgets import QApplication; from streamclipper.media import tool_path; import subprocess; root=pathlib.Path(sys.prefix).resolve().parent; expected=pathlib.Path(__import__('os').environ['STREAMCLIPPER_HOME']).resolve(); assert root==expected, (root,expected); source=pathlib.Path(streamclipper.__file__).resolve(); print('source:',source); assert source.is_relative_to(root/'src'), (source,root); app=QApplication([]); ffmpeg=pathlib.Path(tool_path('ffmpeg')).resolve(); print('ffmpeg:',ffmpeg); assert ffmpeg.is_relative_to(root/'bin'), (ffmpeg,root); subprocess.run([tool_path('ffprobe'),'-version'],check=True)"
     if ($LASTEXITCODE -ne 0) { throw 'Relocation smoke failed' }
 } finally {
     foreach ($name in @('runtime','bin','src','portable_env.bat','run_windows.bat')) {
