@@ -12,7 +12,7 @@ from .portable import configure_portable_environment
 configure_portable_environment()
 
 from PySide6.QtCore import QByteArray, QEvent, Qt, QThread, QTimer, QUrl, Signal
-from PySide6.QtGui import QColor, QKeySequence, QShortcut
+from PySide6.QtGui import QColor, QKeySequence, QShortcut, QIcon
 from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
 from PySide6.QtMultimediaWidgets import QVideoWidget
 from PySide6.QtWidgets import (
@@ -4322,8 +4322,14 @@ class MainWindow(QMainWindow):
 
 
 def main() -> None:
+    if sys.platform == 'win32':
+        import ctypes
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID('StreamClipper.Studio')
     application = QApplication(sys.argv)
     application.setApplicationName("StreamClipper")
+    icon_path = installation_directory() / "assets" / "StreamClipper.ico"
+    if icon_path.is_file():
+        application.setWindowIcon(QIcon(str(icon_path)))
     window = MainWindow()
     window.show()
     sys.exit(application.exec())
