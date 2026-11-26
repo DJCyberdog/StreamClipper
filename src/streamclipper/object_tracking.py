@@ -188,7 +188,8 @@ def detect_and_track(video: VideoInfo, model_directory: str | Path, *,
                      cancelled: Cancelled | None = None,
                      progress: Progress | None = None,
                      timestamps: list[float] | None = None, device_override: str | None = None,
-                     relative_motion: bool = False) -> list[EventEvidence]:
+                     relative_motion: bool = False, batch_size: int = 1,
+                     mixed_precision: bool = False) -> list[EventEvidence]:
     """Sample <=90 images (default) around interesting timestamps, track locally.
 
     Uses existing optional torch/transformers/Pillow installation. No remote
@@ -213,29 +214,32 @@ def detect_and_track(video: VideoInfo, model_directory: str | Path, *,
     report_vision_device("DETR / Objekterkennung",device)
     stamps = timestamps if timestamps is not None else select_scene_timestamps(anchors, video.duration, max_frames=max_frames)
     detections: list[Detection] = []
-    for index, (at, encoded) in enumerate(sampled_jpeg_frames(video, timestamps=stamps,
-                                                              max_frames=max_frames,
-                                                              cancelled=cancelled)):
-        if cancelled and cancelled():
-            raise CancelledError('Objektanalyse abgebrochen')
-        with Image.open(BytesIO(encoded)) as raw:
-            frame = raw.convert('RGB')
-        width, height = frame.size
-        inputs = processor(images=frame, return_tensors='pt')
-        inputs = {key: value.to(device) for key, value in inputs.items()}
+    from .vision_batch import frame_batches, inference_context, vision_batch_size
+    frames=sampled_jpeg_frames(video,timestamps=stamps,max_frames=max_frames,cancelled=cancelled)
+    processed=0
+    for rows in frame_batches(frames,vision_batch_size(device,batch_size,2),cancelled):
+        sizes=[(image.height,image.width) for _,image in rows]
+        inputs=processor(images=[image for _,image in rows],return_tensors='pt')
+        inputs={key:value.to(device) for key,value in inputs.items()}
         with torch.no_grad():
-            prediction = model(**inputs)
-        found = processor.post_process_object_detection(
-            prediction, threshold=0.55, target_sizes=[(height, width)])[0]
-        for score, label_id, coordinates in zip(found['scores'], found['labels'], found['boxes']):
-            label = str(model.config.id2label[int(label_id)]).lower()
-            if label not in CATEGORIES:
-                continue
-            bbox = tuple(max(0.0, min(1.0, float(v)/dim))
-                         for v, dim in zip(coordinates.tolist(), (width, height, width, height)))
-            detections.append(Detection(at, label, float(score), bbox))
-        if progress:
-            progress(min(99, round(100*(index+1)/max(len(stamps),1))))
+            with inference_context(torch,device,mixed_precision):
+                prediction=model(**inputs)
+            if not (bool(torch.isfinite(prediction.logits).all()) and bool(torch.isfinite(prediction.pred_boxes).all())):
+                if not mixed_precision:raise RuntimeError("DETR non-finite output")
+                prediction=model(**inputs)
+            if not (bool(torch.isfinite(prediction.logits).all()) and bool(torch.isfinite(prediction.pred_boxes).all())):
+                raise RuntimeError("DETR non-finite output")
+            prediction.logits=prediction.logits.float()
+            prediction.pred_boxes=prediction.pred_boxes.float()
+            found=processor.post_process_object_detection(prediction,threshold=.55,target_sizes=sizes)
+        for (at,_),(height,width),objects in zip(rows,sizes,found,strict=True):
+            for score,label_id,coordinates in zip(objects['scores'],objects['labels'],objects['boxes']):
+                label=str(model.config.id2label[int(label_id)]).lower()
+                if label not in CATEGORIES:continue
+                bbox=tuple(max(0.,min(1.,float(v)/dim)) for v,dim in zip(coordinates.tolist(),(width,height,width,height)))
+                detections.append(Detection(at,label,float(score),bbox))
+        processed+=len(rows)
+        if progress:progress(min(99,round(100*processed/max(len(stamps),1))))
     if progress:
         progress(100)
     standard=object_track_evidence(detections, anchors)
