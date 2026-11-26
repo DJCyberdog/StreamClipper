@@ -55,7 +55,7 @@ def analyze_reactions(wav, duration, model_directory=None, *, anchors=(), budget
         model=AutoModelForAudioClassification.from_pretrained(str(folder),local_files_only=True,trust_remote_code=False)
         labels=reaction_labels(model.config.id2label)
         if not labels:raise ValueError("Local audio model has no named laugh/shout classes")
-        device="cuda" if torch.cuda.is_available() else "cpu"
+        device=__import__("streamclipper.hardware_media",fromlist=["torch_device"]).torch_device(torch)
         model.to(device).eval()
         from .vision_device import report_vision_device
         report_vision_device("Akustisches Reaktionsmodell",device)
