@@ -2,7 +2,7 @@
 setlocal
 cd /d "%~dp0"
 call "%~dp0portable_env.bat"
-if not exist ".venv\Scripts\python.exe" (
+if not exist "%~dp0runtime\python.exe" (
   echo StreamClipper-Umgebung fehlt. Bitte zuerst setup_windows.bat ausfuehren.
   pause
   exit /b 1
@@ -12,12 +12,12 @@ if errorlevel 1 (
   echo HINWEIS: nvidia-smi nicht gefunden. Bitte NVIDIA-Treiber pruefen.
 )
 echo.
-echo Installiere NVIDIA CUDA-12/cuBLAS und cuDNN-9-Bibliotheken lokal in .venv.
+echo Installiere NVIDIA CUDA-12/cuBLAS und cuDNN-9-Bibliotheken lokal in runtime.
 echo Groesse: mehr als 1 GB. Keine Installation in Systemordner.
 echo.
-.venv\Scripts\python.exe -m pip install -r requirements-gpu-windows.txt
+"%~dp0runtime\python.exe" -m pip install -r requirements-gpu-windows.txt
 if errorlevel 1 goto :failure
-.venv\Scripts\python.exe scripts\check_gpu_runtime.py
+"%~dp0runtime\python.exe" scripts\check_gpu_runtime.py
 if errorlevel 1 goto :failure
 echo.
 echo NVIDIA-Whisper-Laufzeittest abgeschlossen. Start mit run_windows.bat.
