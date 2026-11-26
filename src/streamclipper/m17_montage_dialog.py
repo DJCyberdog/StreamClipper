@@ -5,12 +5,17 @@ from PySide6.QtWidgets import (QDialog,QVBoxLayout,QHBoxLayout,QListWidget,QComb
 from .montage import Beat,Montage,speed_ramp,LOOKS
 
 class MontageDialog(QDialog):
-    def __init__(self,analysis,parent=None):
+    def __init__(self,analysis,parent=None,request_factory=None):
         super().__init__(parent)
         self.analysis=analysis;self.beats=[];self.plan=None
+        self.request_factory=request_factory;self.request=None;self.destination_mode="direct"
         self.setWindowTitle("M17 · Montage & Effekte");self.resize(700,450)
         layout=QVBoxLayout(self)
-        layout.addWidget(QLabel("Originalaufnahme · eigenständige Komposition ohne bestehende Projektspuren"))
+        layout.addWidget(QLabel("Montage · bestehende Editor-Komposition optional übernehmen"))
+        from PySide6.QtWidgets import QCheckBox
+        self.compose=QCheckBox("Projektspuren, Untertitel und Szenenpläne nach aktueller Exportkonfiguration übernehmen")
+        self.compose.setChecked(request_factory is not None);self.compose.setEnabled(request_factory is not None)
+        layout.addWidget(self.compose)
         self.source=QComboBox()
         for c in analysis.candidates:self.source.addItem(f"{c.start:.2f}–{c.end:.2f}s · {c.reason[:65]}",c)
         layout.addWidget(self.source)
@@ -18,7 +23,8 @@ class MontageDialog(QDialog):
         for group in [
             [("Hinzufügen",self.add),("Entfernen",self.remove),("↑",lambda:self.move(-1)),("↓",lambda:self.move(1))],
             [("Zeit & Tempo",self.timing),("Tempo-Rampe",self.ramp),("Standbild",self.freeze)],
-            [("Look / LUT",self.look),("Eigener Sound",self.sound),("Effekte zurücksetzen",self.reset)]]:
+            [("Look / LUT",self.look),("Eigener Sound",self.sound),("Soundbibliothek",self.library),("Effekte zurücksetzen",self.reset)],
+            [("Plan speichern",self.save),("Plan öffnen",self.load)]]:
             row=QHBoxLayout();layout.addLayout(row)
             for label,callback in group:
                 btn=QPushButton(label);btn.clicked.connect(callback);row.addWidget(btn)
@@ -28,7 +34,7 @@ class MontageDialog(QDialog):
         layout.addWidget(self.encoder)
         self.total=QLabel();layout.addWidget(self.total)
         row=QHBoxLayout();layout.addLayout(row)
-        for label,fn in [("Abbrechen",self.reject),("Montage exportieren",self.finish)]:
+        for label,fn in [("Abbrechen",self.reject),("Zur Renderqueue",self.enqueue),("Montage exportieren",self.finish)]:
             btn=QPushButton(label);btn.clicked.connect(fn);row.addWidget(btn)
         self.refresh()
 
@@ -102,7 +108,67 @@ class MontageDialog(QDialog):
     def reset(self):
         i,b=self.selected()
         if b is not None:self.put(i,Beat(b.start,b.end))
+    def library(self):
+        i,b=self.selected()
+        if b is None:return
+        from .sound_library import entries,import_sound
+        items=entries()
+        labels=["Neuen eigenen / lizenzierten Sound importieren …"]+[f"{n+1}. {x['name']} ({x['duration']:.1f}s) · {x['rights']}" for n,x in enumerate(items)]
+        choice,ok=QInputDialog.getItem(self,"Soundbibliothek","Lokale Bibliothek:",labels,0,False)
+        if not ok:return
+        try:
+            if choice==labels[0]:
+                source,_=QFileDialog.getOpenFileName(self,"Sound importieren","","Audio (*.wav *.mp3 *.ogg *.flac *.m4a)")
+                if not source:return
+                label,ok=QInputDialog.getText(self,"Soundname","Name:")
+                if not ok:return
+                rights,ok=QInputDialog.getText(self,"Nutzungsrechte","Eigene Aufnahme / Lizenz / Quellenhinweis:")
+                if not ok:return
+                item=import_sound(source,label,rights)
+            else:item=items[labels.index(choice)-1]
+            self.put(i,replace(b,sound=item["path"]))
+        except (OSError,ValueError,RuntimeError) as exc:QMessageBox.warning(self,"Soundbibliothek",str(exc))
+
+    def current_plan(self):
+        return Montage(tuple(self.beats),self.aspect.currentText(),self.encoder.currentData()).validate(self.analysis.video.duration)
+
+    def current_request(self):
+        from .montage_request import MontageRequest
+        plan=self.current_plan()
+        # A loaded snapshot remains exact until a visible change is made.
+        if self.request is not None and plan==self.request.plan and self.compose.isChecked()==bool(self.request.compositions):
+            return self.request.validate(verify_media=True)
+        if self.request_factory is not None:
+            return self.request_factory(plan,self.compose.isChecked())
+        return MontageRequest.create(self.analysis.video,plan)
+
+    def save(self):
+        from .montage_request import save_plan
+        path,_=QFileDialog.getSaveFileName(self,"Montageplan speichern","Montage.json","JSON (*.json)")
+        if not path:return
+        try:save_plan(path,self.current_request())
+        except (OSError,ValueError,RuntimeError) as exc:QMessageBox.warning(self,"Montageplan",str(exc))
+
+    def load(self):
+        from .montage_request import load_plan
+        path,_=QFileDialog.getOpenFileName(self,"Montageplan öffnen","","JSON (*.json)")
+        if not path:return
+        try:
+            req=load_plan(path)
+            if req.video!=self.analysis.video:raise ValueError("Montageplan gehört zu anderer Aufnahme")
+        except (OSError,ValueError,RuntimeError,KeyError,TypeError) as exc:QMessageBox.warning(self,"Montageplan",str(exc));return
+        self.request=req;self.beats=list(req.plan.beats)
+        self.aspect.setCurrentText(req.plan.aspect)
+        self.encoder.setCurrentIndex(self.encoder.findData(req.plan.encoder))
+        self.compose.setChecked(bool(req.compositions))
+        self.refresh()
+
+    def enqueue(self):
+        self.destination_mode="queue";self.finish()
+
     def finish(self):
-        try:self.plan=Montage(tuple(self.beats),self.aspect.currentText(),self.encoder.currentData()).validate(self.analysis.video.duration)
-        except ValueError as e:QMessageBox.warning(self,"Montage",str(e));return
+        try:
+            self.request=self.current_request()
+            self.plan=self.request.plan
+        except (OSError,ValueError,RuntimeError) as e:QMessageBox.warning(self,"Montage",str(e));return
         self.accept()
