@@ -63,14 +63,25 @@ $marker = Join-Path $stdlib 'EXTERNALLY-MANAGED'
 if (Test-Path -LiteralPath $marker -PathType Leaf) { Remove-Item -LiteralPath $marker -Force }
 # Non-editable wheels for dependencies; current source is loaded via relative .pth.
 $extras = if ($Minimal) { 'gui' } else { 'gui,speech,vision,models,twitch' }
-# Preserve the installed CUDA wheel pair during repair/update rather than
-# resolving a new CPU wheel from the default package index.
+# Preserve installed CUDA wheels on repair/update.
 $gpuPair = @(& $python -I -c "import importlib.metadata as m; exec('try:\n a=m.version(\x27torch\x27); b=m.version(\x27torchvision\x27); print(a); print(b)\nexcept m.PackageNotFoundError: pass')")
 if ($LASTEXITCODE -ne 0) { throw 'Installed GPU package inventory failed' }
 $constraints = Join-Path $downloads 'preserve-gpu.txt'
 $gpuArgs = @()
-if ($gpuPair.Count -eq 2 -and $gpuPair[0] -match '\+cu[0-9]+
+if ($gpuPair.Count -eq 2 -and $gpuPair[0] -match '\+cu[0-9]+$' -and $gpuPair[1] -match '\+cu[0-9]+$') {
+    @("torch==$($gpuPair[0])","torchvision==$($gpuPair[1])") | Set-Content -LiteralPath $constraints -Encoding ASCII
+    $gpuArgs = @('--constraint', $constraints)
+    if ($gpuPair[0] -match '\+(cu[0-9]+)$') {
+        $gpuArgs += @('--index', ('https://download.pytorch.org/whl/' + $Matches[1]))
+    }
+    Write-Host 'Preserving installed CUDA PyTorch/TorchVision.'
+}
+& $uv pip install --python $python --no-config --link-mode copy --system --break-system-packages @gpuArgs ('.[' + $extras + ']')
 if ($LASTEXITCODE -ne 0) { throw 'Dependency installation failed' }
+if ($gpuArgs.Count -gt 0) {
+    $currentPair = @(& $python -I -c "import importlib.metadata as m; print(m.version('torch')); print(m.version('torchvision'))")
+    if ($LASTEXITCODE -ne 0 -or ($currentPair -join '|') -ne ($gpuPair -join '|')) { throw 'GPU wheel preservation check failed; rerun GPU setup' }
+}
 & $python -I -m ensurepip --upgrade
 if ($LASTEXITCODE -ne 0) { throw 'Local pip bootstrap failed' }
 & $python -I -c "import sysconfig,pathlib; p=pathlib.Path(sysconfig.get_path('purelib')); (p/'00_streamclipper_source.pth').write_text('import sys, os; sys.path.insert(0, os.path.join(sys.prefix, os.pardir, chr(115)+chr(114)+chr(99)))\n',encoding='ascii')"
