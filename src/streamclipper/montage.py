@@ -65,6 +65,20 @@ def speed_ramp(start,end,speeds=(.5,1.,2.)):
     return tuple(Beat(start+(end-start)*i/len(speeds),start+(end-start)*(i+1)/len(speeds),speed)
                  for i,speed in enumerate(speeds))
 
+def sampled_ramp(start,end,initial=.5,final=2.,steps=8,curve="smooth"):
+    """Editable bounded approximation of a speed curve, not continuous DSP."""
+    if type(steps) is not int or not 2<=steps<=32 or not all(math.isfinite(x) for x in (start,end,initial,final)):
+        raise ValueError("Ungültige Rampenparameter")
+    if not 0<=start<end or end-start<.2*steps or not .25<=initial<=4 or not .25<=final<=4:
+        raise ValueError("Zu kurzer Rampenabschnitt oder ungültiges Tempo")
+    if curve not in ("linear","smooth"):raise ValueError("Unbekannte Rampenkurve")
+    def speed(i):
+        x=i/(steps-1)
+        if curve=="smooth":x=x*x*(3-2*x)
+        return initial+(final-initial)*x
+    return tuple(Beat(start+(end-start)*i/steps,start+(end-start)*(i+1)/steps,speed(i))
+                 for i in range(steps))
+
 def atempo(speed):
     if not math.isfinite(speed) or not .25<=speed<=4:raise ValueError("Ungültige Geschwindigkeit")
     factors=[]
@@ -126,7 +140,7 @@ def run_part(cmd,work,cancelled):
                 raise RuntimeError("Montage-FFmpeg: "+err.read().decode("utf-8","replace"))
         finally:_stop_process(proc)
 
-def render_montage(video,plan,destination,*,cancelled=None,progress=None,notice=None,compositions=None):
+def render_montage(video,plan,destination,*,cancelled=None,progress=None,notice=None,compositions=None,verify_sources=None):
     plan.validate(video.duration)
     dest=Path(destination).resolve()
     if dest.suffix.lower()!=".mp4":raise ValueError("MP4-Ausgabe erforderlich")
@@ -186,6 +200,7 @@ def render_montage(video,plan,destination,*,cancelled=None,progress=None,notice=
                 w,h=dimensions(plan.aspect)
                 quality=inspect_export(final,expected_codec="h264",width=w,height=h,duration=expected,audio_expected=True)
                 if cancelled and cancelled():raise CancelledError("Montage abgebrochen")
+                if verify_sources is not None:verify_sources()
                 result=_publish_without_overwrite(final,dest)
                 published=True
                 write_report(quality,result)
