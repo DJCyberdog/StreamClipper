@@ -3287,13 +3287,14 @@ class MainWindow(QMainWindow):
     def import_twitch_video(self) -> None:
         if self._history_blocked:return
         from .video_sources import parse_source
-        url,ok=QInputDialog.getText(self,"Videoimport","HTTPS-Einzelvideo (Twitch, YouTube, Kick, weitere unterstützte Quellen):")
+        from .m18_language import tr
+        url,ok=QInputDialog.getText(self,tr("Videoimport"),tr("HTTPS-Einzelvideo (Twitch, YouTube, Kick, weitere unterstützte Quellen):"))
         if not ok or not url.strip():return
         try:source=parse_source(url)
-        except ValueError as exc:QMessageBox.warning(self,"Video-URL",str(exc));return
-        if QMessageBox.question(self,"Netzwerkzugriff und Rechte",
-            "Nur eigene oder ausdrücklich autorisierte Inhalte importieren. Plattformbedingungen beachten. Öffentliche Abrufbarkeit allein genügt nicht. Metadaten jetzt abrufen?")!=QMessageBox.StandardButton.Yes:return
-        self.progress.setRange(0,0);self.progress.setFormat("Video-Metadaten")
+        except ValueError as exc:QMessageBox.warning(self,tr("Video-URL"),str(exc));return
+        if QMessageBox.question(self,tr("Netzwerkzugriff und Rechte"),
+            tr("Nur eigene oder ausdrücklich autorisierte Inhalte importieren. Plattformbedingungen beachten. Öffentliche Abrufbarkeit allein genügt nicht. Metadaten jetzt abrufen?"))!=QMessageBox.StandardButton.Yes:return
+        self.progress.setRange(0,0);self.progress.setFormat(tr("Video-Metadaten"))
         worker=VideoImportWorker(source.url,parent=self)
         self.worker=worker
         worker.failed.connect(self.job_failed)
@@ -3312,32 +3313,33 @@ class MainWindow(QMainWindow):
         self._video_import_finished_worker(worker)
         if meta is None:return
         from .video_import import choose_formats
+        from .m18_language import tr
         from PySide6.QtWidgets import QDialog,QVBoxLayout,QLabel,QComboBox,QCheckBox,QDialogButtonBox
-        dialog=QDialog(self);dialog.setWindowTitle("Videoimport · "+meta.source.provider)
+        dialog=QDialog(self);dialog.setWindowTitle(tr("Videoimport · ")+meta.source.provider)
         layout=QVBoxLayout(dialog)
-        title=QLabel(f"{meta.title or 'Titel unbekannt'}\n{meta.channel or 'Kanal unbekannt'}\nDauer: {display_time(meta.duration) if meta.duration is not None else 'unbekannt'}")
+        title=QLabel(f"{meta.title or tr('Titel unbekannt')}\n{meta.channel or tr('Kanal unbekannt')}\n{tr('Dauer: ')}{display_time(meta.duration) if meta.duration is not None else tr('unbekannt')}")
         title.setTextFormat(Qt.TextFormat.PlainText);title.setWordWrap(True);layout.addWidget(title)
-        quality=QComboBox();quality.addItem("Beste verfügbare",None)
-        for h in sorted({f.height for f in meta.formats if f.video and f.height},reverse=True):quality.addItem(f"Bis {h}p",h)
+        quality=QComboBox();quality.addItem(tr("Beste verfügbare"),None)
+        for h in sorted({f.height for f in meta.formats if f.video and f.height},reverse=True):quality.addItem(f"{tr('Bis')} {h}p",h)
         layout.addWidget(quality)
-        audio=QComboBox();audio.addItem("Ton automatisch / Original",None)
+        audio=QComboBox();audio.addItem(tr("Ton automatisch / Original"),None)
         for f in meta.formats:
-            if f.audio and not f.video:audio.addItem(f"{f.language or 'Sprache unbekannt'} · {f.ext} · {f.id}",f.id)
+            if f.audio and not f.video:audio.addItem(f"{f.language or tr('Sprache unbekannt')} · {f.ext} · {f.id}",f.id)
         layout.addWidget(audio)
-        container=QComboBox();container.addItem("Original / Zusammenführung ohne Neukodierung","native");container.addItem("MKV (Remux)","mkv");container.addItem("MP4 (Remux, nur kompatible Codecs)","mp4");layout.addWidget(container)
+        container=QComboBox();container.addItem(tr("Original / Zusammenführung ohne Neukodierung"),"native");container.addItem("MKV (Remux)","mkv");container.addItem(tr("MP4 (Remux, nur kompatible Codecs)"),"mp4");layout.addWidget(container)
         estimate=QLabel();estimate.setWordWrap(True);layout.addWidget(estimate)
         limit=QComboBox()
-        for n in (1,4,8,16,32):limit.addItem(f"Maximal {n} GiB",n*1024**3)
+        for n in (1,4,8,16,32):limit.addItem(f"{tr('Maximal')} {n} GiB",n*1024**3)
         limit.setCurrentIndex(2);layout.addWidget(limit)
-        subs=QCheckBox("Vorhandene Untertitel als separate Dateien übernehmen");subs.setEnabled(bool(meta.subtitles));layout.addWidget(subs)
-        opened=QCheckBox("Nach erfolgreichem Download im Editor öffnen");layout.addWidget(opened)
+        subs=QCheckBox(tr("Vorhandene Untertitel als separate Dateien übernehmen"));subs.setEnabled(bool(meta.subtitles));layout.addWidget(subs)
+        opened=QCheckBox(tr("Nach erfolgreichem Download im Editor öffnen"));layout.addWidget(opened)
         buttons=QDialogButtonBox(QDialogButtonBox.StandardButton.Ok|QDialogButtonBox.StandardButton.Cancel);layout.addWidget(buttons)
-        buttons.button(QDialogButtonBox.StandardButton.Ok).setText("Download vorbereiten")
+        buttons.button(QDialogButtonBox.StandardButton.Ok).setText(tr("Download vorbereiten"))
         def update():
             try:
                 selected=choose_formats(meta,quality.currentData(),audio.currentData())
                 size=sum(f.bytes for f in selected) if all(f.bytes for f in selected) else None
-                estimate.setText("Format: "+" + ".join(f.ext for f in selected)+" · "+("geschätzt %.2f GiB"%(size/1024**3) if size else "Größe unbekannt")+" · "+("Ton vorhanden" if any(f.audio for f in selected) else "Keine Tonspur verfügbar"))
+                estimate.setText("Format: "+" + ".join(f.ext for f in selected)+" · "+(tr("geschätzt %.2f GiB")%(size/1024**3) if size else tr("Größe unbekannt"))+" · "+(tr("Ton vorhanden") if any(f.audio for f in selected) else tr("Keine Tonspur verfügbar")))
                 buttons.button(QDialogButtonBox.StandardButton.Ok).setEnabled(True)
             except ValueError as exc:
                 estimate.setText(str(exc));buttons.button(QDialogButtonBox.StandardButton.Ok).setEnabled(False)
@@ -3345,7 +3347,7 @@ class MainWindow(QMainWindow):
         buttons.accepted.connect(dialog.accept);buttons.rejected.connect(dialog.reject)
         if dialog.exec()!=QDialog.DialogCode.Accepted:return
         default=installation_directory()/"data"/"imports";default.mkdir(parents=True,exist_ok=True)
-        folder=QFileDialog.getExistingDirectory(self,"Import speichern",str(default))
+        folder=QFileDialog.getExistingDirectory(self,tr("Import speichern"),str(default))
         if not folder:return
         worker=VideoImportWorker(meta,folder,{"height":quality.currentData(),"audio_id":audio.currentData(),
             "subtitles":subs.isChecked(),"max_bytes":limit.currentData(),"container":container.currentData()},self)
@@ -3354,27 +3356,29 @@ class MainWindow(QMainWindow):
         worker.done.connect(lambda path,open_after=opened.isChecked():self._video_download_done(path,open_after))
         worker.failed.connect(self.job_failed)
         worker.finished.connect(lambda w=worker:self._video_import_finished_worker(w))
-        self.progress.setRange(0,0);self.progress.setFormat("Videoimport wird vorbereitet")
+        self.progress.setRange(0,0);self.progress.setFormat(tr("Videoimport wird vorbereitet"))
         self._busy(True);worker.start()
 
     def _video_import_progress(self,row):
+        from .m18_language import tr
         stage=row["stage"];done=row.get("done");total=row.get("total")
         if stage=="download" and total and done is not None:
             self.progress.setRange(0,100);self.progress.setValue(min(99,round(100*done/total)))
         elif stage=="complete":self.progress.setRange(0,100);self.progress.setValue(100)
         else:self.progress.setRange(0,0)
-        self.progress.setFormat("FFmpeg-Merge" if stage=="merge" else "Videoimport · %p %" if total else "Videoimport")
-        text="Videoimport · "+stage
+        self.progress.setFormat(tr("FFmpeg-Merge") if stage=="merge" else tr("Videoimport · %p %") if total else tr("Videoimport"))
+        text=tr("Videoimport · ")+stage
         if done is not None:text+=f" · {done/1024**2:.1f} MiB"
         if row.get("speed") is not None:text+=f" · {row['speed']/1024**2:.1f} MiB/s"
         if row.get("eta") is not None:text+=f" · ETA {display_time(row['eta'])}"
         self.phase_status.setText(text)
 
     def _video_download_done(self,path,open_after):
+        from .m18_language import tr
         self.progress.setRange(0,100);self.progress.setValue(100)
-        self.phase_status.setText("Videoimport abgeschlossen")
+        self.phase_status.setText(tr("Videoimport abgeschlossen"))
         if open_after:self.load_video_source(str(path))
-        self.statusBar().showMessage("Video importiert: "+str(path))
+        self.statusBar().showMessage(tr("Video importiert: ")+str(path))
 
     def select_model_preset(self, kind: str) -> None:
         selected = self.model_selectors[kind].currentData()
