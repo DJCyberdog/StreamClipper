@@ -1,3 +1,7 @@
+# NEXT_TASK — M16 integrated pilot (Owner 2026-11-26)
+
+Owner authorized parallel M16 development while locally testing M15; previous no-start gate is superseded for stacked development only, not merge/acceptance. PR #54, see docs/M16_ACCEPTANCE.md. Check exact head CI; fix concrete failures; acquire authorized frozen >=100-moment corpus, run baseline/M16 paired benchmark and native 6h RTX evidence. Remaining scope and gates documented; no quality claim, merge or M17. M15 remains separately testable.
+
 # NEXT_TASK — M15 unified acceptance
 
 M15a–f technical implementation exists; exact prior 1a346205 all four workflows PASS. M15f now adds frozen audio/annotation/split lock and paired comparison. See docs/M15F_ACCEPTANCE.md. Verify new head CI. Do not repeat passed hosted smokes as a substitute for actual independent gaming benchmark. Remaining work is acquisition of authorized real corpus, native Windows RTX 5060 Ti six-hour evidence and listening, exact distribution/license review, evidence-based ASR/optional alignment choice. No M16 or merge until acceptance; M14 native gate separately open.
