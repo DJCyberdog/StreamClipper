@@ -12,7 +12,7 @@ class Integrations(QObject):
     def __init__(self,window):
         super().__init__(window);self.w=window;self.watch=None;self.ready=[];self.deck=False
         self.channels_enabled=False;self.channels_path=root()/"channels.json";self.channels=[]
-        self.obs_password=None;self.obs_session=None;self.obs_kind="obs-record";self.obs_port=4455
+        self.youtube_token=None;self.obs_password=None;self.obs_session=None;self.obs_kind="obs-record";self.obs_port=4455
         self.next_watch=0.;self.next_channel=0.
         menu=window.menuBar().addMenu("Integrationen (M18)")
         self.menu=menu
@@ -27,13 +27,14 @@ class Integrations(QObject):
             ("Schnittliste EDL / FCPXML …",self.nle),
             ("GIF / WebM exportieren …",self.alternative),
             ("Vorhandene SRT/VTT-Unterttitel übernehmen …",self.subtitles),
+            ("YouTube-Konto vorbereiten (OAuth-Pilot) …",self.youtube),
             ("Interface language / Sprache …",self.language)]:
             menu.addAction(label,fn)
         self.deck_action=menu.addAction("Lokale Stream-Deck-Befehle annehmen (Sitzung)")
         self.deck_action.setCheckable(True);self.deck_action.toggled.connect(self.set_deck)
         self.timer=QTimer(self);self.timer.setInterval(1000);self.timer.timeout.connect(self.tick);self.timer.start()
     def stop(self):
-        self.timer.stop();self.deck=False;self.channels_enabled=False;self.obs_password=None
+        self.timer.stop();self.deck=False;self.channels_enabled=False;self.obs_password=None;self.youtube_token=None
     def idle(self):
         w=self.w
         return not (w._history_blocked or (w.worker and w.worker.isRunning()) or
@@ -229,6 +230,42 @@ class Integrations(QObject):
         if QMessageBox.question(w,"Untertitel",f"{len(cues)} vorhandene Untertitel übernehmen? Aktuelles Transkript wird ersetzt (Undo verfügbar).")!=QMessageBox.StandardButton.Yes:return
         w.analysis_finished(replace(previous,transcript=cues,translations=(),caption_language=""),preserve_history=True)
         w._register_edit(previous)
+    def youtube(self):
+        if not self.idle():return
+        from .publish_prepare import authorize_youtube
+        from . import publish_credentials as vault
+        action,ok=QInputDialog.getItem(self.w,"YouTube OAuth (M18)","Nur Kontovorbereitung, kein Upload:",
+            ["Registrierte Desktop-App verbinden","Gespeicherten Token laden","Lokalen Token entfernen"],0,False)
+        if not ok:return
+        client,ok=QInputDialog.getText(self.w,"Google Desktop Client","Registrierte OAuth-Client-ID:")
+        if not ok:return
+        try:vault.target(client)
+        except ValueError as exc:self.error("YouTube",exc);return
+        if action=="Lokalen Token entfernen":
+            self.youtube_token=None
+            if vault.supported():
+                try:vault.remove(client)
+                except (OSError,RuntimeError) as exc:self.error("YouTube",exc)
+            return
+        if action=="Gespeicherten Token laden":
+            if not vault.supported():self.error("YouTube","Windows-Tokenspeicher nicht verfügbar");return
+            try:self.youtube_token=vault.read(client)
+            except (OSError,RuntimeError) as exc:self.error("YouTube",exc);return
+            self.w.statusBar().showMessage("Token lokal geladen; API-Zugriff noch nicht validiert" if self.youtube_token else "Kein Token gespeichert")
+            return
+        secret,ok=QInputDialog.getText(self.w,"Google Desktop Client","Client-Secret (nur Sitzung):",QLineEdit.EchoMode.Password)
+        if not ok:return
+        if QMessageBox.question(self.w,"YouTube OAuth","Offiziellen Google-Systembrowser-Login mit Upload-Scope öffnen? Es werden keine Medien übertragen.")!=QMessageBox.StandardButton.Yes:return
+        remember=vault.supported() and QMessageBox.question(self.w,"Tokenspeicher","Token in Windows Credential Manager speichern? Nein = nur Sitzung.")==QMessageBox.StandardButton.Yes
+        def operation(cancel):
+            return authorize_youtube(client,secret,authorized=True,cancelled=cancel)
+        def complete(token):
+            self.youtube_token=token
+            if remember:
+                try:vault.save(client,token)
+                except (ValueError,OSError,RuntimeError) as exc:self.error("Tokenspeicher",exc)
+            self.w.statusBar().showMessage("OAuth-Autorisierung erhalten – kein Upload, keine API-Abnahme")
+        self.run(operation,complete)
     def language(self):
         from .m18_language import apply_language
         choice,ok=QInputDialog.getItem(self.w,"Language / Sprache","Primary controls / Hauptbedienung:",["Deutsch","English (partial)"],0,False)
