@@ -21,6 +21,7 @@ def main():
     p.add_argument("--clip-seconds",type=int,default=25)
     p.add_argument("--tune-development",action="store_true")
     p.add_argument("--fast-vision",action="store_true")
+    p.add_argument("--hardware",choices=["legacy","auto","gpu","cpu"],default="legacy")
     args=p.parse_args()
     manifest=Path(args.manifest).resolve(strict=True)
     lock=json.loads(Path(args.lock).read_text(encoding="utf-8"))
@@ -33,7 +34,7 @@ def main():
             "model_sha256":digest(models),"settings_sha256":digest({"clip_seconds":args.clip_seconds,
                     "visual_budget":args.visual_budget,"object_budget":args.object_budget,"profile":args.profile}),
             "profile":args.profile,"model_fingerprints":models,
-            "fast_vision_variant":args.fast_vision,"tune_development":args.tune_development}
+            "hardware_variant":args.hardware,"fast_vision_variant":args.fast_vision,"tune_development":args.tune_development}
     out=Path(args.output);out.mkdir(parents=True,exist_ok=False)
     reports={name:{**shared,"engine":name,"predictions":{},"resources":{}} for name in ("baseline","m16")}
     dev_evidence={};tuned=None
@@ -53,7 +54,7 @@ def main():
             with ResourceSampler() as resources:
                 extra={}
                 if name=="m16":
-                    extra={"profile":args.profile,"fast_vision":args.fast_vision,"ranking_weights":tuned}
+                    extra={"profile":args.profile,"fast_vision":args.fast_vision,"hardware_mode":args.hardware,"ranking_weights":tuned}
                     if args.tune_development and vod["split"]=="development":
                         extra["evidence_sink"]=lambda rows:dev_evidence.__setitem__(key,rows)
                 result=engine(str(path),args.clip_seconds,8,**options,**extra)
