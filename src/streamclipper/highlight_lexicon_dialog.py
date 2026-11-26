@@ -1,6 +1,7 @@
 """Small, user-owned customization dialog for speech-highlight cue words."""
 from __future__ import annotations
 
+from .m18_language import tr
 from PySide6.QtWidgets import (
     QComboBox, QDialog, QDialogButtonBox, QFormLayout, QHBoxLayout,
     QLabel, QLineEdit, QMessageBox, QPushButton, QTableWidget,
@@ -22,19 +23,19 @@ PRIORITY_LABELS = {
 class HighlightLexiconDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Eigene Highlight-Wörter")
+        self.setWindowTitle(tr("Eigene Highlight-Wörter"))
         self.resize(700, 485)
         self._rules = load_custom_rules()
         layout = QVBoxLayout(self)
-        label = QLabel("Standardwörter pflegt StreamClipper. Hier kannst du eigene Ausdrücke "
-                       "hinzufügen oder deren Priorität überschreiben. Keine Regex nötig.")
+        label = QLabel(tr("Standardwörter pflegt StreamClipper. Hier kannst du eigene Ausdrücke "
+                       "hinzufügen oder deren Priorität überschreiben. Keine Regex nötig."))
         label.setWordWrap(True)
         layout.addWidget(label)
         tabs = QTabWidget()
         personal_page = QWidget()
         personal_layout = QVBoxLayout(personal_page)
         self.table = QTableWidget(0, 3)
-        self.table.setHorizontalHeaderLabels(["Ausdruck", "Kategorie", "Priorität"])
+        self.table.setHorizontalHeaderLabels([tr("Ausdruck"), tr("Kategorie"), tr("Priorität")])
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.table.horizontalHeader().setStretchLastSection(True)
@@ -43,10 +44,10 @@ class HighlightLexiconDialog(QDialog):
         standard_page = QWidget()
         standard_layout = QVBoxLayout(standard_page)
         standard_layout.addWidget(QLabel(
-            "Diese Liste ist fest in der aktuellen StreamClipper-Version enthalten. "
-            "Eigene Begriffe können ihre Priorität überschreiben."))
+            tr("Diese Liste ist fest in der aktuellen StreamClipper-Version enthalten. "
+            "Eigene Begriffe können ihre Priorität überschreiben.")))
         defaults = QTableWidget(len(DEFAULT_RULES), 3)
-        defaults.setHorizontalHeaderLabels(["Ausdruck", "Kategorie", "Priorität"])
+        defaults.setHorizontalHeaderLabels([tr("Ausdruck"), tr("Kategorie"), tr("Priorität")])
         defaults.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         defaults.horizontalHeader().setStretchLastSection(True)
         for index, rule in enumerate(DEFAULT_RULES):
@@ -54,35 +55,35 @@ class HighlightLexiconDialog(QDialog):
                                          PRIORITY_LABELS[rule.priority])):
                 defaults.setItem(index, col, QTableWidgetItem(label))
         standard_layout.addWidget(defaults)
-        tabs.addTab(personal_page, "Eigene Wörter")
-        tabs.addTab(standard_page, "Standardliste")
+        tabs.addTab(personal_page, tr("Eigene Wörter"))
+        tabs.addTab(standard_page, tr("Standardliste"))
         layout.addWidget(tabs)
         form = QFormLayout()
         self.phrase = QLineEdit()
-        self.phrase.setPlaceholderText("z. B. Nicht dein Ernst!")
-        form.addRow("Wort oder Satz", self.phrase)
+        self.phrase.setPlaceholderText(tr("z. B. Nicht dein Ernst!"))
+        form.addRow(tr("Wort oder Satz"), self.phrase)
         self.category = QComboBox()
         for key, value in CATEGORIES.items():
-            self.category.addItem(value, key)
-        form.addRow("Kategorie", self.category)
+            self.category.addItem(tr(value), key)
+        form.addRow(tr("Kategorie"), self.category)
         self.priority = QComboBox()
         for key, value in PRIORITY_LABELS.items():
-            self.priority.addItem(value, key)
-        form.addRow("Priorität", self.priority)
+            self.priority.addItem(tr(value), key)
+        form.addRow(tr("Priorität"), self.priority)
         layout.addLayout(form)
         row = QHBoxLayout()
-        self.add_button = QPushButton("Hinzufügen / Auswahl ersetzen")
+        self.add_button = QPushButton(tr("Hinzufügen / Auswahl ersetzen"))
         self.add_button.clicked.connect(self.upsert)
         row.addWidget(self.add_button)
-        self.new_button = QPushButton("Neue Eingabe")
+        self.new_button = QPushButton(tr("Neue Eingabe"))
         self.new_button.clicked.connect(self.clear_selection)
         row.addWidget(self.new_button)
-        self.delete_button = QPushButton("Ausgewählten Eintrag löschen")
+        self.delete_button = QPushButton(tr("Ausgewählten Eintrag löschen"))
         self.delete_button.clicked.connect(self.delete_selected)
         row.addWidget(self.delete_button)
         layout.addLayout(row)
-        layout.addWidget(QLabel("Die Liste wird nur für zukünftige Analysen verwendet. "
-                                "Vorhandene Highlights bleiben unverändert."))
+        layout.addWidget(QLabel(tr("Die Liste wird nur für zukünftige Analysen verwendet. "
+                                "Vorhandene Highlights bleiben unverändert.")))
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Save |
                                    QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(self.save)
@@ -128,7 +129,7 @@ class HighlightLexiconDialog(QDialog):
         try:
             self._rules = validate_custom_rules(proposed)
         except ValueError as exc:
-            QMessageBox.warning(self, "Ungültiger Ausdruck", str(exc))
+            QMessageBox.warning(self, tr("Ungültiger Ausdruck"), str(exc))
             return
         self.refresh()
         self.clear_selection()
@@ -144,6 +145,6 @@ class HighlightLexiconDialog(QDialog):
         try:
             save_custom_rules(self._rules)
         except (OSError, ValueError) as exc:
-            QMessageBox.warning(self, "Konnte Wortliste nicht speichern", str(exc))
+            QMessageBox.warning(self, tr("Konnte Wortliste nicht speichern"), str(exc))
             return
         self.accept()

@@ -1,5 +1,6 @@
 """Staged translations for the selected highlight; local model runs in QThread."""
 from threading import Event
+from .m18_language import tr
 from PySide6.QtCore import QThread,Signal,Qt
 from PySide6.QtWidgets import (QDialog,QVBoxLayout,QHBoxLayout,QLabel,QLineEdit,QTableWidget,
     QTableWidgetItem,QPushButton,QFileDialog,QMessageBox,QDialogButtonBox)
@@ -28,16 +29,16 @@ class TranslationDialog(QDialog):
         self.rows=tuple(rows)
         self.worker=None
         self.closing=False
-        self.setWindowTitle("Untertitel übersetzen · lokal")
+        self.setWindowTitle(tr("Untertitel übersetzen · lokal"))
         self.resize(900,520)
         layout=QVBoxLayout(self)
-        self.hint=QLabel("Original bleibt unverändert. Sprachcode und passendes gerichtetes Marian-Modell wählen. "
-                         "Übersetzungen übernehmen Abschnittszeiten, keine erfundenen Wortzeiten.")
+        self.hint=QLabel(tr("Original bleibt unverändert. Sprachcode und passendes gerichtetes Marian-Modell wählen. "
+                         "Übersetzungen übernehmen Abschnittszeiten, keine erfundenen Wortzeiten."))
         self.hint.setWordWrap(True);layout.addWidget(self.hint)
         self.language=QLineEdit(result.caption_language or "en")
-        layout.addWidget(QLabel("Zielsprache (z. B. de, en)"));layout.addWidget(self.language)
+        layout.addWidget(QLabel(tr("Zielsprache (z. B. de, en)")));layout.addWidget(self.language)
         self.table=QTableWidget(len(rows),3)
-        self.table.setHorizontalHeaderLabels(["Quellzeit","Original","Übersetzung"])
+        self.table.setHorizontalHeaderLabels([tr("Quellzeit"),"Original",tr("Übersetzung")])
         self.table.horizontalHeader().setStretchLastSection(True)
         for i,row in enumerate(rows):
             cue=result.transcript[row]
@@ -46,9 +47,9 @@ class TranslationDialog(QDialog):
                 self.table.setItem(i,col,cell)
         layout.addWidget(self.table)
         row=QHBoxLayout()
-        self.load_button=QPushButton("Sprache laden");self.load_button.clicked.connect(self.load)
-        self.generate_button=QPushButton("Fehlende Texte lokal übersetzen …");self.generate_button.clicked.connect(self.generate)
-        self.original_button=QPushButton("Original aktivieren");self.original_button.clicked.connect(self.use_original)
+        self.load_button=QPushButton(tr("Sprache laden"));self.load_button.clicked.connect(self.load)
+        self.generate_button=QPushButton(tr("Fehlende Texte lokal übersetzen …"));self.generate_button.clicked.connect(self.generate)
+        self.original_button=QPushButton(tr("Original aktivieren"));self.original_button.clicked.connect(self.use_original)
         for button in (self.load_button,self.generate_button,self.original_button):row.addWidget(button)
         layout.addLayout(row)
         self.buttons=QDialogButtonBox(QDialogButtonBox.StandardButton.Save|QDialogButtonBox.StandardButton.Cancel)
@@ -60,7 +61,7 @@ class TranslationDialog(QDialog):
         if self.worker:return
         language=self.language.text().strip()
         if not LANGUAGE.fullmatch(language):
-            QMessageBox.warning(self,"Sprache","Ungültiger Sprachcode");return
+            QMessageBox.warning(self,tr("Sprache"),tr("Ungültiger Sprachcode"));return
         self.loaded_language=language
         lookup={t.source_sha256:t for t in self.original.translations if t.language==language}
         self.generated={}
@@ -72,10 +73,10 @@ class TranslationDialog(QDialog):
     def generate(self):
         if self.worker:return
         if self.language.text().strip()!=self.loaded_language:
-            QMessageBox.warning(self,"Sprache","Bitte zuerst Sprache laden.");return
+            QMessageBox.warning(self,tr("Sprache"),tr("Bitte zuerst Sprache laden."));return
         indices=[i for i in range(len(self.rows)) if not self.table.item(i,2).text().strip()]
         if not indices:return
-        folder=QFileDialog.getExistingDirectory(self,"Lokalen Marian-Modellordner auswählen")
+        folder=QFileDialog.getExistingDirectory(self,tr("Lokalen Marian-Modellordner auswählen"))
         if not folder:return
         self.indices=indices
         self.worker=TranslationWorker([self.original.transcript[self.rows[i]].text for i in indices],folder,self)
@@ -104,17 +105,17 @@ class TranslationDialog(QDialog):
     def finish(self):
         if self.worker:return
         if self.language.text().strip()!=self.loaded_language:
-            QMessageBox.warning(self,"Sprache","Bitte zuerst Sprache laden.");return
+            QMessageBox.warning(self,tr("Sprache"),tr("Bitte zuerst Sprache laden."));return
         entries=[]
         for i,row in enumerate(self.rows):
             text=self.table.item(i,2).text().strip()
             old=self.generated.get(i)
             entries.append((row,text,old[1] if old and old[0]==text else "manual"))
         try:self.value=set_translations(self.original,self.loaded_language,entries)
-        except ValueError as exc:QMessageBox.warning(self,"Übersetzung",str(exc));return
+        except ValueError as exc:QMessageBox.warning(self,tr("Übersetzung"),str(exc));return
         self.accept()
 
     def reject(self):
         if self.worker:
-            self.closing=True;self.worker.stop.set();self.hint.setText("Abbruch läuft …");return
+            self.closing=True;self.worker.stop.set();self.hint.setText(tr("Abbruch läuft …"));return
         super().reject()

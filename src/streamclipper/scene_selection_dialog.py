@@ -1,4 +1,5 @@
 """M13a scene-selection dialog; edits are staged until explicit save."""
+from .m18_language import tr
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QDialog, QDialogButtonBox, QVBoxLayout, QHBoxLayout, QFormLayout,
@@ -15,22 +16,22 @@ class SceneSelectionDialog(QDialog):
         self.video = video
         self.plan = plan if plan is not None else load_selection(video, start, end)
         self.commit = commit
-        self.setWindowTitle("Szenenauswahl")
+        self.setWindowTitle(tr("Szenenauswahl"))
         self.resize(900, 680)
         self.frame_worker = None
         self.subject_point = None
         self.frame_at = None
         layout = QVBoxLayout(self)
-        layout.addWidget(QLabel("Szenen bearbeiten · Reihenfolge entspricht der geplanten Ausgabe.\n"
-                                "Original bleibt unverändert; Manuell erhält die markierte Region, Fester Crop füllt das Zielformat."))
+        layout.addWidget(QLabel(tr("Szenen bearbeiten · Reihenfolge entspricht der geplanten Ausgabe.\n"
+                                "Original bleibt unverändert; Manuell erhält die markierte Region, Fester Crop füllt das Zielformat.")))
         self.scenes = QListWidget()
         layout.addWidget(self.scenes)
         self.monitor = RegionMonitor()
         layout.addWidget(self.monitor, 1)
-        self.frame_button = QPushButton("Quellbild am Schnittpunkt laden")
+        self.frame_button = QPushButton(tr("Quellbild am Schnittpunkt laden"))
         self.frame_button.clicked.connect(self._load_frame)
         layout.addWidget(self.frame_button)
-        self.frame_status = QLabel("Bildregion mit der Maus aufziehen; Koordinaten bleiben editierbar.")
+        self.frame_status = QLabel(tr("Bildregion mit der Maus aufziehen; Koordinaten bleiben editierbar."))
         layout.addWidget(self.frame_status)
         self.monitor.region_changed.connect(self._region_marked)
         self.monitor.point_clicked.connect(self._subject_clicked)
@@ -41,24 +42,24 @@ class SceneSelectionDialog(QDialog):
         self.start = self._number(start, end, 3)
         self.end = self._number(start, end, 3)
         self.cut = self._number(start, end, 3)
-        self.included = QCheckBox("In Ausgabe einschließen")
+        self.included = QCheckBox(tr("In Ausgabe einschließen"))
         self.mode = QComboBox()
-        for label, value in (("Manuell", "manual"), ("Automatisch", "automatic"), ("Fester Crop", "fixed")):
+        for label, value in ((tr("Manuell"), "manual"), (tr("Automatisch"), "automatic"), (tr("Fester Crop"), "fixed")):
             self.mode.addItem(label, value)
         self.region = [self._number(0, 1, 4) for _ in range(4)]
-        form.addRow("In (Quellsekunden)", self.start)
-        form.addRow("Out (Quellsekunden)", self.end)
-        form.addRow("Kameramodus", self.mode)
+        form.addRow(tr("In (Quellsekunden)"), self.start)
+        form.addRow(tr("Out (Quellsekunden)"), self.end)
+        form.addRow(tr("Kameramodus"), self.mode)
         form.addRow(self.included)
-        for label, field in zip(("Region X", "Region Y", "Region Breite", "Region Höhe"), self.region):
+        for label, field in zip(("Region X", "Region Y", tr("Region Breite"), tr("Region Höhe")), self.region):
             form.addRow(label + " (0–1)", field)
-        form.addRow("Schnittpunkt (Quellsekunden)", self.cut)
+        form.addRow(tr("Schnittpunkt (Quellsekunden)"), self.cut)
         layout.addLayout(form)
         buttons = QHBoxLayout()
-        for label, action in (("Änderungen übernehmen", self._apply),
-                              ("Teilen", self._split),
-                              ("Nach oben", lambda: self._move(-1)),
-                              ("Nach unten", lambda: self._move(1))):
+        for label, action in ((tr("Änderungen übernehmen"), self._apply),
+                              (tr("Teilen"), self._split),
+                              (tr("Nach oben"), lambda: self._move(-1)),
+                              (tr("Nach unten"), lambda: self._move(1))):
             button = QPushButton(label)
             button.clicked.connect(action)
             buttons.addWidget(button)
@@ -108,7 +109,7 @@ class SceneSelectionDialog(QDialog):
 
     def _subject_clicked(self, point):
         self.subject_point = point
-        self.frame_status.setText("Subject-Punkt gewählt · Smart Director öffnen und Subject Lock starten")
+        self.frame_status.setText(tr("Subject-Punkt gewählt · Smart Director öffnen und Subject Lock starten"))
 
     def _director(self):
         if self.frame_worker is not None:
@@ -141,14 +142,14 @@ class SceneSelectionDialog(QDialog):
             return
         at = min(self.cut.value(), self.video.duration-.001)
         if at < 0 or not self.start.value() <= at < self.end.value():
-            self.frame_status.setText("Schnittpunkt muss innerhalb der Szene liegen.")
+            self.frame_status.setText(tr("Schnittpunkt muss innerhalb der Szene liegen."))
             return
         self.monitor.set_frame(b"")
         self.subject_point = None
         self.frame_at = None
         self.frame_button.setEnabled(False)
         self.scenes.setEnabled(False)
-        self.frame_status.setText("Quellbild wird geladen …")
+        self.frame_status.setText(tr("Quellbild wird geladen …"))
         worker = FrameWorker(self.video, at, self)
         self.frame_worker = worker
         worker.ready.connect(self._frame_ready)
@@ -162,7 +163,7 @@ class SceneSelectionDialog(QDialog):
             self.frame_at = worker.at
             self.frame_status.setText(f"Quellbild bei ca. {worker.at:.3f} s · Region mit Maus aufziehen")
         else:
-            self.frame_status.setText("Quellbild konnte nicht angezeigt werden.")
+            self.frame_status.setText(tr("Quellbild konnte nicht angezeigt werden."))
 
     def _frame_finished(self):
         worker = self.frame_worker
@@ -178,7 +179,7 @@ class SceneSelectionDialog(QDialog):
     def reject(self):
         if self.frame_worker is not None:
             self.frame_worker.cancelled.set()
-            self.frame_status.setText("Bildabruf wird abgebrochen; danach Dialog schließen.")
+            self.frame_status.setText(tr("Bildabruf wird abgebrochen; danach Dialog schließen."))
             return
         super().reject()
 
@@ -188,7 +189,7 @@ class SceneSelectionDialog(QDialog):
         try:
             self.plan = action()
         except ValueError as exc:
-            QMessageBox.warning(self, "Szenenänderung nicht möglich", str(exc))
+            QMessageBox.warning(self, tr("Szenenänderung nicht möglich"), str(exc))
             return False
         self._refresh(index)
         return True
@@ -221,6 +222,6 @@ class SceneSelectionDialog(QDialog):
             else:
                 save_selection(self.video, self.plan)
         except (OSError, ValueError) as exc:
-            QMessageBox.warning(self, "Szenenplan nicht gespeichert", str(exc))
+            QMessageBox.warning(self, tr("Szenenplan nicht gespeichert"), str(exc))
             return
         self.accept()

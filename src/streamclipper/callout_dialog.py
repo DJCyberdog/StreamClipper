@@ -1,4 +1,5 @@
 """Editable graphics on the existing timeline; preview uses shared rasterizer."""
+from .m18_language import tr
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QImage,QPixmap
 from PySide6.QtWidgets import (QDialog,QVBoxLayout,QFormLayout,QComboBox,QPlainTextEdit,
@@ -12,22 +13,22 @@ class CalloutDialog(QDialog):
         self.canvas=canvas
         self.spec=item.callout if item else Callout(text="Highlight!")
         self.geometry_values={}
-        self.setWindowTitle("Text und Callout gestalten")
+        self.setWindowTitle(tr("Text und Callout gestalten"))
         self.resize(560,730)
         layout=QVBoxLayout(self)
         form=QFormLayout()
         self.kind=QComboBox()
-        for label,value in (("Text","text"),("Sprechblase","bubble"),("Pfeil","arrow"),
-                            ("Rechteck","rectangle"),("Ellipse","ellipse")):self.kind.addItem(label,value)
+        for label,value in (("Text","text"),(tr("Sprechblase"),"bubble"),(tr("Pfeil"),"arrow"),
+                            (tr("Rechteck"),"rectangle"),("Ellipse","ellipse")):self.kind.addItem(label,value)
         self.kind.setCurrentIndex(self.kind.findData(self.spec.kind))
         self.text=QPlainTextEdit(self.spec.text);self.text.setMaximumHeight(75)
         self.foreground=QLineEdit(self.spec.foreground)
         self.background=QLineEdit(self.spec.background)
         self.accent=QLineEdit(self.spec.accent)
         self.direction=QComboBox()
-        for label,value in (("Rechts","right"),("Links","left"),("Oben","up"),("Unten","down")):self.direction.addItem(label,value)
+        for label,value in ((tr("Rechts"),"right"),(tr("Links"),"left"),(tr("Oben"),"up"),(tr("Unten"),"down")):self.direction.addItem(label,value)
         self.direction.setCurrentIndex(self.direction.findData(self.spec.direction))
-        self.filled=QCheckBox("Hintergrund füllen");self.filled.setChecked(self.spec.filled)
+        self.filled=QCheckBox(tr("Hintergrund füllen"));self.filled.setChecked(self.spec.filled)
         self.scale=self.number(.5,2,self.spec.font_scale)
         self.start=self.number(0,duration,item.timeline_start if item else start)
         self.end=self.number(0,duration,item.timeline_start+item.source_end-item.source_start if item else end)
@@ -36,20 +37,20 @@ class CalloutDialog(QDialog):
         self.w=self.number(.05,1,item.width if item else .8)
         self.h=self.number(.05,1,item.height if item else .2)
         self.opacity=self.number(0,1,item.opacity if item else 1)
-        for label,field in (("Typ",self.kind),("Text",self.text),("Textfarbe",self.foreground),
-                ("Hintergrund",self.background),("Akzent",self.accent),("Pfeilrichtung",self.direction),
-                ("Füllung",self.filled),("Schriftgröße",self.scale),("Start (s)",self.start),
-                ("Ende (s)",self.end),("X (relativ)",self.x),("Y (relativ)",self.y),
-                ("Breite",self.w),("Höhe",self.h),("Deckkraft",self.opacity)):
+        for label,field in ((tr("Typ"),self.kind),("Text",self.text),(tr("Textfarbe"),self.foreground),
+                (tr("Hintergrund"),self.background),(tr("Akzent"),self.accent),(tr("Pfeilrichtung"),self.direction),
+                (tr("Füllung"),self.filled),(tr("Schriftgröße"),self.scale),("Start (s)",self.start),
+                (tr("Ende (s)"),self.end),(tr("X (relativ)"),self.x),(tr("Y (relativ)"),self.y),
+                (tr("Breite"),self.w),(tr("Höhe"),self.h),(tr("Deckkraft"),self.opacity)):
             form.addRow(label,field)
         layout.addLayout(form)
         self.preview=QLabel();self.preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.preview.setMinimumHeight(120)
         self.preview.setStyleSheet("background:#303038; border:1px solid #666;")
         layout.addWidget(self.preview,1)
-        refresh=QPushButton("Grafikvorschau aktualisieren");refresh.clicked.connect(self.refresh);layout.addWidget(refresh)
-        hint=QLabel("Position im Ausgabeformat, nach dem Kamera-Crop. Die Grafikvorschau zeigt das Element, "
-                    "die Render-Vorschau anschließend den vollständigen Clip.")
+        refresh=QPushButton(tr("Grafikvorschau aktualisieren"));refresh.clicked.connect(self.refresh);layout.addWidget(refresh)
+        hint=QLabel(tr("Position im Ausgabeformat, nach dem Kamera-Crop. Die Grafikvorschau zeigt das Element, "
+                    "die Render-Vorschau anschließend den vollständigen Clip."))
         hint.setWordWrap(True);layout.addWidget(hint)
         box=QDialogButtonBox(QDialogButtonBox.StandardButton.Save|QDialogButtonBox.StandardButton.Cancel)
         box.accepted.connect(self.finish);box.rejected.connect(self.reject);layout.addWidget(box)
@@ -87,5 +88,5 @@ class CalloutDialog(QDialog):
     def finish(self):
         try:self.spec,self.geometry_values=self.render()
         except (ValueError,RuntimeError,ImportError) as exc:
-            QMessageBox.warning(self,"Callout prüfen",str(exc));return
+            QMessageBox.warning(self,tr("Callout prüfen"),str(exc));return
         self.accept()
