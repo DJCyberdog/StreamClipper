@@ -53,6 +53,8 @@ class QueueJob:
 
 
 def _snapshot(request: RenderRequest) -> dict:
+    from .montage_request import MontageRequest,snapshot
+    if isinstance(request,MontageRequest):return snapshot(request.validate(verify_media=True))
     request.validate()
     return asdict(request)
 
@@ -60,6 +62,10 @@ def _snapshot(request: RenderRequest) -> dict:
 def _rehydrate(record: dict) -> RenderRequest:
     if not isinstance(record, dict) or not isinstance(record.get("video"), dict):
         raise ValueError("Renderqueue-Request beschädigt")
+    if record.get("kind")=="montage-v1":
+        from .montage_request import rehydrate
+        return rehydrate(record)
+    if record.get("kind") is not None:raise ValueError("Unbekannter Renderjob-Typ")
     doc = dict(record)
     doc["video"] = VideoInfo(**doc["video"])
     doc["transcript"] = tuple(
@@ -367,9 +373,13 @@ class RenderQueue:
                             if percent > actual.progress:
                                 self._set(job.id, progress=percent)
 
-                result = render_request(
-                    request, job.destination, progress=update,
-                    cancelled=self._cancel.is_set, encoder_notice=notice)
+                from .montage_request import MontageRequest
+                if isinstance(request,MontageRequest):
+                    result=request.render(job.destination,progress=update,cancelled=self._cancel.is_set,encoder_notice=notice)
+                else:
+                    result = render_request(
+                        request, job.destination, progress=update,
+                        cancelled=self._cancel.is_set, encoder_notice=notice)
                 if self._cancel.is_set():
                     return self._set(job.id, status="INTERRUPTED",
                         detail="Nach Rendern abgebrochen; vorhandene MP4 manuell prüfen")
