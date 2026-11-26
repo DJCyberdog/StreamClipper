@@ -39,9 +39,10 @@ def change_metrics(previous: bytes, current: bytes, *, stride: int = 4) -> tuple
     return change / (255 * len(old)), changed / len(old)
 
 
-def scan_temporal_activity(
+def _scan_temporal_activity(
     video: VideoInfo, *, fps: float = 2.0, max_events: int = 360,
     cancelled: Cancelled | None = None, progress: Progress | None = None,
+    gpu_decode: bool = False,
 ) -> list[EventEvidence]:
     """Stream low-resolution grayscale frames from FFmpeg (fixed memory).
 
@@ -58,10 +59,16 @@ def scan_temporal_activity(
         raise CancelledError("Gameplay-Analyse abgebrochen")
     width, height = 96, 54
     frame_size = width * height
+    from .hardware_media import decode_options,notify
+    prefix,filters=decode_options(width,height) if gpu_decode else ([],f"scale={width}:{height}:flags=fast_bilinear")
+    if gpu_decode:
+        filters += f",fps={fps:.3f},format=gray"
+    else:
+        filters = f"fps={fps:.3f},"+filters+",format=gray"
+    notify("Szenenscan: "+("NVDEC / scale_cuda → CPU-Luma" if gpu_decode else "FFmpeg CPU"))
     cmd = [tool_path("ffmpeg"), "-hide_banner", "-nostdin", "-loglevel", "error",
-           "-i", video.path, "-map", "0:v:0", "-an", "-sn",
-           "-vf", f"fps={fps:.3f},scale={width}:{height}:flags=fast_bilinear,format=gray",
-           "-f", "rawvideo", "-pix_fmt", "gray", "pipe:1"]
+           *prefix,"-i", video.path, "-map", "0:v:0", "-an", "-sn",
+           "-vf",filters,"-f","rawvideo","-pix_fmt","gray","pipe:1"]
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
     baseline: deque[float] = deque(maxlen=24)
     best: dict[int, EventEvidence] = {}
@@ -111,6 +118,14 @@ def scan_temporal_activity(
         proc.wait()
         if proc.stdout:
             proc.stdout.close()
+
+
+def scan_temporal_activity(video: VideoInfo, *,fps=2.0,max_events=360,cancelled=None,progress=None):
+    from .hardware_media import choose_decode,retry_decode
+    if cancelled and cancelled():raise CancelledError("Gameplay-Analyse abgebrochen")
+    enabled=choose_decode(tool_path("ffmpeg"),video)
+    return retry_decode(lambda gpu:_scan_temporal_activity(video,fps=fps,max_events=max_events,
+                         cancelled=cancelled,progress=progress,gpu_decode=gpu),enabled)
 
 
 def select_scene_timestamps(
