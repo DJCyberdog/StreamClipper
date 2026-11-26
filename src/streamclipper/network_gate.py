@@ -11,7 +11,9 @@ def public_addresses(host,port=443,resolver=socket.getaddrinfo):
     for family,kind,proto,_,address in rows:
         ip=ipaddress.ip_address(address[0])
         mapped=getattr(ip,"ipv4_mapped",None)
-        if not ip.is_global or ip.is_multicast or (mapped and not mapped.is_global):
+        # Deny IPv6 transition/tunneling ranges that can embed IPv4 targets.
+        transition=isinstance(ip,ipaddress.IPv6Address) and any(ip in ipaddress.ip_network(net) for net in ("64:ff9b::/96","64:ff9b:1::/48","2001::/32","2002::/16"))
+        if not ip.is_global or ip.is_multicast or transition or (mapped and not mapped.is_global):
             raise ValueError("Private or non-public network address")
     return rows
 
