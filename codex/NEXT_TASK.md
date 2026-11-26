@@ -1,3 +1,7 @@
+# NEXT_TASK — M18 second pass
+
+M18 260b4c2 all three workflows PASS. Second pass: restricted Python import worker + local media probe, no silent quality changes or receipt overwrite, expanded persistent DE/EN catalog, TikTok desktop PKCE/token contract, conservative retry policy, native acceptance runner and new regression tests. Verify exact-head CI. Full localization and approved provider OAuth/token infrastructure still incomplete; authorized native provider corpus and security tests unavailable. See docs/M18_ACCEPTANCE.md; M21 mandatory before 1.0. No merge/release or automatic M19 transition.
+
 # NEXT_TASK — M18 implementation pilot and M21 owner roadmap update
 
 M17 177b89f all three hosted workflows PASS. M18 guarded provider-neutral import, channel ingestion, local markers/Deck/watch folder, NLE/GIF/WebM, subtitles and publishing preparation integrated. M21 is mandatory final debugging/hardening before stable 1.0. See docs/M18_ACCEPTANCE.md. Full DE/EN coverage, provider OAuth/upload preparation and real authorized/native/security acceptance remain open; check exact-head CI and fix concrete failures. Do not merge/release or silently drop scope.
