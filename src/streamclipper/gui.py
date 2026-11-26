@@ -87,6 +87,7 @@ class AnalysisThread(QThread):
     progress_changed = Signal(int)
     backend_notice = Signal(str)
     phase_changed = Signal(str)
+    stage_changed = Signal(str,int)
     done = Signal(object)
     failed = Signal(str)
 
@@ -110,9 +111,10 @@ class AnalysisThread(QThread):
 
     def run(self) -> None:
         from .vision_device import device_notice
-        from .hardware_media import phase_notice
+        from .hardware_media import phase_notice,stage_notice
         token = device_notice.set(self.backend_notice.emit)
         phase_token = phase_notice.set(self.phase_changed.emit)
+        stage_token = stage_notice.set(self.stage_changed.emit)
         try:
             if self.m16_options is not None:
                 from .m16_pipeline import analyze_m16
@@ -152,6 +154,7 @@ class AnalysisThread(QThread):
         finally:
             device_notice.reset(token)
             phase_notice.reset(phase_token)
+            stage_notice.reset(stage_token)
 
 
 class M16ReviewThread(QThread):
@@ -1476,6 +1479,7 @@ class MainWindow(QMainWindow):
         preview_layout.addWidget(self.resource_clock)
         main.addWidget(self.progress)
         self._analysis_started=None
+        self._stage_name=None;self._stage_start=None;self._stage_percent=0
         self._resource_worker=LiveResourcesThread(self)
         self._resource_worker.sampled.connect(self._show_resource_sample)
         self._resource_timer=QTimer(self);self._resource_timer.setInterval(2000)
@@ -1494,9 +1498,21 @@ class MainWindow(QMainWindow):
         if not self._resource_worker.isRunning():self._resource_worker.start()
         if self._analysis_started is not None:
             elapsed=time.monotonic()-self._analysis_started
-            p=self.progress.value()
-            # Stages have very different cost; percentage is not a linear clock.
-            self.resource_clock.setText(f'Analysezeit: {display_time(elapsed)} · Restzeit: nicht belastbar' if p<100 else f'Analysezeit: {display_time(elapsed)}')
+            clock=f'Analysezeit: {display_time(elapsed)}'
+            if self._stage_start is not None:
+                dt=time.monotonic()-self._stage_start
+                p=self._stage_percent
+                clock+=f' · {self._stage_name}: {p}%'
+                if 5<=p<100 and dt>=10:
+                    eta=dt*(100-p)/p
+                    clock+=f' · Phase noch ca. {display_time(eta)}'
+            self.resource_clock.setText(clock)
+
+    def _stage_progress(self,name,percent):
+        import time
+        if name!=self._stage_name or percent<self._stage_percent:
+            self._stage_name=name;self._stage_start=time.monotonic()
+        self._stage_percent=percent
 
     def _show_resource_sample(self,row):
         if row is None:
@@ -3674,11 +3690,13 @@ class MainWindow(QMainWindow):
         self.worker.progress_changed.connect(self.progress.setValue)
         self.worker.backend_notice.connect(self.backend_status.setText)
         self.worker.phase_changed.connect(self.phase_status.setText)
+        self.worker.stage_changed.connect(self._stage_progress)
         self.worker.done.connect(self.analysis_finished)
         self.worker.failed.connect(self.job_failed)
         self.worker.finished.connect(self._analysis_stopped)
         import time
         self._analysis_started=time.monotonic()
+        self._stage_name=None;self._stage_start=None;self._stage_percent=0
         self.progress.setRange(0,100);self.progress.setFormat('Analyse · %p %')
         self.phase_status.setText('Analyse wird vorbereitet …');self.backend_status.setText('Inferenzgerät: ausstehend')
         self._busy(True)
