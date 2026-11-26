@@ -3,7 +3,7 @@ from dataclasses import replace
 from pathlib import Path
 import time
 from PySide6.QtCore import QObject,QTimer
-from PySide6.QtWidgets import (QFileDialog,QInputDialog,QMessageBox,QLineEdit,QLabel)
+from PySide6.QtWidgets import (QFileDialog,QInputDialog,QMessageBox,QLineEdit,QLabel,QApplication)
 from .portable import installation_directory
 from .local_integrations import root,record_marker,markers,take_commands,WatchFolder,obs_seconds
 from .channel_ingestion import Channel,parse_channel,load,save,poll
@@ -26,7 +26,7 @@ class Integrations(QObject):
             ("Kanalaufnahme für diese Sitzung starten / pausieren",self.toggle_channels),
             ("Schnittliste EDL / FCPXML …",self.nle),
             ("GIF / WebM exportieren …",self.alternative),
-            ("Vorhandene SRT/VTT-Unterttitel übernehmen …",self.subtitles),
+            ("Vorhandene SRT/VTT-Untertitel übernehmen …",self.subtitles),
             ("YouTube-Konto vorbereiten (OAuth-Pilot) …",self.youtube),
             ("Interface language / Sprache …",self.language)]:
             menu.addAction(label,fn)
@@ -45,7 +45,11 @@ class Integrations(QObject):
         QMessageBox.warning(self.w,title,str(exc))
     def run(self,operation,completed):
         if not self.idle():return
-        self.w._m16_review_job(operation,completed)
+        from .gui import M16ReviewThread
+        w=self.w;worker=M16ReviewThread(operation,w);w.worker=worker
+        worker.done.connect(completed);worker.failed.connect(w.job_failed)
+        worker.finished.connect(lambda:w._busy(False))
+        w._busy(True);w.statusBar().showMessage("M18-Integration läuft …");worker.start()
     def set_deck(self,value):
         if value:
             # Drop old commands instead of replaying them when enabled.
@@ -150,6 +154,7 @@ class Integrations(QObject):
         if QMessageBox.question(self.w,"Kanalaufnahme","Autorisierte Kanäle während dieser App-Sitzung prüfen und neue Videos automatisch innerhalb der Limits importieren? Erster Abruf speichert nur den Ausgangsbestand.")!=QMessageBox.StandardButton.Yes:return
         self.channels_enabled=True;self.next_channel=0
     def tick(self):
+        if QApplication.activeModalWidget() is not None:return
         now=time.monotonic()
         if self.watch and now>=self.next_watch:
             self.next_watch=now+5
