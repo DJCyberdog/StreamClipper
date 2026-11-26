@@ -158,7 +158,8 @@ Vorhandene *experimentelle* Implementierungen umfassen Audio-Highlighting, nicht
 | **M17** | Montage, Effekte & Clip-Varianten | B: B-B1, #21, #22, #24, #25, #27, #29, #31, #32 | Story-aware Clipgrenzen (Aufbau → Ereignis → Reaktion), mehrere Highlights und Exportvarianten mit kontrollierbaren manuellen Korrekturen zusammenstellen. |
 | **M18** | Stream-Workflow, **Multi-Plattform-Videoimport** & Integrationen | C: #34, #35, #37, #41, #42, #43 · D: #48 | Einzelauswahl per URL für Twitch, YouTube, Kick und weitere validierte Quellen; Import/Marker/Exporte mit Fortschritt, Abbruch und klarer Rechte-/Fehlerbehandlung. Automatischer Kanalimport bleibt getrennt, opt-in. |
 | **M19** | Publishing, Zusammenarbeit & Reichweite | B: B-B2 · D: #44, #45, #46, #47 | Bewusste Veröffentlichung, nachvollziehbare Freigaben, Rechte- und Datenschutzkontrollen; offline vollständig nutzbare Basis. |
-| **M20** | Premium-GUI, Easy/Studio-Modus, Feature Freeze, Gesamt-Abnahme & 1.0 | F: #49, #50 | Alle 58 umsetzbaren Features aus S–D abgenommen oder ausdrücklich durch Owner neu beschlossen; beide F-Prinzipien nachweislich nicht implementiert; erst dann 1.0 Stable. |
+| **M20** | Premium-GUI, Easy/Studio-Modus, Feature Freeze & Produktabnahme | F: #49, #50 | Alle 58 umsetzbaren Features aus S–D abgenommen oder ausdrücklich durch Owner neu beschlossen; beide F-Prinzipien nachweislich nicht implementiert; danach M21. |
+| **M21** | Debugging, Hardening & abschließende Release-Abnahme | Querschnitt, keine neue Feature-ID | Reproduzierbare Fehlerbereinigung, vollständige Regression, native Windows-/GPU-Abnahme, Release-Freeze; erst danach 1.0 Stable. |
 
 **Vollständigkeitsnachweis:** 11 S-Features, 14 A-Features, 15 B-Features, 10 C-Features, 8 D-Features und 2 F-Ausschlüsse = **60 eindeutige Kennungen**. **58 zu implementierende** Funktionen + **2 dauerhaft ausgeschlossene** Funktionen. Jeder Hauptfeature-ID ist **genau ein führender Milestone** zugewiesen; Vorarbeiten und Integration dürfen milestoneübergreifend stattfinden, ohne die Zuordnung zu doppeln. Alle S–D-Features sind im Scope von **StreamClipper 1.0**.
 
@@ -169,7 +170,7 @@ Vorhandene *experimentelle* Implementierungen umfassen Audio-Highlighting, nicht
 3. **M14 (Captions) und M15 (Audio) → M16 (Intelligence) → M17 (Montage):** Wortkorrekturen und Audiosignale in die zweistufige Erkennung übernehmen, dann die Ereignisfenster in Story-aware Clipgrenzen überführen. Vor dem Ausbau der KI steht immer ein unabhängiger Qualitäts-Benchmark; Qualitätsgewinn wird nicht allein aus Modellgröße abgeleitet.
 4. **M17 (Montage) → M19 (Publishing):** Clips müssen vollständig bearbeitbar und exportierbar sein, bevor sie über Dienste veröffentlicht werden.
 5. **M18 (Integrationen) und M19 (Online):** Netzwerkabhängige D-Tier-Funktionen sind **opt-in**. Keine verpflichtende Kontoverknüpfung, keine Cloud-Abhängigkeit der Basisapp.
-6. **M20 ist die verbindliche finale UX-Integration, kein zusätzlicher Engine-Feature-Bucket:** Premium-GUI und Easy-/Studio-Modus müssen abgenommen sein; erst Gesamt-Regressionstest, Windows-End-to-End-Abnahme und bestandene F-Tier-Schutzregeln erlauben den Release.
+6. **M20 ist die verbindliche finale UX-Integration, kein zusätzlicher Engine-Feature-Bucket:** Premium-GUI und Easy-/Studio-Modus müssen abgenommen sein; M21 schließt Debugging, Gesamtregression, Windows-End-to-End-Abnahme und F-Tier-Schutzregeln vor Release ab.
 7. **Kein D-Tier-Schlupfloch:** Ein niedrig priorisiertes Feature bleibt zwar innerhalb seines Milestones nachrangig, wird aber nicht still auf „nach 1.0“ verschoben. Soll es doch entfallen, ist ein **neuer Owner-Beschluss** erforderlich.
 
 ### M10.5-P1-01 – Modelldownload-Fortschritt in der GUI ([Issue #32](https://github.com/DJCyberdog/StreamClipper/issues/32))
@@ -786,6 +787,14 @@ Die bisherige funktionale Editor-Shell bleibt bis M19 nutzbar. M20 ist die verbi
 - Vollständige Feature-Zugänglichkeitsmatrix Easy/Studio für alle 58 Features; beide Modi nutzen identische gespeicherte Parameter und liefern bei identischen Einstellungen denselben Rendervertrag. Wechsel und Neustart erhalten Projekt, Auswahl, Playhead, offene Edits und Undo-Historie.
 - Native Windows-Prüfung 1366×768 und 1920×1080, DPI-Skalierung, Tastatur/Fokus, Offline-Start, Lang-VOD, Abbruch, Fehlerzustände, True-Portable-Relocation, Regression und F-Tier-Negativprüfung. Kein 1.0-Release ohne diese und die bestehenden Fachabnahmen.
 
+### 5.11 M21 – Debugging, Stabilisierung und Release-Freeze (Owner 26.11.2026)
+
+- M21a: reproduzierbare Fehlerinventur aller M0–M20-Funktionen, Severity P0–P3, minimaler Repro, Ursache, Regressionstest, Fix und überprüfbarer Nachweis. Keine neue Feature-Entwicklung; kritische Fehler bleiben bereits während früherer Milestones zu beheben.
+- M21b: adversariale Tests (Dateipfade, Netzwerk/SSRF, beschädigte Medien, Modell-/Downloadfehler, Credentials, Abbruch, Queue-Crash, Update/Repair, Datenintegrität), Ressourcen-/Leak- und Langzeitmessungen, CPU/GPU-Fallback, A/V-Zeitbasis.
+- M21c: vollständige automatisierte Regression auf exakt einem Release-Kandidaten, echte Windows-11-Abnahme inkl. RTX 5060 Ti, CPU-only, Clean Install, Portable Relocation, Upgrade mit Nutzerdaten, Easy/Studio und 6h-VOD; verbleibende M16/M17-Qualitätsgates abschließen.
+- M21d: alle 58 S–D-Funktionen und F-Negativgates nachweisen, P0/P1/P2 geschlossen oder explizit vom Owner akzeptierte nicht-releasekritische P2/P3 mit dokumentierter Grenze; keine P0/P1-Ausnahme. Release-Kandidat versionieren, Prüfsummen, Lizenzen, Changelog, bekannte Grenzen und Rollback dokumentieren. Erst dann 1.0.
+- Keine stillen Scope-Abstriche oder Freigaben. M21 ersetzt keine frühere Fachabnahme; fehlende externe/native Evidenz bleibt BLOCKED statt simuliert.
+
 ## 6. Ein einziger Release-Pfad: Alles vor 1.0
 
 | Zielmarke | Zugehörige Meilensteine | Auslieferungszustand |
@@ -793,9 +802,9 @@ Die bisherige funktionale Editor-Shell bleibt bis M19 nutzbar. M20 ist die verbi
 | **0.x – Engineering Preview** | M0–M10.5 | Experimenteller Bestand + konsolidierte, geprüfte Baseline |
 | **0.8 – Editor Preview** | M11–M14 | Editor, Rendering, Smart Director inkl. A-11d, Branding und Untertitel |
 | **0.9 – Production Preview** | M15–M19 | Audio, Gameplay-KI, Montage, Integrationen, Publishing **einschließlich D-Tier** |
-| **1.0 – Stable** | **Erst nach M20** | Premium-GUI mit Easy-/Studio-Modus, vollständige S–D-Abnahme und geprüfte F-Tier-Ausschlüsse |
+| **1.0 – Stable** | **Erst nach M21** | Premium-GUI mit Easy-/Studio-Modus, vollständige S–D-Abnahme und geprüfte F-Tier-Ausschlüsse |
 
-**Keine bislang geplante Implementierung für M21 oder eine exklusive Post-1.0-/2.0-Featureliste.** Spätere Produktversionen sind offen und werden erst mit neuer Owner-Entscheidung geplant. Diese Roadmap ist ein **Scope-Beschluss**, keine Terminzusage.
+**M21 ist der letzte Pre-1.0-Milestone; keine exklusive Post-1.0-/2.0-Featureliste.** Spätere Produktversionen sind offen und werden erst mit neuer Owner-Entscheidung geplant. Diese Roadmap ist ein **Scope-Beschluss**, keine Terminzusage.
 
 ## 7. Definition of Done / Release-Gates
 
@@ -827,7 +836,7 @@ Für relevante Meilensteine sind reproduzierbare Nachweise im Issue/PR vorzulege
 6. Basis-Datenintegrität/Autosave (#04) und umfangreiche Projektverwaltung (D-B1) bleiben getrennte Funktionen, können technisch aber ein Speichermodell nutzen.
 7. Die Standard-Highlight-Wortliste wird **in künftigen Entwicklungsrunden** gepflegt; keine angebliche permanente Hintergrundarbeit ohne separate Automation.
 8. Meilensteine dürfen in kleine PRs gesplittet werden. **Keine stillen Scope-Reduktionen** und kein „fertig“ ohne Test- und Windows-Evidenz.
-9. Nächster Schritt: M10.5-/M11-Review und Abnahme; die nichtblockierende UX-Ergänzung #32 läuft im gestapelten Draft. Danach M12.
+9. Nächster Schritt: kumulative M18-Implementierung auf M17; M19, M20, M21 vor 1.0. Offene Fachabnahmen bleiben erhalten.
 
 
 ---

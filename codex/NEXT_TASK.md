@@ -1,3 +1,19 @@
+# NEXT_TASK — M18 fourth pass: localization coverage
+
+M18 previous 56c9926 and specialist-localization commit 1835ab7 all three hosted workflows PASS. Fourth pass translates fourteen specialist UI modules and M18 static error presentation, adds dynamic templates and actual Qt regressions, plus scripts/audit_m18_locale.py. Verify exact-head workflows and use audit to identify concrete remaining language gaps; do not treat heuristic coverage as certification. Actual provider OAuth/authorized downloads, allowed authenticated import, native integrations and security/quality gates remain open. No scope deferral, main merge or M19 start without owner decision.
+
+# NEXT_TASK — M18 third pass
+
+Prior exact head 116c30d all three workflows PASS. New recoverable import publication journal, SHA-256/receipt collision protection, identical completed import reuse, silent-phase disk checks, actual frame verification, expected-audio check, English preflight and progress text, Instagram/Snapchat confidential OAuth contracts. Verify latest exact-head CI and fix concrete failures. Full app localization, actual provider connections, allowed authenticated import, native authorized download/OBS/Deck/NLE and security acceptance remain open. See docs/M18_ACCEPTANCE.md. No M19 or release automatically.
+
+# NEXT_TASK — M18 second pass
+
+M18 260b4c2 all three workflows PASS. Second pass: restricted Python import worker + local media probe, no silent quality changes or receipt overwrite, expanded persistent DE/EN catalog, TikTok desktop PKCE/token contract, conservative retry policy, native acceptance runner and new regression tests. Verify exact-head CI. Full localization and approved provider OAuth/token infrastructure still incomplete; authorized native provider corpus and security tests unavailable. See docs/M18_ACCEPTANCE.md; M21 mandatory before 1.0. No merge/release or automatic M19 transition.
+
+# NEXT_TASK — M18 implementation pilot and M21 owner roadmap update
+
+M17 177b89f all three hosted workflows PASS. M18 guarded provider-neutral import, channel ingestion, local markers/Deck/watch folder, NLE/GIF/WebM, subtitles and publishing preparation integrated. M21 is mandatory final debugging/hardening before stable 1.0. See docs/M18_ACCEPTANCE.md. Full DE/EN coverage, provider OAuth/upload preparation and real authorized/native/security acceptance remain open; check exact-head CI and fix concrete failures. Do not merge/release or silently drop scope.
+
 # NEXT_TASK — M17 implementation closure candidate
 
 M17 previous exact head 572853e: all three hosted workflows PASS. Third pass adds continuous linear playback speed (shared video PTS and blockwise audio resampling; natural pitch, not pitch-corrected), existing pitch-corrected stepped ramp retained; clickable montage timeline and exact render preview <=45 seconds; model-bound benchmark and added FFmpeg/Qt regression tests. Verify exact new head CI, then native GUI/NVENC playback/export and independent annotated M16/M17 boundary metrics. No release, main merge or quality acceptance until required evidence is available. Montage remains separate dialog/JSON, not an embedded main-timeline track.

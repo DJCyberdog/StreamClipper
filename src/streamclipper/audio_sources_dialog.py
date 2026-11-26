@@ -1,5 +1,6 @@
 """M15a explicit container audio stream selection and extraction."""
 from threading import Event
+from .m18_language import tr,trf
 from PySide6.QtCore import QThread,Signal,Qt
 from PySide6.QtWidgets import (QDialog,QVBoxLayout,QFormLayout,QTableWidget,QTableWidgetItem,
     QLabel,QComboBox,QPushButton,QFileDialog,QHBoxLayout)
@@ -27,14 +28,14 @@ class AudioSourcesDialog(QDialog):
         super().__init__(parent)
         self.path=path;self.worker=None;self.snapshot=None;self.closing=False
         self.selection=None;self.extracted=None;self.action=None
-        self.setWindowTitle("Audioquellen · Originalspuren")
+        self.setWindowTitle(tr("Audioquellen · Originalspuren"))
         self.resize(940,470)
         layout=QVBoxLayout(self)
-        self.hint=QLabel("Liest vorhandene Container-Audiospuren. Rollen sind manuelle Zuordnungen, "
-                         "keine KI-Erkennung. Eine einzelne Mixspur enthält nicht automatisch getrennte Stems.")
+        self.hint=QLabel(tr("Liest vorhandene Container-Audiospuren. Rollen sind manuelle Zuordnungen, "
+                         "keine KI-Erkennung. Eine einzelne Mixspur enthält nicht automatisch getrennte Stems."))
         self.hint.setWordWrap(True);layout.addWidget(self.hint)
         self.table=QTableWidget(0,8)
-        self.table.setHorizontalHeaderLabels(["Stream","Codec","Hz","Kanäle","Layout","Sprache","Titel","Start (s)"])
+        self.table.setHorizontalHeaderLabels(["Stream","Codec","Hz",tr("Kanäle"),"Layout",tr("Sprache"),tr("Titel"),"Start (s)"])
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
@@ -42,19 +43,19 @@ class AudioSourcesDialog(QDialog):
         layout.addWidget(self.table,1)
         form=QFormLayout()
         self.role=QComboBox()
-        for label,value in (("Nicht zugeordnet","unspecified"),("Originalmix","mix"),("Mikrofon","microphone"),
-             ("Spielton","game"),("Musik","music"),("Sonstiges","other")):self.role.addItem(label,value)
-        form.addRow("Rolle (manuell)",self.role);layout.addLayout(form)
-        self.status=QLabel("Audiospuren werden geprüft …");self.status.setWordWrap(True);layout.addWidget(self.status)
+        for label,value in ((tr("Nicht zugeordnet"),"unspecified"),(tr("Originalmix"),"mix"),(tr("Mikrofon"),"microphone"),
+             (tr("Spielton"),"game"),(tr("Musik"),"music"),(tr("Sonstiges"),"other")):self.role.addItem(label,value)
+        form.addRow(tr("Rolle (manuell)"),self.role);layout.addLayout(form)
+        self.status=QLabel(tr("Audiospuren werden geprüft …"));self.status.setWordWrap(True);layout.addWidget(self.status)
         buttons=QHBoxLayout()
-        self.extract=QPushButton("Ausgewählte Spur als WAV extrahieren …")
+        self.extract=QPushButton(tr("Ausgewählte Spur als WAV extrahieren …"))
         self.extract.clicked.connect(self.start_extract);buttons.addWidget(self.extract)
-        self.separate=QPushButton("KI-Audiotrennung …");self.separate.clicked.connect(self.start_separation);buttons.addWidget(self.separate)
-        self.use=QPushButton("Für Whisper wählen");self.use.clicked.connect(self.choose_speech);buttons.addWidget(self.use)
-        self.use_estimate=QPushButton('KI-Sprachspur für Whisper wählen …');self.use_estimate.clicked.connect(self.choose_estimate);layout.addWidget(self.use_estimate)
-        self.reset=QPushButton("Whisper: Standardspur");self.reset.clicked.connect(self.reset_speech);buttons.addWidget(self.reset)
-        self.add=QPushButton("Extrahierte WAV auf Timeline");self.add.clicked.connect(self.choose_extracted);buttons.addWidget(self.add)
-        close=QPushButton("Schließen / Abbrechen");close.clicked.connect(self.reject);buttons.addWidget(close)
+        self.separate=QPushButton(tr("KI-Audiotrennung …"));self.separate.clicked.connect(self.start_separation);buttons.addWidget(self.separate)
+        self.use=QPushButton(tr("Für Whisper wählen"));self.use.clicked.connect(self.choose_speech);buttons.addWidget(self.use)
+        self.use_estimate=QPushButton(tr('KI-Sprachspur für Whisper wählen …'));self.use_estimate.clicked.connect(self.choose_estimate);layout.addWidget(self.use_estimate)
+        self.reset=QPushButton(tr("Whisper: Standardspur"));self.reset.clicked.connect(self.reset_speech);buttons.addWidget(self.reset)
+        self.add=QPushButton(tr("Extrahierte WAV auf Timeline"));self.add.clicked.connect(self.choose_extracted);buttons.addWidget(self.add)
+        close=QPushButton(tr("Schließen / Abbrechen"));close.clicked.connect(self.reject);buttons.addWidget(close)
         layout.addLayout(buttons)
         self.table.itemSelectionChanged.connect(self.controls)
         self.launch(AudioSourceWorker(path,self))
@@ -87,11 +88,11 @@ class AudioSourcesDialog(QDialog):
                                             s.title,"—" if s.start_time is None else f"{s.start_time:.3f}")):
                     self.table.setItem(row,col,QTableWidgetItem(str(field)))
             if value.streams:self.table.selectRow(0)
-            self.status.setText(f"{len(value.streams)} Audiospur(en) gefunden. "
-                +("Einspuraufnahme: KI-Trennung ist als Pilot verfügbar." if len(value.streams)==1 else ""))
+            self.status.setText(trf("{count} Audiospur(en) gefunden. ",count=len(value.streams))
+                +(tr("Einspuraufnahme: KI-Trennung ist als Pilot verfügbar.") if len(value.streams)==1 else ""))
         else:
             self.extracted=value
-            self.status.setText("Extrahiert: "+str(value)+" · provenance.json im gleichen Ordner.")
+            self.status.setText(tr("Extrahiert: ")+str(value)+tr(" · provenance.json im gleichen Ordner."))
 
     def done(self):
         worker=self.worker;self.worker=None;worker.deleteLater();self.controls()
@@ -114,11 +115,11 @@ class AudioSourcesDialog(QDialog):
 
     def choose_estimate(self):
         if self.worker or self.snapshot is None:return
-        path,_=QFileDialog.getOpenFileName(self,"Rekonstruierte Sprachspur","","WAV (*.wav)")
+        path,_=QFileDialog.getOpenFileName(self,tr("Rekonstruierte Sprachspur"),"","WAV (*.wav)")
         if not path:return
         from .reconstructed_speech import select_reconstructed
         try:self.selection=select_reconstructed(self.snapshot,path)
-        except Exception as exc:self.status.setText(str(exc));return
+        except Exception as exc:self.status.setText(tr(str(exc)));return
         self.action="speech";self.accept()
 
     def reset_speech(self):
@@ -133,13 +134,13 @@ class AudioSourcesDialog(QDialog):
         if self.worker or self.snapshot is None:return
         row=self.table.currentRow()
         if not 0<=row<len(self.snapshot.streams):return
-        folder=QFileDialog.getExistingDirectory(self,"Ordner für extrahierte Audiospur")
+        folder=QFileDialog.getExistingDirectory(self,tr("Ordner für extrahierte Audiospur"))
         if not folder:return
-        self.status.setText("Extrahiere PCM-Audio mit Originalzeitbasis …")
+        self.status.setText(tr("Extrahiere PCM-Audio mit Originalzeitbasis …"))
         self.launch(AudioSourceWorker(self.path,self,snapshot=self.snapshot,index=self.snapshot.streams[row].index,
                                       folder=folder,role=self.role.currentData()))
 
     def reject(self):
         if self.worker:
-            self.closing=True;self.worker.stop.set();self.status.setText("Abbruch läuft …");return
+            self.closing=True;self.worker.stop.set();self.status.setText(tr("Abbruch läuft …"));return
         super().reject()

@@ -1,5 +1,6 @@
 """Review only source-matched speech evidence. No automatic transcript change."""
 from threading import Event
+from .m18_language import tr,trf
 from PySide6.QtCore import QThread,Signal,Qt
 from PySide6.QtWidgets import (QDialog,QVBoxLayout,QLabel,QPushButton,QTableWidget,
     QTableWidgetItem,QDoubleSpinBox,QHBoxLayout,QCheckBox,QPlainTextEdit)
@@ -20,23 +21,23 @@ class TimingReviewDialog(QDialog):
         super().__init__(parent)
         self.result=result;self.value=result;self.selection=selection;self.spans=None
         self.proposals=();self.worker=None;self.closing=False
-        self.setWindowTitle("Untertitel · Sprachzeiten prüfen");self.resize(960,560)
+        self.setWindowTitle(tr("Untertitel · Sprachzeiten prüfen"));self.resize(960,560)
         layout=QVBoxLayout(self)
-        self.hint=QLabel("VAD-Korrekturvorschläge. Alte/unbekannte und manuell bearbeitete Zeilen bleiben geschützt. "
-            "Wortzeiten bleiben standardmäßig unverändert; unsichere oder fehlende Sprachsignale werden nicht erzwungen korrigiert.")
+        self.hint=QLabel(tr("VAD-Korrekturvorschläge. Alte/unbekannte und manuell bearbeitete Zeilen bleiben geschützt. "
+            "Wortzeiten bleiben standardmäßig unverändert; unsichere oder fehlende Sprachsignale werden nicht erzwungen korrigiert."))
         self.hint.setWordWrap(True);layout.addWidget(self.hint)
-        row=QHBoxLayout();row.addWidget(QLabel("Lesbarkeits-Nachlauf (s)"))
+        row=QHBoxLayout();row.addWidget(QLabel(tr("Lesbarkeits-Nachlauf (s)")))
         self.padding=QDoubleSpinBox();self.padding.setRange(0,.5);self.padding.setDecimals(2);self.padding.setSingleStep(.05);self.padding.setValue(.12)
         row.addWidget(self.padding);row.addStretch();layout.addLayout(row)
-        self.trim=QCheckBox('Überlange Randwörter als VAD-Schätzung vorschlagen (kein Forced Alignment)');layout.addWidget(self.trim)
-        self.split=QCheckBox('Statt Randkorrekturen: Teilung an bestätigten Sprechpausen (Wortzeiten bleiben erhalten)');layout.addWidget(self.split)
-        self.table=QTableWidget(0,6);self.table.setHorizontalHeaderLabels(["Übernehmen","Text","Bisher (s)","Vorschlag (s)","Kürzung (s)","Begründung"])
+        self.trim=QCheckBox(tr('Überlange Randwörter als VAD-Schätzung vorschlagen (kein Forced Alignment)'));layout.addWidget(self.trim)
+        self.split=QCheckBox(tr('Statt Randkorrekturen: Teilung an bestätigten Sprechpausen (Wortzeiten bleiben erhalten)'));layout.addWidget(self.split)
+        self.table=QTableWidget(0,6);self.table.setHorizontalHeaderLabels([tr("Übernehmen"),"Text",tr("Bisher (s)"),tr("Vorschlag (s)"),tr("Kürzung (s)"),tr("Begründung")])
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.table.horizontalHeader().setStretchLastSection(True);layout.addWidget(self.table)
         self.pauses=QPlainTextEdit();self.pauses.setReadOnly(True);self.pauses.setMaximumHeight(85);layout.addWidget(self.pauses)
-        self.status=QLabel("Lokale Sprachaktivität wird ermittelt …");self.status.setWordWrap(True);layout.addWidget(self.status)
-        self.apply=QPushButton("Markierte Vorschläge übernehmen");self.apply.clicked.connect(self.commit);self.apply.setEnabled(False);layout.addWidget(self.apply)
-        close=QPushButton("Abbrechen / Schließen");close.clicked.connect(self.reject);layout.addWidget(close)
+        self.status=QLabel(tr("Lokale Sprachaktivität wird ermittelt …"));self.status.setWordWrap(True);layout.addWidget(self.status)
+        self.apply=QPushButton(tr("Markierte Vorschläge übernehmen"));self.apply.clicked.connect(self.commit);self.apply.setEnabled(False);layout.addWidget(self.apply)
+        close=QPushButton(tr("Abbrechen / Schließen"));close.clicked.connect(self.reject);layout.addWidget(close)
         self.padding.valueChanged.connect(self.refresh);self.trim.toggled.connect(self.refresh);self.split.toggled.connect(self.refresh)
         self.worker=TimingWorker(selection,self);self.worker.ready.connect(self.ready);self.worker.failed.connect(self.status.setText)
         self.worker.finished.connect(self.done);self.worker.start()
@@ -62,7 +63,7 @@ class TimingReviewDialog(QDialog):
             for col,value in enumerate((p.before.text,f"{p.before.start:.3f} – {p.before.end:.3f}",
                 " | ".join(f"{c.start:.3f} – {c.end:.3f}" for c in parts),f"{p.before.end-p.before.start-sum(c.end-c.start for c in parts):.3f}",p.reason),1):
                 self.table.setItem(i,col,QTableWidgetItem(value))
-        self.status.setText(f"{len(self.proposals)} Vorschläge · {len(protected)} geschützte Zeilen. Bitte einzeln prüfen und markieren.")
+        self.status.setText(trf("{count} Vorschläge · {protected} geschützte Zeilen. Bitte einzeln prüfen und markieren.",count=len(self.proposals),protected=len(protected)))
         self.apply.setEnabled(self.worker is None and bool(self.proposals))
     def done(self):
         worker=self.worker;self.worker=None;worker.deleteLater()
@@ -72,9 +73,9 @@ class TimingReviewDialog(QDialog):
         selected=[p for i,p in enumerate(self.proposals) if self.table.item(i,0).checkState()==Qt.CheckState.Checked]
         if not selected:return
         try:self.value=(apply_pause_splits if self.split.isChecked() else apply_proposals)(self.result,selected)
-        except ValueError as exc:self.status.setText(str(exc));return
+        except ValueError as exc:self.status.setText(tr(str(exc)));return
         self.accept()
     def reject(self):
         if self.worker:
-            self.closing=True;self.worker.stop.set();self.status.setText("Abbruch läuft …");return
+            self.closing=True;self.worker.stop.set();self.status.setText(tr("Abbruch läuft …"));return
         super().reject()

@@ -279,6 +279,23 @@ class QueueRunThread(QThread):
             self.failed.emit(str(exc))
 
 
+class VideoImportWorker(QThread):
+    progress_changed=Signal(object)
+    done=Signal(object)
+    failed=Signal(str)
+    def __init__(self,source,directory=None,options=None,parent=None):
+        super().__init__(parent);self.source=source;self.directory=directory;self.options=options or {};self.stop=threading.Event();self.result=None
+    def cancel(self):self.stop.set()
+    def run(self):
+        from .video_import import preflight,download
+        try:
+            if self.directory is None:result=preflight(self.source,authorized=True,cancelled=self.stop.is_set)
+            else:result=download(self.source,self.directory,authorized=True,cancelled=self.stop.is_set,progress=self.progress_changed.emit,**self.options)
+            self.result=result
+            self.done.emit(result)
+        except Exception as exc:self.failed.emit(str(exc))
+
+
 class TwitchImportThread(QThread):
     progress_changed = Signal(int)
     done = Signal(str)
@@ -627,9 +644,9 @@ class MainWindow(QMainWindow):
         self.open_button = QPushButton("📂 Aufnahme öffnen")
         self.open_button.clicked.connect(self.open_video)
         toolbar.addWidget(self.open_button)
-        self.twitch_button = QPushButton("🌐 Twitch-VOD importieren")
+        self.twitch_button = QPushButton("🌐 Video-URL importieren")
         self.twitch_button.clicked.connect(self.import_twitch_video)
-        self.twitch_button.setToolTip("Öffentliche Twitch-Aufnahme per Video-URL herunterladen und laden")
+        self.twitch_button.setToolTip("Autorisierte Einzelvideos per URL importieren; Preflight vor Download")
         toolbar.addWidget(self.twitch_button)
         toolbar.addWidget(QLabel("Cliplänge"))
         self.length = QSpinBox()
@@ -661,7 +678,7 @@ class MainWindow(QMainWindow):
         # Keep project management out of the increasingly crowded editor tabs.
         project_menu = self.menuBar().addMenu("Datei && Projekt")
         project_menu.addAction("Aufnahme öffnen…", self.open_video)
-        project_menu.addAction("Twitch-VOD importieren…", self.import_twitch_video)
+        project_menu.addAction("Video-URL importieren…", self.import_twitch_video)
         project_menu.addSeparator()
         self.checkpoint_save_action = project_menu.addAction(
             "Benannten Projektstand sichern…", self._save_project_checkpoint)
@@ -1508,6 +1525,10 @@ class MainWindow(QMainWindow):
         self._busy(False)
         self.setStyleSheet(EDITOR_STYLESHEET)
         self._load_workspace_on_start()
+        from .m18_gui import Integrations
+        self.integrations=Integrations(self)
+        from .m18_language import apply_language,load_preference
+        apply_language(self,load_preference(),persist=False)
 
     def _poll_resources(self):
         import time
@@ -1917,7 +1938,7 @@ class MainWindow(QMainWindow):
         project = self.editor_project
         clip_id = self._selected_clip_id() if project else None
         track_id = self._selected_track_id() if project else None
-        is_tracks = self.tabs.tabText(self.tabs.currentIndex()) == "Spuren"
+        is_tracks = self.tabs.currentWidget() is self.tracks_page
         clip = next((item for item in project.items if item.id == clip_id),
                     None) if project else None
         track = next((item for item in project.tracks if item.id == track_id),
@@ -2037,7 +2058,7 @@ class MainWindow(QMainWindow):
         """Open the *existing* editor rather than maintaining duplicate state."""
         if self._history_blocked:
             return
-        if (self.tabs.tabText(self.tabs.currentIndex()) == "Spuren"
+        if (self.tabs.currentWidget() is self.tracks_page
                 and self.editor_project is not None):
             if self._selected_clip_id() is not None and self.inspector_apply_button.isEnabled():
                 self.inspector_source_start.setFocus()
@@ -3264,34 +3285,100 @@ class MainWindow(QMainWindow):
             self.caption_overlay.raise_()
 
     def import_twitch_video(self) -> None:
-        url, accepted = QInputDialog.getText(
-            self, "Twitch-VOD importieren", "Öffentliche Twitch-Video-URL eingeben:")
-        if not accepted or not url.strip():
-            return
-        try:
-            canonical, _ = parse_twitch_vod_url(url)
-        except ValueError as exc:
-            QMessageBox.warning(self, "Ungültige Twitch-URL", str(exc))
-            return
-        # VODs can be hours long and occupy many GB. Let the user choose the location.
-        default = installation_directory() / "data" / "imports"
-        default.mkdir(parents=True, exist_ok=True)
-        folder = QFileDialog.getExistingDirectory(self, "Twitch-VOD speichern unter", str(default))
-        if not folder or not self.confirm_discard_edits():
-            return
-        self.progress.setValue(0)
-        self.worker = TwitchImportThread(canonical, folder, self)
-        self.worker.progress_changed.connect(self.progress.setValue)
-        self.worker.done.connect(self.twitch_import_finished)
-        self.worker.failed.connect(self.job_failed)
-        self.worker.finished.connect(lambda: self._busy(False))
-        self._busy(True)
-        self.statusBar().showMessage("Twitch-VOD wird heruntergeladen …")
-        self.worker.start()
+        if self._history_blocked:return
+        from .video_sources import parse_source
+        from .m18_language import tr
+        url,ok=QInputDialog.getText(self,tr("Videoimport"),tr("HTTPS-Einzelvideo (Twitch, YouTube, Kick, weitere unterstützte Quellen):"))
+        if not ok or not url.strip():return
+        try:source=parse_source(url)
+        except ValueError as exc:QMessageBox.warning(self,tr("Video-URL"),tr(str(exc)));return
+        if QMessageBox.question(self,tr("Netzwerkzugriff und Rechte"),
+            tr("Nur eigene oder ausdrücklich autorisierte Inhalte importieren. Plattformbedingungen beachten. Öffentliche Abrufbarkeit allein genügt nicht. Metadaten jetzt abrufen?"))!=QMessageBox.StandardButton.Yes:return
+        self.progress.setRange(0,0);self.progress.setFormat(tr("Video-Metadaten"))
+        worker=VideoImportWorker(source.url,parent=self)
+        self.worker=worker
+        worker.failed.connect(self.job_failed)
+        worker.finished.connect(lambda w=worker:self._video_preflight_done(w,w.result))
+        self._busy(True);worker.start()
 
-    def twitch_import_finished(self, filename: str) -> None:
-        if self.load_video_source(filename):
-            self.statusBar().showMessage("Twitch-VOD importiert: " + filename)
+    def _video_import_finished_worker(self,worker):
+        if self.worker is worker:
+            self.worker=None;self.progress.setRange(0,100);self._busy(False)
+        worker.deleteLater()
+
+    def _video_preflight_done(self,worker,meta):
+        # The completion signal arrives before QThread.finished. Wait for
+        # the metadata-only worker before replacing it with a download worker.
+        if self.worker is not worker:return
+        self._video_import_finished_worker(worker)
+        if meta is None:return
+        from .video_import import choose_formats
+        from .m18_language import tr
+        from PySide6.QtWidgets import QDialog,QVBoxLayout,QLabel,QComboBox,QCheckBox,QDialogButtonBox
+        dialog=QDialog(self);dialog.setWindowTitle(tr("Videoimport · ")+meta.source.provider)
+        layout=QVBoxLayout(dialog)
+        title=QLabel(f"{meta.title or tr('Titel unbekannt')}\n{meta.channel or tr('Kanal unbekannt')}\n{tr('Dauer: ')}{display_time(meta.duration) if meta.duration is not None else tr('unbekannt')}")
+        title.setTextFormat(Qt.TextFormat.PlainText);title.setWordWrap(True);layout.addWidget(title)
+        quality=QComboBox();quality.addItem(tr("Beste verfügbare"),None)
+        for h in sorted({f.height for f in meta.formats if f.video and f.height},reverse=True):quality.addItem(f"{tr('Bis')} {h}p",h)
+        layout.addWidget(quality)
+        audio=QComboBox();audio.addItem(tr("Ton automatisch / Original"),None)
+        for f in meta.formats:
+            if f.audio and not f.video:audio.addItem(f"{f.language or tr('Sprache unbekannt')} · {f.ext} · {f.id}",f.id)
+        layout.addWidget(audio)
+        container=QComboBox();container.addItem(tr("Original / Zusammenführung ohne Neukodierung"),"native");container.addItem("MKV (Remux)","mkv");container.addItem(tr("MP4 (Remux, nur kompatible Codecs)"),"mp4");layout.addWidget(container)
+        estimate=QLabel();estimate.setWordWrap(True);layout.addWidget(estimate)
+        limit=QComboBox()
+        for n in (1,4,8,16,32):limit.addItem(f"{tr('Maximal')} {n} GiB",n*1024**3)
+        limit.setCurrentIndex(2);layout.addWidget(limit)
+        subs=QCheckBox(tr("Vorhandene Untertitel als separate Dateien übernehmen"));subs.setEnabled(bool(meta.subtitles));layout.addWidget(subs)
+        opened=QCheckBox(tr("Nach erfolgreichem Download im Editor öffnen"));layout.addWidget(opened)
+        buttons=QDialogButtonBox(QDialogButtonBox.StandardButton.Ok|QDialogButtonBox.StandardButton.Cancel);layout.addWidget(buttons)
+        buttons.button(QDialogButtonBox.StandardButton.Ok).setText(tr("Download vorbereiten"))
+        def update():
+            try:
+                selected=choose_formats(meta,quality.currentData(),audio.currentData())
+                size=sum(f.bytes for f in selected) if all(f.bytes for f in selected) else None
+                estimate.setText("Format: "+" + ".join(f.ext for f in selected)+" · "+(tr("geschätzt %.2f GiB")%(size/1024**3) if size else tr("Größe unbekannt"))+" · "+(tr("Ton vorhanden") if any(f.audio for f in selected) else tr("Keine Tonspur verfügbar")))
+                buttons.button(QDialogButtonBox.StandardButton.Ok).setEnabled(True)
+            except ValueError as exc:
+                estimate.setText(tr(str(exc)));buttons.button(QDialogButtonBox.StandardButton.Ok).setEnabled(False)
+        quality.currentIndexChanged.connect(update);audio.currentIndexChanged.connect(update);update()
+        buttons.accepted.connect(dialog.accept);buttons.rejected.connect(dialog.reject)
+        if dialog.exec()!=QDialog.DialogCode.Accepted:return
+        default=installation_directory()/"data"/"imports";default.mkdir(parents=True,exist_ok=True)
+        folder=QFileDialog.getExistingDirectory(self,tr("Import speichern"),str(default))
+        if not folder:return
+        worker=VideoImportWorker(meta,folder,{"height":quality.currentData(),"audio_id":audio.currentData(),
+            "subtitles":subs.isChecked(),"max_bytes":limit.currentData(),"container":container.currentData()},self)
+        self.worker=worker
+        worker.progress_changed.connect(self._video_import_progress)
+        worker.done.connect(lambda path,open_after=opened.isChecked():self._video_download_done(path,open_after))
+        worker.failed.connect(self.job_failed)
+        worker.finished.connect(lambda w=worker:self._video_import_finished_worker(w))
+        self.progress.setRange(0,0);self.progress.setFormat(tr("Videoimport wird vorbereitet"))
+        self._busy(True);worker.start()
+
+    def _video_import_progress(self,row):
+        from .m18_language import tr
+        stage=row["stage"];done=row.get("done");total=row.get("total")
+        if stage=="download" and total and done is not None:
+            self.progress.setRange(0,100);self.progress.setValue(min(99,round(100*done/total)))
+        elif stage=="complete":self.progress.setRange(0,100);self.progress.setValue(100)
+        else:self.progress.setRange(0,0)
+        self.progress.setFormat(tr("FFmpeg-Merge") if stage=="merge" else tr("Importdatei prüfen") if stage=="verify" else tr("Videoimport · %p %") if total else tr("Videoimport"))
+        text=tr("Videoimport · ")+stage
+        if done is not None:text+=f" · {done/1024**2:.1f} MiB"
+        if row.get("speed") is not None:text+=f" · {row['speed']/1024**2:.1f} MiB/s"
+        if row.get("eta") is not None:text+=f" · ETA {display_time(row['eta'])}"
+        self.phase_status.setText(text)
+
+    def _video_download_done(self,path,open_after):
+        from .m18_language import tr
+        self.progress.setRange(0,100);self.progress.setValue(100)
+        self.phase_status.setText(tr("Videoimport abgeschlossen"))
+        if open_after:self.load_video_source(str(path))
+        self.statusBar().showMessage(tr("Video importiert: ")+str(path))
 
     def select_model_preset(self, kind: str) -> None:
         selected = self.model_selectors[kind].currentData()
@@ -3900,6 +3987,7 @@ class MainWindow(QMainWindow):
             f"{len(result.candidates)} Clips, {len(result.transcript)} Transkript-Abschnitte")
 
     def job_failed(self, message: str) -> None:
+        from .m18_language import tr
         # Preserve manual markers even if a subsequent AI pass fails.
         if self._manual_pending and self.source:
             try:
@@ -3913,10 +4001,10 @@ class MainWindow(QMainWindow):
                 pass
         self._busy(False)
         if "abgebrochen" in message.lower():
-            self.statusBar().showMessage(message)
+            self.statusBar().showMessage(tr(message))
         else:
-            QMessageBox.critical(self, "Verarbeitung fehlgeschlagen", message)
-            self.statusBar().showMessage("Fehler – Details im Dialog")
+            QMessageBox.critical(self, tr("Verarbeitung fehlgeschlagen"), tr(message))
+            self.statusBar().showMessage(tr("Fehler – Details im Dialog"))
 
     def _ensure_manual_result(self) -> bool:
         if self.analysis:
@@ -4748,6 +4836,7 @@ class MainWindow(QMainWindow):
         self.player.setSource(QUrl())
         self.player.setVideoOutput(None)
         self.player.setAudioOutput(None)
+        self.integrations.stop()
         self._resource_timer.stop()
         if not self._resource_worker.wait(3000):
             self._resource_timer.start();event.ignore();return

@@ -57,7 +57,24 @@ def main(argv: list[str] | None = None) -> None:
                    help="Untertitel verschieben (Sekunden, positiv = später, -5 bis +5)")
     e.add_argument("--transcript-json", type=Path,
                    help="JSON-Bericht aus 'analyze' mit Whisper-Transkript")
+    imp=commands.add_parser("import-video",help="Explicit authorized single-video import")
+    imp.add_argument("url");imp.add_argument("directory",nargs="?");imp.add_argument("--authorized",action="store_true",required=True)
+    imp.add_argument("--preflight-only",action="store_true");imp.add_argument("--height",type=int);imp.add_argument("--subtitles",action="store_true")
+    imp.add_argument("--max-gib",type=int,choices=range(1,33),default=8)
+    deck=commands.add_parser("deck",help="Post explicit local Stream Deck command")
+    deck.add_argument("action",choices=["marker","play-pause","manual-in","manual-out","manual-create"])
     args = parser.parse_args(argv)
+    if args.command=="deck":
+        from .local_integrations import post_command
+        print(post_command(args.action));return
+    if args.command=="import-video":
+        from dataclasses import asdict
+        from .video_import import preflight,download
+        meta=preflight(args.url,authorized=args.authorized)
+        if args.preflight_only:print(json.dumps(asdict(meta),ensure_ascii=False));return
+        if not args.directory:parser.error("Download requires a destination directory")
+        path=download(meta,args.directory,authorized=args.authorized,height=args.height,subtitles=args.subtitles,max_bytes=args.max_gib*1024**3,progress=lambda row:print(json.dumps(row),flush=True))
+        print(path);return
     if args.command == "analyze":
         engine=analyze
         options={}

@@ -1,4 +1,5 @@
 """Project caption style inspector."""
+from .m18_language import tr
 from PySide6.QtWidgets import (QDialog,QDialogButtonBox,QFormLayout,QComboBox,
     QLineEdit,QDoubleSpinBox,QSpinBox,QMessageBox,QLabel,QVBoxLayout)
 from .caption_style import CaptionStyle,PRESETS
@@ -8,27 +9,27 @@ class CaptionStyleDialog(QDialog):
     def __init__(self,style,parent=None):
         super().__init__(parent)
         self.value=style
-        self.setWindowTitle("Branding · Untertitel")
+        self.setWindowTitle(tr("Branding · Untertitel"))
         layout=QVBoxLayout(self)
-        hint=QLabel("Gestaltung gilt für dieses Projekt. Die Render-Vorschau zeigt den tatsächlichen Export. "
-                    "Animierte Wörter nutzen vorhandene Wortzeiten; keine neue Whisper-Analyse.")
+        hint=QLabel(tr("Gestaltung gilt für dieses Projekt. Die Render-Vorschau zeigt den tatsächlichen Export. "
+                    "Animierte Wörter nutzen vorhandene Wortzeiten; keine neue Whisper-Analyse."))
         hint.setWordWrap(True);layout.addWidget(hint)
         form=QFormLayout()
         self.preset=QComboBox();self.preset.addItems(["Benutzerdefiniert",*PRESETS])
         self.mode=QComboBox()
-        for label,value in (("Klassisch","legacy"),("Wort hervorheben","highlight"),("Pop-Animation","pop")):
+        for label,value in ((tr("Klassisch"),"legacy"),(tr("Wort hervorheben"),"highlight"),(tr("Pop-Animation"),"pop")):
             self.mode.addItem(label,value)
         self.font=QLineEdit()
         self.scale=QDoubleSpinBox();self.scale.setRange(.5,2);self.scale.setSingleStep(.1)
         self.text_color=QLineEdit();self.accent_color=QLineEdit();self.outline_color=QLineEdit()
         self.position=QComboBox()
-        for label,value in (("Szenen-Safe-Zone (Standard)","scene"),("Oben","top"),("Unten","bottom")):
+        for label,value in ((tr("Szenen-Safe-Zone (Standard)"),"scene"),(tr("Oben"),"top"),(tr("Unten"),"bottom")):
             self.position.addItem(label,value)
         self.words=QSpinBox();self.words.setRange(1,8)
-        for label,widget in (("Vorlage",self.preset),("Animation",self.mode),("Schrift",self.font),
-            ("Größe",self.scale),("Textfarbe #RRGGBB",self.text_color),
-            ("Akzentfarbe #RRGGBB",self.accent_color),("Kontur #RRGGBB",self.outline_color),
-            ("Position",self.position),("Wörter pro Gruppe",self.words)):
+        for label,widget in ((tr("Vorlage"),self.preset),("Animation",self.mode),(tr("Schrift"),self.font),
+            (tr("Größe"),self.scale),(tr("Textfarbe #RRGGBB"),self.text_color),
+            (tr("Akzentfarbe #RRGGBB"),self.accent_color),(tr("Kontur #RRGGBB"),self.outline_color),
+            ("Position",self.position),(tr("Wörter pro Gruppe"),self.words)):
             form.addRow(label,widget)
         layout.addLayout(form)
         self.load(style)

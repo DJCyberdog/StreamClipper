@@ -1,4 +1,5 @@
 """Montage output-time overview and exact-render preview, separate from source playback."""
+from .m18_language import tr
 from PySide6.QtCore import Qt,Signal,QUrl,QThread
 from PySide6.QtGui import QColor,QPainter,QPen
 from PySide6.QtWidgets import (QWidget,QDialog,QVBoxLayout,QHBoxLayout,QLabel,QPushButton,
@@ -13,7 +14,7 @@ class MontageTimeline(QWidget):
     def __init__(self,parent=None):
         super().__init__(parent);self.parts=();self.current=-1
         self.setMinimumHeight(78)
-        self.setToolTip("Ausgabezeit vor optionalem Szenenplan-Trim; Klick wählt Montageabschnitt")
+        self.setToolTip(tr("Ausgabezeit vor optionalem Szenenplan-Trim; Klick wählt Montageabschnitt"))
     def set_parts(self,beats,current=-1):
         self.parts=tuple(b.duration for b in beats);self.current=current;self.update()
     def set_current(self,index):
@@ -33,9 +34,9 @@ class MontageTimeline(QWidget):
         p=QPainter(self);p.setRenderHint(QPainter.RenderHint.Antialiasing)
         total=sum(self.parts);w=max(1,self.width()-16)
         p.setPen(self.palette().color(self.foregroundRole()))
-        p.drawText(8,15,"Montage-Zeitachse (vor Szenenplan-Trim)")
+        p.drawText(8,15,tr("Montage-Zeitachse (vor Szenenplan-Trim)"))
         if total<=0:
-            p.drawText(8,45,"Highlights hinzufügen");return
+            p.drawText(8,45,tr("Highlights hinzufügen"));return
         elapsed=0.
         for i,d in enumerate(self.parts):
             x=8+round(w*elapsed/total);elapsed+=d
@@ -63,14 +64,14 @@ class PreviewWorker(QThread):
 class PreviewProgress(QDialog):
     def __init__(self,worker,parent=None):
         super().__init__(parent);self.worker=worker;self.result=None
-        self.setWindowTitle("Montage-Vorschau rendern");layout=QVBoxLayout(self)
-        self.status=QLabel("Exportgetreue Vorschau wird erstellt …");layout.addWidget(self.status)
+        self.setWindowTitle(tr("Montage-Vorschau rendern"));layout=QVBoxLayout(self)
+        self.status=QLabel(tr("Exportgetreue Vorschau wird erstellt …"));layout.addWidget(self.status)
         bar=QProgressBar();layout.addWidget(bar);worker.progress.connect(bar.setValue)
-        self.cancel=QPushButton("Abbrechen");layout.addWidget(self.cancel);self.cancel.clicked.connect(self.reject)
+        self.cancel=QPushButton(tr("Abbrechen"));layout.addWidget(self.cancel);self.cancel.clicked.connect(self.reject)
         worker.outcome.connect(self.receive);worker.finished.connect(self.accept)
     def receive(self,result):self.result=result
     def reject(self):
-        self.worker.stop.set();self.cancel.setEnabled(False);self.status.setText("Abbruch läuft …")
+        self.worker.stop.set();self.cancel.setEnabled(False);self.status.setText(tr("Abbruch läuft …"))
     def closeEvent(self,event):
         if self.worker.isRunning():self.reject();event.ignore()
         else:super().closeEvent(event)
@@ -86,20 +87,20 @@ def play_preview(request,parent):
         result=progress.result;cancelled=worker.stop.is_set()
         progress.deleteLater();worker.deleteLater()
         if cancelled or result is None or result[1]:
-            if result and not cancelled:QMessageBox.warning(parent,"Vorschau",result[1])
+            if result and not cancelled:QMessageBox.warning(parent,tr("Vorschau"),result[1])
             return
-        dialog=QDialog(parent);dialog.setWindowTitle("Montage · exportgetreue Vorschau");dialog.resize(800,600)
+        dialog=QDialog(parent);dialog.setWindowTitle(tr("Montage · exportgetreue Vorschau"));dialog.resize(800,600)
         layout=QVBoxLayout(dialog)
         player=QMediaPlayer(dialog);audio=QAudioOutput(dialog);audio.setVolume(.6);player.setAudioOutput(audio)
         view=QVideoWidget(dialog);player.setVideoOutput(view);layout.addWidget(view,1)
         row=QHBoxLayout();layout.addLayout(row)
-        toggle=QPushButton("Wiedergabe / Pause");row.addWidget(toggle)
+        toggle=QPushButton(tr("Wiedergabe / Pause"));row.addWidget(toggle)
         toggle.clicked.connect(lambda:player.pause() if player.playbackState()==QMediaPlayer.PlaybackState.PlayingState else player.play())
         seek=QSlider(Qt.Orientation.Horizontal);row.addWidget(seek,1)
         player.durationChanged.connect(lambda d:seek.setRange(0,max(1,d)))
         player.positionChanged.connect(lambda p:seek.setValue(p) if not seek.isSliderDown() else None)
         seek.sliderMoved.connect(player.setPosition)
-        close=QPushButton("Schließen");layout.addWidget(close);close.clicked.connect(dialog.accept)
+        close=QPushButton(tr("Schließen"));layout.addWidget(close);close.clicked.connect(dialog.accept)
         player.setSource(QUrl.fromLocalFile(str(result[0])));player.play()
         try:dialog.exec()
         finally:
