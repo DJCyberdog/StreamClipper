@@ -5,6 +5,11 @@ from pathlib import Path
 
 mode=ContextVar("media_hardware_mode",default="legacy")
 phase_notice=ContextVar("media_phase_notice",default=None)
+stage_notice=ContextVar("media_stage_notice",default=None)
+
+def stage_update(name,percent):
+    fn=stage_notice.get()
+    if fn:fn(name,max(0,min(100,int(percent))))
 MODES=("legacy","auto","gpu","cpu")
 
 def notify(text):
