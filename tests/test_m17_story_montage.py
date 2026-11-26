@@ -175,3 +175,49 @@ def test_real_montage_sound_lut_and_freeze_caption(tmp_path,monkeypatch):
     path=render_montage(probe_video(source),plan,tmp_path/"effects.mp4")
     qa=read_report(path)
     assert qa.status=="PASS" and qa.audio_present and qa.duration==pytest.approx(1.5,abs=.4)
+
+
+@pytest.mark.parametrize("initial,final",[(.25,4),(4,.25),(1,1),(.5,2)])
+def test_continuous_time_map_inverse(initial,final):
+    from streamclipper.speed_curve import duration,source_time,output_time
+    length=8;d=duration(length,initial,final)
+    assert source_time(0,length,initial,final)==0
+    assert source_time(d,length,initial,final)==pytest.approx(length)
+    for i in range(21):
+        t=d*i/20
+        assert output_time(source_time(t,length,initial,final),length,initial,final)==pytest.approx(t)
+    assert Beat(0,8,speed=initial,end_speed=final).duration==pytest.approx(d)
+
+@pytest.mark.parametrize("initial,final",[(.5,2),(2,.5)])
+def test_real_continuous_curve_audio_video(tmp_path,monkeypatch,initial,final):
+    from streamclipper import montage as m
+    from streamclipper.media import tool_path,probe_video
+    from streamclipper.export_qa import read_report
+    ffmpeg=tool_path("ffmpeg");source=tmp_path/"curve.mp4"
+    subprocess.run([ffmpeg,"-v","error","-y","-f","lavfi","-i","testsrc2=s=96x54:r=30:d=4",
+                    "-f","lavfi","-i","sine=frequency=440:duration=4",
+                    "-c:v","libx264","-pix_fmt","yuv420p","-c:a","aac",str(source)],check=True)
+    monkeypatch.setattr(m,"dimensions",lambda aspect:(96,54))
+    beat=Beat(.5,3.5,speed=initial,end_speed=final)
+    output=render_montage(probe_video(source),Montage((beat,),"16:9","cpu_h264"),tmp_path/"out.mp4")
+    qa=read_report(output)
+    assert qa.status=="PASS" and qa.audio_present
+    assert qa.duration==pytest.approx(beat.duration,abs=.25)
+    assert abs(qa.audio_end_delta or 0)<.25
+
+def test_curve_audio_mapping_marker(tmp_path):
+    import numpy as np
+    from streamclipper.speed_curve import render_audio,output_time
+    from streamclipper.media import tool_path,probe_video
+    ffmpeg=tool_path("ffmpeg");source=tmp_path/"marker.mp4"
+    # A short tone in the middle of a 3-second clip maps to the same time
+    # as the video expression, not merely to a matching total duration.
+    subprocess.run([ffmpeg,"-v","error","-y","-f","lavfi","-i","testsrc2=s=96x54:r=30:d=3",
+                    "-f","lavfi","-i","aevalsrc=if(between(t\\,1.4\\,1.6)\\,0.5*sin(2*PI*440*t)\\,0):s=48000:d=3",
+                    "-c:v","libx264","-pix_fmt","yuv420p","-c:a","aac",str(source)],check=True)
+    beat=Beat(0,3,speed=.5,end_speed=2)
+    wav=render_audio(probe_video(source),beat,tmp_path)
+    data=np.fromfile(wav,dtype="<f4").reshape(-1,2)
+    indices=np.flatnonzero(np.abs(data[:,0])>.08)
+    assert len(indices)>100
+    assert float(np.median(indices))/48000==pytest.approx(output_time(1.5,3,.5,2),abs=.06)
