@@ -83,10 +83,10 @@ def play_preview(request,parent):
         worker=PreviewWorker(request,Path(temp.name)/"preview.mp4",parent)
         progress=PreviewProgress(worker,parent)
         worker.start();progress.exec();worker.wait()
-        result=progress.result
-        worker.deleteLater()
-        if result is None or result[1]:
-            if result and not worker.stop.is_set():QMessageBox.warning(parent,"Vorschau",result[1])
+        result=progress.result;cancelled=worker.stop.is_set()
+        progress.deleteLater();worker.deleteLater()
+        if cancelled or result is None or result[1]:
+            if result and not cancelled:QMessageBox.warning(parent,"Vorschau",result[1])
             return
         dialog=QDialog(parent);dialog.setWindowTitle("Montage · exportgetreue Vorschau");dialog.resize(800,600)
         layout=QVBoxLayout(dialog)
