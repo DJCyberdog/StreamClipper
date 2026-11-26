@@ -139,6 +139,22 @@ class AnalysisThread(QThread):
             self.failed.emit(str(exc))
 
 
+class M16ReviewThread(QThread):
+    done = Signal(object)
+    failed = Signal(str)
+    def __init__(self, operation, parent=None):
+        super().__init__(parent)
+        self.operation=operation
+        self._cancelled=threading.Event()
+    def cancel(self):
+        self._cancelled.set()
+    def run(self):
+        try:
+            self.done.emit(self.operation(self._cancelled.is_set))
+        except Exception as exc:
+            self.failed.emit(str(exc))
+
+
 class ExportThread(QThread):
     progress_changed = Signal(int)
     done = Signal(object)
@@ -1474,6 +1490,10 @@ class MainWindow(QMainWindow):
         gaming.addAction("Vorschlag bewerten …", self._m16_feedback)
         gaming.addAction("Ranking-Präferenzen zurücksetzen …", self._m16_reset_feedback)
         gaming.addAction("Transkript nach Momenten durchsuchen …", self._m16_search)
+        gaming.addAction("Semantische Sprachsuche (lokales Modell) …", self._m16_semantic_search)
+        gaming.addAction("Highlight-Kontaktbogen speichern …", self._m16_contact_sheet)
+        self.m16_chat_action = gaming.addAction("Lokalen Chat beim nächsten M16-Lauf auswählen")
+        self.m16_chat_action.setCheckable(True)
         branding = self.menuBar().addMenu("Branding")
         branding.addAction("Untertitel gestalten …", self._edit_caption_style)
         branding.addAction("Untertitel übersetzen …", self._edit_translations)
@@ -3397,8 +3417,15 @@ class MainWindow(QMainWindow):
             from .gaming_intelligence import digest
             stat = Path(self.analysis.video.path).stat()
             source_id = digest([str(Path(self.analysis.video.path).resolve()),stat.st_size,stat.st_mtime_ns])
+            corrected=None
+            raw,ok=QInputDialog.getText(self,"M16 Feedback","Optional bessere Grenzen in Sekunden: Start, Ende (leer = unverändert)")
+            if not ok:return
+            if raw.strip():
+                corrected=tuple(float(v.strip()) for v in raw.split(","))
+                if len(corrected)!=2 or not 0<=corrected[0]<corrected[1]<=self.analysis.video.duration:
+                    raise ValueError("Ungültige Zeitgrenzen")
             record_feedback(installation_directory()/"data"/"settings"/"m16_feedback.json",
-                            source_id,c,kind,1 if vote=="Annehmen" else -1)
+                            source_id,c,kind,1 if vote=="Annehmen" else -1,corrected=corrected)
             self.statusBar().showMessage("Lokales Feedback gespeichert; vorhandener Clip unverändert.")
         except (OSError, ValueError) as exc:
             QMessageBox.warning(self,"M16 Feedback",str(exc))
@@ -3418,9 +3445,43 @@ class MainWindow(QMainWindow):
         hits=search_transcript(self.analysis.transcript,query)
         if not hits:
             QMessageBox.information(self,"Suche","Keine Treffer.");return
+        self._m16_show_hits(hits)
+
+    def _m16_show_hits(self,hits):
+        if not hits:
+            QMessageBox.information(self,"Suche","Keine Treffer.");return
         labels=[f"{i+1}. {display_time(c.start)} — {c.text[:140]}" for i,c in enumerate(hits)]
         value,ok=QInputDialog.getItem(self,"Treffer","Zum Moment springen:",labels,0,False)
         if ok:self.seek_to(round(hits[labels.index(value)].start*1000))
+
+    def _m16_review_job(self,operation,completed):
+        self.worker=M16ReviewThread(operation,self)
+        self.worker.done.connect(completed)
+        self.worker.failed.connect(self.job_failed)
+        self.worker.finished.connect(lambda:self._busy(False))
+        self._busy(True)
+        self.statusBar().showMessage("M16 Review läuft lokal …")
+        self.worker.start()
+
+    def _m16_semantic_search(self):
+        if self._history_blocked or not self.analysis or not self.analysis.transcript:return
+        query,ok=QInputDialog.getText(self,"Semantische Sprachsuche","Gesuchter Moment in eigenen Worten:")
+        if not ok or not query.strip():return
+        model=QFileDialog.getExistingDirectory(self,"Lokales Text-Embedding-Modell",str(installation_directory()/"data"/"models"))
+        if not model:return
+        from .m16_review import semantic_transcript_search
+        cues=tuple(self.analysis.transcript)
+        self._m16_review_job(lambda cancel:semantic_transcript_search(cues,query,model,cancelled=cancel),
+                             lambda hits:self._m16_show_hits([c for _,c in hits]))
+
+    def _m16_contact_sheet(self):
+        if self._history_blocked or not self.analysis or not self.analysis.candidates:return
+        path,_=QFileDialog.getSaveFileName(self,"Kontaktbogen speichern","highlights-contact-sheet.png","PNG (*.png)")
+        if not path:return
+        from .m16_review import contact_sheet
+        video=self.analysis.video;candidates=tuple(self.analysis.candidates)
+        self._m16_review_job(lambda cancel:contact_sheet(video,candidates,path,cancelled=cancel),
+                             lambda result:self.statusBar().showMessage("Kontaktbogen gespeichert: "+str(result)))
 
     def start_analysis(self) -> None:
         if not self.source or not self.confirm_discard_edits():
@@ -3463,6 +3524,10 @@ class MainWindow(QMainWindow):
         m16_options = None
         if self.m16_action.isChecked():
             m16_options = {"profile":self.m16_profile}
+            if self.m16_chat_action.isChecked():
+                chat,_=QFileDialog.getOpenFileName(self,"Lokaler Chat mit VOD-Zeitstempeln (JSONL)","","JSONL (*.jsonl)")
+                if not chat:return
+                m16_options['chat_path']=chat
             if self.m16_cache_action.isChecked():
                 m16_options["cache_root"] = installation_directory()/"data"/"projects"/"m16_cache"
             if self.m16_feedback_action.isChecked():
