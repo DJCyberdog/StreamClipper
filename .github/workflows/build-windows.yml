@@ -53,7 +53,7 @@ jobs:
         shell: pwsh
         run: |
           $env:PYTHONFAULTHANDLER = "1"
-          python -m pytest -q tests/test_m15_audio_sources.py tests/test_m15_speech_timing.py tests/test_m15_audio_separation.py tests/test_m15_target_speaker.py tests/test_m15_review_editor_benchmark.py tests/test_m15_corpus.py tests/test_m16_intelligence.py
+          python -m pytest -q tests/test_m15_audio_sources.py tests/test_m15_speech_timing.py tests/test_m15_audio_separation.py tests/test_m15_target_speaker.py tests/test_m15_review_editor_benchmark.py tests/test_m15_corpus.py tests/test_m16_intelligence.py tests/test_m16_hardware.py tests/test_object_tracking.py
           $testExit = $LASTEXITCODE
           Write-Host "M15 pytest exit: $testExit"
           if ($testExit -ne 0) { throw "M15 pytest exited $testExit" }
