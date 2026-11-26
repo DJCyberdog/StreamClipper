@@ -34,6 +34,7 @@ def main(argv: list[str] | None = None) -> None:
                    help="Max. Objekterkennungsbilder (3–300; Standard 90)")
     a.add_argument("--max-visual-frames", type=int, default=180,
                    help="Höchstens so viele Videoframes klassifizieren (Standard: 180)")
+    a.add_argument("--story-profile", choices=["short","social","extended"], help="M17 dynamic clip boundaries with M16 evidence")
     a.add_argument("--m16-profile", choices=["generic","open-world"], help="Experimental M16 engine")
     a.add_argument("--m16-hardware", choices=["auto","gpu","cpu","legacy"], default="legacy")
     a.add_argument("--m16-fast-vision", action="store_true", help="Experimental CUDA FP16 and bounded batches")
@@ -60,11 +61,15 @@ def main(argv: list[str] | None = None) -> None:
     if args.command == "analyze":
         engine=analyze
         options={}
+        if args.story_profile and not args.m16_profile:parser.error("--story-profile requires --m16-profile")
         if args.m16_profile:
             from .m16_pipeline import analyze_m16
             from .m16_review import read_chat
             engine=analyze_m16
             options={"profile":args.m16_profile,"cache_root":args.m16_cache,"fast_vision":args.m16_fast_vision,"hardware_mode":args.m16_hardware}
+            if args.story_profile:
+                from .story_clipping import PROFILES,StoryOptions
+                options["story_options"]=StoryOptions(*PROFILES[args.story_profile])
             if args.m16_chat:options["chat_messages"]=read_chat(args.m16_chat,probe_video(args.video).duration)
         elif args.m16_cache or args.m16_chat or args.m16_fast_vision or args.m16_hardware!="legacy":
             parser.error("M16 options require --m16-profile")
