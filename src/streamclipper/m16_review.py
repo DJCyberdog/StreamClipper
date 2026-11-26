@@ -9,6 +9,9 @@ from .media import sampled_jpeg_frames,CancelledError
 
 def read_chat(path,duration):
     """Explicit local JSONL with relative VOD seconds; discard all text and identities."""
+    if Path(path).suffix.casefold()==".json":
+        from .m16_chat_import import parse_chat_export
+        return parse_chat_export(path,duration)
     if Path(path).stat().st_size>64*1024*1024:raise ValueError("Chat file too large")
     result=[]
     with Path(path).open(encoding="utf-8") as f:
