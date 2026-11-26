@@ -67,7 +67,8 @@ def sanitize_metadata(source,info):
 
 def choose_formats(meta,height=None,audio_id=None):
     candidates=[f for f in meta.formats if f.video and (height is None or f.height is not None and f.height<=height)]
-    if not candidates:raise ValueError("Gewählte Auflösung nicht verfügbar")
+    if audio_id is not None:candidates=[f for f in candidates if not f.audio]
+    if not candidates:raise ValueError("Gewählte Auflösung / separate Tonspur nicht verfügbar")
     v=max(enumerate(candidates),key=lambda pair:(pair[1].height or 0,pair[0]))[1]
     audio=[f for f in meta.formats if f.audio and not f.video]
     if audio_id is not None:
@@ -158,7 +159,11 @@ def download(meta,directory,*,height=None,audio_id=None,subtitles=False,authoriz
     # Revalidate current metadata and exact identity before starting any download.
     fresh=preflight(meta.source.url,authorized=True,cancelled=cancelled)
     if fresh.id!=meta.id or fresh.source!=meta.source:raise ValueError("Video-ID hat sich geändert")
+    selected=choose_formats(meta,height,audio_id)
     formats=choose_formats(fresh,height,audio_id)
+    def identity(f):return (f.id,f.ext,f.height,f.video,f.audio,f.language)
+    if tuple(map(identity,formats))!=tuple(map(identity,selected)):
+        raise ValueError("Verfügbare Formate haben sich geändert – Preflight erneut öffnen")
     estimate=sum(f.bytes or 0 for f in formats)
     folder=Path(directory).resolve(strict=True)
     if not folder.is_dir():raise ValueError("Zielordner fehlt")
@@ -235,7 +240,12 @@ def download(meta,directory,*,height=None,audio_id=None,subtitles=False,authoriz
                 if re.fullmatch(r"[A-Za-z0-9_.-]{1,100}",suffix):
                     sub=_publish_without_overwrite(sidecar,result.with_name(result.stem+"."+suffix))
                     record["subtitles"].append(sub.name)
-        atomic_json(result.with_name(result.name+".import.json"),record)
+        receipt=result.with_name(result.name+".import.json")
+        pending=staging/"receipt.json"
+        atomic_json(pending,record)
+        try:os.link(pending,receipt)
+        except FileExistsError:raise RuntimeError("Importvideo gespeichert, aber vorhandene Belegdatei nicht überschrieben") from None
+        finally:pending.unlink(missing_ok=True)
         if progress:progress({"stage":"complete"})
         return result
     finally:
