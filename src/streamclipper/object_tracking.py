@@ -188,7 +188,7 @@ def detect_and_track(video: VideoInfo, model_directory: str | Path, *,
                      cancelled: Cancelled | None = None,
                      progress: Progress | None = None,
                      timestamps: list[float] | None = None, device_override: str | None = None,
-                     relative_motion: bool = False, batch_size: int = 1,
+                     relative_motion: bool = False, batch_size: int | None = 1,
                      mixed_precision: bool = False) -> list[EventEvidence]:
     """Sample <=90 images (default) around interesting timestamps, track locally.
 
