@@ -1524,6 +1524,8 @@ class MainWindow(QMainWindow):
         self._busy(False)
         self.setStyleSheet(EDITOR_STYLESHEET)
         self._load_workspace_on_start()
+        from .m18_gui import Integrations
+        self.integrations=Integrations(self)
 
     def _poll_resources(self):
         import time
@@ -4827,6 +4829,7 @@ class MainWindow(QMainWindow):
         self.player.setSource(QUrl())
         self.player.setVideoOutput(None)
         self.player.setAudioOutput(None)
+        self.integrations.stop()
         self._resource_timer.stop()
         if not self._resource_worker.wait(3000):
             self._resource_timer.start();event.ignore();return
