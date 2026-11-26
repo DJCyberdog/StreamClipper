@@ -1,3 +1,7 @@
+# NEXT_TASK — M17 implementation closure candidate
+
+M17 previous exact head 572853e: all three hosted workflows PASS. Third pass adds continuous linear playback speed (shared video PTS and blockwise audio resampling; natural pitch, not pitch-corrected), existing pitch-corrected stepped ramp retained; clickable montage timeline and exact render preview <=45 seconds; model-bound benchmark and added FFmpeg/Qt regression tests. Verify exact new head CI, then native GUI/NVENC playback/export and independent annotated M16/M17 boundary metrics. No release, main merge or quality acceptance until required evidence is available. Montage remains separate dialog/JSON, not an embedded main-timeline track.
+
 # NEXT_TASK — M17 second implementation pass
 
 M17 initial commit 811efbd: CI, Windows build and portable runtime PASS. Second pass integrates separate versioned montage JSON plans, optional existing editor composition per beat, durable queue/QA receipt, local sound library with rights metadata, and adjustable sampled linear/ease speed ramps (not true continuous). Source/effect bindings use resolved path/size/mtime, checked before and after rendering, not full content hashes. Verify exact latest CI and fix failures. Remaining native GUI/render/A-V timing, richer montage timeline/preview, genuine continuous speed curves, annotated M16/M17 quality evidence. Do not label M17 complete or merge automatically.
