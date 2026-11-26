@@ -90,8 +90,10 @@ class AnalysisThread(QThread):
 
     def __init__(self, source: str, length: int, parent=None,
                  speech_model: str | None = None, vision_model: str | None = None,
-                 detector_model: str | None = None, speech_source=None, asr_cache_root=None):
+                 detector_model: str | None = None, speech_source=None, asr_cache_root=None,
+                 m16_options=None):
         super().__init__(parent)
+        self.m16_options = m16_options
         self.speech_source=speech_source
         self.asr_cache_root=asr_cache_root
         self.source = source
@@ -106,7 +108,19 @@ class AnalysisThread(QThread):
 
     def run(self) -> None:
         try:
-            result = analyze(self.source, clip_seconds=self.length,
+            if self.m16_options is not None:
+                from .m16_pipeline import analyze_m16
+                from .m16_review import read_chat
+                options = dict(self.m16_options)
+                chat = options.pop('chat_path', None)
+                if chat:
+                    options['chat_messages'] = read_chat(chat, probe_video(self.source).duration)
+                result = analyze_m16(self.source, self.length, progress=self.progress_changed.emit,
+                    cancelled=self._cancelled.is_set, speech_model=self.speech_model,
+                    vision_model=self.vision_model, detector_model=self.detector_model,
+                    speech_source=self.speech_source, **options)
+            else:
+                result = analyze(self.source, clip_seconds=self.length,
                              progress=self.progress_changed.emit,
                              cancelled=self._cancelled.is_set,
                              speech_model=self.speech_model,
@@ -1447,6 +1461,19 @@ class MainWindow(QMainWindow):
         self.asr_cache_action.setToolTip("Speichert rohe Transkriptfenster lokal; nach Abbruch mit gleicher Quelle und Modell wiederverwendbar.")
         audio_menu.addAction("KI-Stems / Audio-Mix …",self._edit_stem_mix)
         audio_menu.addAction("Voice-over-Datei auf ausgewählte Audiospur …",self._add_audio_file_to_track)
+        gaming = self.menuBar().addMenu("Gaming Intelligence (M16)")
+        self.m16_action = gaming.addAction("Experimentelle M16-Analyse")
+        self.m16_action.setCheckable(True)
+        self.m16_cache_action = gaming.addAction("Lokale Analyse-Zwischenstände behalten")
+        self.m16_cache_action.setCheckable(True)
+        self.m16_cache_action.setToolTip("Speichert auch private Transkripttexte lokal. Kein Upload.")
+        self.m16_feedback_action = gaming.addAction("Persönliche Ranking-Präferenzen verwenden")
+        self.m16_feedback_action.setCheckable(True)
+        self.m16_profile = "generic"
+        gaming.addAction("Spielprofil auswählen …", self._m16_choose_profile)
+        gaming.addAction("Vorschlag bewerten …", self._m16_feedback)
+        gaming.addAction("Ranking-Präferenzen zurücksetzen …", self._m16_reset_feedback)
+        gaming.addAction("Transkript nach Momenten durchsuchen …", self._m16_search)
         branding = self.menuBar().addMenu("Branding")
         branding.addAction("Untertitel gestalten …", self._edit_caption_style)
         branding.addAction("Untertitel übersetzen …", self._edit_translations)
@@ -3349,6 +3376,52 @@ class MainWindow(QMainWindow):
             return
         dialog.exec()
 
+    def _m16_choose_profile(self):
+        value, ok = QInputDialog.getItem(self, "M16 Spielprofil", "Profil (experimentell):",
+                                         ["generic", "open-world"], 0, False)
+        if ok:
+            self.m16_profile = value
+
+    def _m16_feedback(self):
+        if self._history_blocked or not self.analysis: return
+        c = self.selected_candidate()
+        if c is None or c.origin != "auto": return
+        kind, ok = QInputDialog.getItem(self, "M16 Feedback", "Welche Evidenz möchtest du bewerten?",
+                          ["speech", "motion", "visual", "object", "reaction"], 0, False)
+        if not ok: return
+        vote, ok = QInputDialog.getItem(self, "M16 Feedback", "Persönliche Relevanz:",
+                                        ["Annehmen", "Ablehnen"], 0, False)
+        if not ok: return
+        try:
+            from .m16_review import record_feedback
+            from .gaming_intelligence import digest
+            stat = Path(self.analysis.video.path).stat()
+            source_id = digest([str(Path(self.analysis.video.path).resolve()),stat.st_size,stat.st_mtime_ns])
+            record_feedback(installation_directory()/"data"/"settings"/"m16_feedback.json",
+                            source_id,c,kind,1 if vote=="Annehmen" else -1)
+            self.statusBar().showMessage("Lokales Feedback gespeichert; vorhandener Clip unverändert.")
+        except (OSError, ValueError) as exc:
+            QMessageBox.warning(self,"M16 Feedback",str(exc))
+
+    def _m16_reset_feedback(self):
+        if self._history_blocked:return
+        if QMessageBox.question(self,"Feedback zurücksetzen","Lokale persönliche M16-Bewertungen löschen?")==QMessageBox.StandardButton.Yes:
+            from .gaming_intelligence import atomic_json
+            try:atomic_json(installation_directory()/"data"/"settings"/"m16_feedback.json",{"schema_version":1,"rows":[]})
+            except OSError as exc:QMessageBox.warning(self,"M16 Feedback",str(exc))
+
+    def _m16_search(self):
+        if self._history_blocked or not self.analysis:return
+        query,ok=QInputDialog.getText(self,"Transkript durchsuchen","Suchbegriffe (lexikalisch):")
+        if not ok:return
+        from .gaming_intelligence import search_transcript
+        hits=search_transcript(self.analysis.transcript,query)
+        if not hits:
+            QMessageBox.information(self,"Suche","Keine Treffer.");return
+        labels=[f"{i+1}. {display_time(c.start)} — {c.text[:140]}" for i,c in enumerate(hits)]
+        value,ok=QInputDialog.getItem(self,"Treffer","Zum Moment springen:",labels,0,False)
+        if ok:self.seek_to(round(hits[labels.index(value)].start*1000))
+
     def start_analysis(self) -> None:
         if not self.source or not self.confirm_discard_edits():
             return
@@ -3387,6 +3460,16 @@ class MainWindow(QMainWindow):
             except (FileNotFoundError, ValueError) as exc:
                 QMessageBox.warning(self, 'Whisper-Modell unvollständig', str(exc))
                 return
+        m16_options = None
+        if self.m16_action.isChecked():
+            m16_options = {"profile":self.m16_profile}
+            if self.m16_cache_action.isChecked():
+                m16_options["cache_root"] = installation_directory()/"data"/"projects"/"m16_cache"
+            if self.m16_feedback_action.isChecked():
+                from .m16_review import personal_preferences
+                try:m16_options["preferences"]=personal_preferences(installation_directory()/"data"/"settings"/"m16_feedback.json")
+                except (OSError,ValueError) as exc:
+                    QMessageBox.warning(self,"M16 Feedback",str(exc));return
         self._manual_pending = [c for c in self.analysis.candidates if c.origin == "manual"] if self.analysis else []
         self.analysis = None
         self.transcript_dirty = False
@@ -3399,7 +3482,8 @@ class MainWindow(QMainWindow):
         self.worker = AnalysisThread(self.source, self.length.value(), self,
                                      speech_model=speech, vision_model=vision,
                                      detector_model=detector,speech_source=self.speech_source if speech else None,
-                                     asr_cache_root=installation_directory()/ "data"/"projects"/"asr_windows" if speech and self.speech_source and self.asr_cache_action.isChecked() else None)
+                                     asr_cache_root=installation_directory()/ "data"/"projects"/"asr_windows" if speech and self.speech_source and self.asr_cache_action.isChecked() else None,
+                                     m16_options=m16_options)
         self.worker.progress_changed.connect(self.progress.setValue)
         self.worker.done.connect(self.analysis_finished)
         self.worker.failed.connect(self.job_failed)
