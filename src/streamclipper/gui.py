@@ -3322,6 +3322,7 @@ class MainWindow(QMainWindow):
         for f in meta.formats:
             if f.audio and not f.video:audio.addItem(f"{f.language or 'Sprache unbekannt'} · {f.ext} · {f.id}",f.id)
         layout.addWidget(audio)
+        container=QComboBox();container.addItem("Original / Zusammenführung ohne Neukodierung","native");container.addItem("MKV (Remux)","mkv");container.addItem("MP4 (Remux, nur kompatible Codecs)","mp4");layout.addWidget(container)
         estimate=QLabel();estimate.setWordWrap(True);layout.addWidget(estimate)
         limit=QComboBox()
         for n in (1,4,8,16,32):limit.addItem(f"Maximal {n} GiB",n*1024**3)
@@ -3345,7 +3346,7 @@ class MainWindow(QMainWindow):
         folder=QFileDialog.getExistingDirectory(self,"Import speichern",str(default))
         if not folder:return
         worker=VideoImportWorker(meta,folder,{"height":quality.currentData(),"audio_id":audio.currentData(),
-            "subtitles":subs.isChecked(),"max_bytes":limit.currentData()},self)
+            "subtitles":subs.isChecked(),"max_bytes":limit.currentData(),"container":container.currentData()},self)
         self.worker=worker
         worker.progress_changed.connect(self._video_import_progress)
         worker.done.connect(lambda path,open_after=opened.isChecked():self._video_download_done(path,open_after))
