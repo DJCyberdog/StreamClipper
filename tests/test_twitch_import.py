@@ -30,72 +30,26 @@ def test_reject_non_public_vod_urls(url):
         parse_twitch_vod_url(url)
 
 
-def test_download_progress_and_complete_file(tmp_path, monkeypatch):
-    calls = []
+def test_legacy_wrapper_delegates_to_guarded_engine(tmp_path,monkeypatch):
+    from streamclipper import video_import
+    meta=object();calls=[]
+    def preflight(url,**options):
+        calls.append((url,options));return meta
+    def download(value,folder,**options):
+        assert value is meta and folder==tmp_path and options["authorized"] is True
+        options["progress"]({"stage":"download","done":500,"total":1000})
+        options["progress"]({"stage":"merge"})
+        options["progress"]({"stage":"complete"})
+        return folder/"twitch_123456.mp4"
+    monkeypatch.setattr(video_import,"preflight",preflight)
+    monkeypatch.setattr(video_import,"download",download)
+    progress=[]
+    result=download_twitch_vod("https://www.twitch.tv/videos/123456",tmp_path,progress=progress.append)
+    assert result.name=="twitch_123456.mp4"
+    assert progress==[48,96,100] and calls[0][1]["authorized"] is True
 
-    class FakeDownloader:
-        def __init__(self, opts):
-            self.opts = opts
-            calls.append(opts)
-        def __enter__(self):
-            return self
-        def __exit__(self, *args):
-            pass
-        def extract_info(self, url, download):
-            assert url == "https://www.twitch.tv/videos/123456"
-            assert download is True
-            target = Path(self.opts["outtmpl"].replace("%(ext)s", "mp4"))
-            target.write_bytes(b"a real download in production")
-            self.opts["progress_hooks"][0](
-                {"status": "downloading", "downloaded_bytes": 500, "total_bytes": 1000})
-            self.opts["progress_hooks"][0]({"status": "finished"})
-            return {"id": "123456"}
-
-    module = ModuleType("yt_dlp")
-    module.YoutubeDL = FakeDownloader
-    monkeypatch.setitem(sys.modules, "yt_dlp", module)
-    progress = []
-    result = download_twitch_vod("https://www.twitch.tv/videos/123456", tmp_path,
-                                 progress=progress.append)
-    assert result.name == "twitch_123456.mp4"
-    assert progress == [48, 96, 100]
-    assert calls[0]["continuedl"] is True
-    assert calls[0]["overwrites"] is False
-    assert calls[0]["noplaylist"] is True
-
-
-def test_cancel_keeps_resumable_partial(tmp_path, monkeypatch):
-    module = ModuleType("yt_dlp")
-    class FakeDownloader:
-        def __init__(self, opts):
-            self.opts = opts
-        def __enter__(self):
-            return self
-        def __exit__(self, *_):
-            pass
-        def extract_info(self, url, download):
-            (tmp_path / "twitch_123456.mp4.part").write_bytes(b"partial")
-            self.opts["progress_hooks"][0]({"status": "downloading"})
-    module.YoutubeDL = FakeDownloader
-    monkeypatch.setitem(sys.modules, "yt_dlp", module)
+def test_legacy_wrapper_cancel_before_network(tmp_path,monkeypatch):
+    from streamclipper import video_import
+    monkeypatch.setattr(video_import,"preflight",lambda *a,**k:pytest.fail("No network after cancel"))
     with pytest.raises(CancelledError):
-        download_twitch_vod("https://www.twitch.tv/videos/123456", tmp_path,
-                            cancelled=lambda: (tmp_path / "twitch_123456.mp4.part").exists())
-    assert (tmp_path / "twitch_123456.mp4.part").is_file()
-
-
-def test_missing_finished_file_cannot_fake_success(tmp_path, monkeypatch):
-    module = ModuleType("yt_dlp")
-    class FakeDownloader:
-        def __init__(self, opts):
-            pass
-        def __enter__(self):
-            return self
-        def __exit__(self, *_):
-            pass
-        def extract_info(self, url, download):
-            return {"id": "123456"}
-    module.YoutubeDL = FakeDownloader
-    monkeypatch.setitem(sys.modules, "yt_dlp", module)
-    with pytest.raises(RuntimeError, match="fertige Videodatei fehlt"):
-        download_twitch_vod("https://www.twitch.tv/videos/123456", tmp_path)
+        download_twitch_vod("https://www.twitch.tv/videos/123456",tmp_path,cancelled=lambda:True)
