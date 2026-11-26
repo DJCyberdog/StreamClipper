@@ -1,7 +1,7 @@
 """M17 independent montage plan and bounded effects render.
 Explicit source-only composition; existing editor project remains unchanged.
 """
-from dataclasses import dataclass,asdict
+from dataclasses import dataclass,asdict,replace
 from pathlib import Path
 import math
 import os
@@ -126,7 +126,7 @@ def run_part(cmd,work,cancelled):
                 raise RuntimeError("Montage-FFmpeg: "+err.read().decode("utf-8","replace"))
         finally:_stop_process(proc)
 
-def render_montage(video,plan,destination,*,cancelled=None,progress=None,notice=None):
+def render_montage(video,plan,destination,*,cancelled=None,progress=None,notice=None,compositions=None):
     plan.validate(video.duration)
     dest=Path(destination).resolve()
     if dest.suffix.lower()!=".mp4":raise ValueError("MP4-Ausgabe erforderlich")
@@ -135,14 +135,29 @@ def render_montage(video,plan,destination,*,cancelled=None,progress=None,notice=
     if cancelled and cancelled():raise CancelledError("Montage abgebrochen")
     video=probe_video(video.path)
     plan.validate(video.duration)
+    if compositions is not None and len(compositions)!=len(plan.beats):raise ValueError("Montage-Kompositionen fehlen")
     enc=resolve_encoder(plan.encoder,tool_path("ffmpeg"))
     with tempfile.TemporaryDirectory(prefix=".montage-",dir=dest.parent) as temp:
         work=Path(temp)
+        prepared=[]
+        if compositions is not None:
+            from .render_contract import render_request
+            for i,(beat,request) in enumerate(zip(plan.beats,compositions,strict=True)):
+                if cancelled and cancelled():raise CancelledError("Montage abgebrochen")
+                if request.video!=video or (request.start,request.end)!=(beat.start,beat.end):
+                    raise ValueError("Montage-Komposition gehört zu anderem Abschnitt")
+                path=render_request(request,work/f"source-{i:03d}.mp4",cancelled=cancelled,encoder_notice=notice,
+                    progress=(lambda n,i=i:progress(round(45*(i+n/100)/len(plan.beats)))) if progress else None)
+                info=probe_video(path)
+                if abs(info.duration-request.duration)>.55:raise ValueError("Kompositionsdauer fehlerhaft")
+                prepared.append((info,replace(beat,start=0,end=min(request.duration,info.duration))))
+        else:prepared=[(video,beat) for beat in plan.beats]
+        expected=sum(b.duration for _,b in prepared)
         for profile in (enc.primary,)+((enc.fallback,) if enc.fallback else ()):
             parts=[]
             try:
                 if notice:notice("Montage: "+profile)
-                for i,beat in enumerate(plan.beats):
+                for i,(part_video,beat) in enumerate(prepared):
                     if cancelled and cancelled():raise CancelledError("Montage abgebrochen")
                     if beat.sound:probe_audio_duration(beat.sound)
                     if beat.lut:shutil.copyfile(beat.lut,work/"look.cube")
@@ -155,19 +170,24 @@ def render_montage(video,plan,destination,*,cancelled=None,progress=None,notice=
                         draw.multiline_text((w//2,int(h*.75)),beat.text,font=font,fill="white",stroke_width=3,stroke_fill="black",anchor="mm",align="center")
                         im.save(work/"freeze-text.png")
                     part=work/f"part-{i:03d}.mp4"
-                    run_part(build_part(video,beat,plan.aspect,profile,work,part),work,cancelled)
+                    run_part(build_part(part_video,beat,plan.aspect,profile,work,part),work,cancelled)
                     actual=probe_video(part)
                     if abs(actual.duration-beat.duration)>.25 or (actual.width,actual.height)!=dimensions(plan.aspect) or not actual.has_audio:
                         raise ValueError("Montage-Teil hat ungültige Zeitbasis")
                     parts.append(part)
-                    if progress:progress(min(95,round(95*(i+1)/len(plan.beats))))
+                    if progress:progress(min(95,round((45 if compositions is not None else 0)+(50 if compositions is not None else 95)*(i+1)/len(plan.beats))))
                 final=work/"montage.mp4"
                 concatenate_scene_parts(parts,final,cancelled=cancelled)
                 actual=probe_video(final)
-                if abs(actual.duration-sum(b.duration for b in plan.beats))>max(.4,.08*len(parts)):
+                if abs(actual.duration-expected)>max(.4,.08*len(parts)):
                     raise ValueError("Montage-Zeitbasis fehlerhaft")
                 if cancelled and cancelled():raise CancelledError("Montage abgebrochen")
+                from .export_qa import inspect_export,write_report
+                w,h=dimensions(plan.aspect)
+                quality=inspect_export(final,expected_codec="h264",width=w,height=h,duration=expected,audio_expected=True)
+                if cancelled and cancelled():raise CancelledError("Montage abgebrochen")
                 result=_publish_without_overwrite(final,dest)
+                write_report(quality,result)
                 if progress:progress(100)
                 return result
             except CancelledError:raise
