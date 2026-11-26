@@ -52,7 +52,7 @@ def _analyze_m16(path,clip_seconds=25,max_clips=8,*,progress=None,cancelled=None
                 speech_model=None,vision_model=None,max_visual_frames=180,
                 detector_model=None,max_object_frames=90,speech_source=None,
                 cache_root=None,profile="generic",preferences=None,chat_messages=None,
-                fast_vision=False,reaction_model=None,ranking_weights=None,evidence_sink=None):
+                fast_vision=False,reaction_model=None,ranking_weights=None,evidence_sink=None,story_options=None):
     from .analyze import find_candidates
     from .audio_sources import inventory,SpeechSource,extract_audio_stream,transcribe_selected_stream
     from .reconstructed_speech import ReconstructedSpeech,transcribe_reconstructed
@@ -178,8 +178,13 @@ def _analyze_m16(path,clip_seconds=25,max_clips=8,*,progress=None,cancelled=None
     notify('Evidenzfusion und Ranking · CPU')
     if evidence_sink is not None:evidence_sink(tuple(checked_events(evidence,video.duration)))
     candidates=rank(evidence,video.duration,clip_seconds,max_clips,profile,preferences,weights_override=ranking_weights)
+    result=AnalysisResult(video,candidates,method="m16-experimental-"+profile+(speech_source.method_suffix if speech_source else ("|asr:aligned-default-first-stream" if speech_model and cache_root and video.has_audio else "")),transcript=transcript)
+    if story_options is not None:
+        from .story_clipping import refine_result
+        notify("Story-aware Clipgrenzen · CPU")
+        result=refine_result(result,evidence,story_options)
     if progress:progress(100)
-    return AnalysisResult(video,candidates,method="m16-experimental-"+profile+(speech_source.method_suffix if speech_source else ("|asr:aligned-default-first-stream" if speech_model and cache_root and video.has_audio else "")),transcript=transcript)
+    return result
 
 
 def analyze_m16(*args,hardware_mode="legacy",**kwargs):
