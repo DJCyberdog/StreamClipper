@@ -260,7 +260,7 @@ def recognize_gameplay(video: VideoInfo, model_directory: str, *,
                        cancelled: Cancelled | None = None,
                        timestamps: list[float] | None = None,
                        profile: str | None = None, device_override: str | None = None,
-                       batch_size: int = 1, mixed_precision: bool = False) -> list[EventEvidence]:
+                       batch_size: int | None = 1, mixed_precision: bool = False) -> list[EventEvidence]:
     """Local CLIP zero-shot resemblance on a bounded sample of JPEG video frames."""
     from .media import CancelledError, sampled_jpeg_frames
     from .model_checks import validate_clip_model
