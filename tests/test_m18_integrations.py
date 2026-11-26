@@ -256,3 +256,34 @@ def test_changed_preflight_format_is_not_silently_downloaded(tmp_path,monkeypatc
     monkeypatch.setattr(vi,"preflight",lambda *a,**k:fresh)
     monkeypatch.setattr(vi,"run_worker",lambda *a,**k:pytest.fail("No silently changed format"))
     with pytest.raises(ValueError,match="geändert"):vi.download(meta,tmp_path,authorized=True)
+
+
+@pytest.mark.parametrize("provider,client,scopes",[
+    ("instagram","123456789",{"instagram_business_basic","instagram_business_content_publish"}),
+    ("snapchat","example-client-id",{"snapchat-profile-api"})])
+def test_confidential_provider_grants(provider,client,scopes):
+    from urllib.parse import urlsplit,parse_qs,urlencode
+    from streamclipper.provider_prepare import prepare_web_grant
+    redirect="https://example.org/oauth/callback"
+    grant=prepare_web_grant(provider,client,redirect,authorized=True,now=100)
+    q=parse_qs(urlsplit(grant.url()).query)
+    assert set(q["scope"][0].replace(","," ").split())==scopes
+    target=redirect+"?"+urlencode({"state":grant.state,"code":"test-code"})
+    assert grant.callback(target,now=101)=="test-code"
+    assert "client_secret" not in grant.exchange_fields("test-code")
+    with pytest.raises(PermissionError):grant.callback(target,now=701)
+    with pytest.raises(ValueError):grant.callback(target.replace("example.org","example.net"),now=101)
+    with pytest.raises(ValueError):grant.callback(target.replace(grant.state,"wrong"),now=101)
+    with pytest.raises(PermissionError):prepare_web_grant(provider,client,redirect)
+    with pytest.raises(ValueError):prepare_web_grant(provider,client,"http://example.org/callback",authorized=True)
+
+def test_instagram_and_snapchat_grant_response():
+    from streamclipper.provider_prepare import parse_instagram_grant,parse_snapchat_grant
+    uid,token=parse_instagram_grant({"data":[{"access_token":"secret", "user_id":123,
+        "permissions":"instagram_business_basic,instagram_business_content_publish"}]})
+    assert uid=="123" and token.expires==0 and "secret" not in repr(token)
+    with pytest.raises(PermissionError):parse_instagram_grant({"data":[{"permissions":"instagram_business_basic"}]})
+    snap=parse_snapchat_grant({"scope":"snapchat-profile-api","token_type":"Bearer",
+        "access_token":"secret","refresh_token":"secret2","expires_in":3600},now=100)
+    assert snap.expires==3700 and "secret" not in repr(snap)
+    with pytest.raises(PermissionError):parse_snapchat_grant({"scope":"snapchat-marketing-api","token_type":"Bearer"})
