@@ -7,6 +7,25 @@ import os,sys,socket,shutil
 from pathlib import Path
 from urllib.parse import urlsplit
 
+def command_args(argv):
+    if isinstance(argv,(tuple,list)):return argv
+    if os.name!="nt" or not isinstance(argv,str):raise PermissionError("Shell denied")
+    # CPython emits a Windows command line string in the Popen audit event.
+    import ctypes
+    from ctypes import wintypes
+    count=ctypes.c_int()
+    shell=ctypes.WinDLL("shell32")
+    parse=shell.CommandLineToArgvW
+    parse.argtypes=(wintypes.LPCWSTR,ctypes.POINTER(ctypes.c_int))
+    parse.restype=ctypes.POINTER(wintypes.LPWSTR)
+    result=parse(argv,ctypes.byref(count))
+    if not result:raise PermissionError("Invalid media command")
+    try:return [result[i] for i in range(count.value)]
+    finally:
+        free=ctypes.WinDLL("kernel32").LocalFree
+        free.argtypes=(ctypes.c_void_p,);free.restype=ctypes.c_void_p
+        free(ctypes.cast(result,ctypes.c_void_p))
+
 def guard(proxy,ffmpeg,ffprobe):
     p=urlsplit(proxy)
     if p.scheme!="http" or p.hostname!="127.0.0.1" or not p.port:raise ValueError("Invalid proxy")
@@ -27,8 +46,7 @@ def guard(proxy,ffmpeg,ffprobe):
             path=shutil.which(os.fsdecode(executable)) or os.fsdecode(executable)
             if os.path.normcase(str(Path(path).resolve())) not in allowed:
                 raise PermissionError("External downloader denied")
-            if not isinstance(argv,(tuple,list)):raise PermissionError("Shell denied")
-            for i,arg in enumerate(argv):
+            for i,arg in enumerate(command_args(argv)):
                 if not isinstance(arg,str):raise PermissionError("Invalid media command")
                 if i and ("://" in arg or arg.startswith(("concat:","subfile:","crypto:","data:","tcp:","udp:"))):
                     raise PermissionError("Remote media child input denied")
