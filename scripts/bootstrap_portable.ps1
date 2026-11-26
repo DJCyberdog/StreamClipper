@@ -32,10 +32,19 @@ if (!(Test-Path -LiteralPath $python)) {
     if (Test-Path -LiteralPath $runtime) { throw 'Incomplete runtime folder; rename it before retrying.' }
     & $uv python install 3.12.12 --no-bin
     if ($LASTEXITCODE -ne 0) { throw 'Local Python download failed' }
-    $managed = & $uv python find 3.12.12 --managed-python
-    if ($LASTEXITCODE -ne 0 -or !$managed) { throw 'Managed Python missing' }
-    $managed = [IO.Path]::GetFullPath([string]$managed)
-    if (!$managed.StartsWith($env:UV_PYTHON_INSTALL_DIR + '\', [StringComparison]::OrdinalIgnoreCase)) { throw 'External Python rejected' }
+    # Do not use uv python find: its discovery may depend on project settings.
+    $managedRoot = $env:UV_PYTHON_INSTALL_DIR
+    $candidates = @(Get-ChildItem -LiteralPath $managedRoot -Directory -Filter 'cpython-3.12.12-windows-*' | ForEach-Object {
+        $candidate = Join-Path $_.FullName 'python.exe'
+        if (Test-Path -LiteralPath $candidate -PathType Leaf) { $candidate }
+    })
+    if ($candidates.Count -ne 1) {
+        Get-ChildItem -LiteralPath $managedRoot -Force | Select-Object Name | Out-Host
+        throw "Expected one local CPython 3.12.12 runtime under $managedRoot; found $($candidates.Count)"
+    }
+    $managed = $candidates[0]
+    & $managed -I -c "import sys,struct; assert sys.version_info[:3]==(3,12,12); assert struct.calcsize('P')==8; assert sys.prefix==sys.base_prefix"
+    if ($LASTEXITCODE -ne 0) { throw 'Downloaded standalone Python validation failed' }
     $stage = Join-Path $root ('runtime-stage-' + [Guid]::NewGuid().ToString('N'))
     Copy-Item -LiteralPath (Split-Path -Parent $managed) -Destination $stage -Recurse
     Move-Item -LiteralPath $stage -Destination $runtime
