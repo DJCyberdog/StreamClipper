@@ -58,7 +58,8 @@ class MontageRequest:
     def render(self,destination,*,cancelled=None,progress=None,encoder_notice=None):
         self.validate(verify_media=True)
         return render_montage(self.video,self.plan,destination,cancelled=cancelled,
-            progress=progress,notice=encoder_notice,compositions=self.compositions or None)
+            progress=progress,notice=encoder_notice,compositions=self.compositions or None,
+            verify_sources=lambda:self.validate(verify_media=True))
 
 def snapshot(request):
     request.validate()
