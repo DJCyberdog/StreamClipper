@@ -42,13 +42,15 @@ def freeze(manifest):
             moments.append(dict(id=mid,start=a,end=z,label=label,uncertain=uncertain,
                                 negative_type=m.get("negative_type",""),reviewed=m.get("reviewed",False)))
         rows.append(dict(id=vid,creator_group=group,split=split,duration=duration,sha256=sha,
-                         game=v["game"],language=v["language"],moments=moments))
+                         game=v["game"],language=v["language"],moments=moments,
+                         fully_reviewed=v.get("fully_reviewed") is True))
     rows.sort(key=lambda x:x["id"])
     hold=[v for v in rows if v["split"]=="holdout"]
     all_m=[m for v in rows for m in v["moments"]]
     hm=[m for v in hold for m in v["moments"] if not m["uncertain"]]
     gaps=[]
     if len(all_m)<100: gaps.append("100 annotated moments")
+    if any(not v["fully_reviewed"] for v in hold):gaps.append("full holdout review for false alarms/hour")
     if len(hold)<2 or len({v["creator_group"] for v in hold})<2: gaps.append("independent holdout")
     if not any(v["split"]=="development" for v in rows): gaps.append("development split")
     if not any(m["label"]!="none" for m in hm): gaps.append("positive holdout")
@@ -65,6 +67,7 @@ def evaluate(vod,predictions,tolerance=3.):
     # Full coverage must be independently declared; otherwise report unknown counts.
     positives=[m for m in vod["moments"] if m["label"]!="none" and not m["uncertain"]]
     negatives=[m for m in vod["moments"] if m["label"]=="none" and not m["uncertain"]]
+    uncertain=[m for m in vod["moments"] if m["uncertain"]]
     matched=set();hits=0;fp=0;unknown=0;duplicates=0;starts=[];ends=[]
     top_hits=top_reviewed=0
     for i,c in enumerate(predictions):
@@ -79,19 +82,51 @@ def evaluate(vod,predictions,tolerance=3.):
             starts.append(abs(a-m["start"]));ends.append(abs(z-m["end"]))
             if i<8:top_hits+=1
         elif options: duplicates+=1
-        elif any(m["start"]<=t<=m["end"] for m in negatives): fp+=1
+        elif any(m["start"]<=t<=m["end"] for m in uncertain):unknown+=1;reviewed=False
+        elif any(m["start"]<=t<=m["end"] for m in negatives) or vod.get("fully_reviewed") is True:fp+=1
         else: unknown+=1;reviewed=False
         if i<8 and reviewed:top_reviewed+=1
     reviewed_seconds=0.;end=0.
     for a,z in sorted((m["start"],m["end"]) for m in negatives):
         reviewed_seconds+=max(0,z-max(a,end));end=max(end,z)
     return {"top8_hits":top_hits,"top8_reviewed":top_reviewed,"top8_predictions":min(8,len(predictions)),
+            "precision_at_8":top_hits/8 if top_reviewed==min(8,len(predictions)) and vod.get("fully_reviewed") is True else None,
+            "false_alarms_per_hour":(fp+duplicates)/(vod["duration"]/3600) if vod.get("fully_reviewed") is True and not uncertain else None,
             "precision_at_8_reviewed":top_hits/top_reviewed if top_reviewed else None,
             "recall":hits/len(positives) if positives else None,"hits":hits,"positives":len(positives),
             "known_false_positives":fp,"unknown_predictions":unknown,"duplicates":duplicates,
             "false_positives_per_reviewed_negative_hour":fp/(reviewed_seconds/3600) if reviewed_seconds else None,
             "negative_reviewed_seconds":reviewed_seconds,
             "start_mae":sum(starts)/len(starts) if starts else None,"end_mae":sum(ends)/len(ends) if ends else None}
+
+def paired_intervals(rows,seed=1601,repetitions=2000):
+    """Creator-cluster bootstrap: descriptive intervals, not an acceptance claim."""
+    import random
+    groups={}
+    for row in rows:groups.setdefault(row["creator_group"],[]).append(row)
+    rng=random.Random(seed)
+    keys=sorted(groups)
+    def difference(sample,metric):
+        vals=[r["variant"][metric]-r["baseline"][metric] for r in sample
+              if r["variant"].get(metric) is not None and r["baseline"].get(metric) is not None]
+        return sum(vals)/len(vals) if vals else None
+    results={}
+    for metric in ("precision_at_8","recall","false_alarms_per_hour","start_mae","end_mae"):
+        usable=[k for k in keys if difference(groups[k],metric) is not None]
+        estimate=difference(rows,metric)
+        bounds=None
+        if len(usable)>=2:
+            draws=[]
+            for _ in range(repetitions):
+                sample=[r for _ in usable for r in groups[rng.choice(usable)]]
+                v=difference(sample,metric)
+                if v is not None:draws.append(v)
+            draws.sort()
+            if draws:bounds=[draws[int(.025*(len(draws)-1))],draws[int(.975*(len(draws)-1))]]
+        results[metric]={"variant_minus_baseline":estimate,"bootstrap_95":bounds,
+                         "creator_clusters":len(usable)}
+    return {"seed":seed,"repetitions":repetitions,"metrics":results,
+            "warning":"Small independent creator count can make intervals unreliable"}
 
 def compare(lock,baseline,variant,tolerance=3.):
     check=dict(lock);stamp=check.pop("corpus_sha256")
@@ -105,11 +140,11 @@ def compare(lock,baseline,variant,tolerance=3.):
     rows=[]
     for v in lock["vods"]:
         if v["split"]!="holdout":continue
-        rows.append({"vod":v["id"],"game":v["game"],"language":v["language"],
+        rows.append({"vod":v["id"],"game":v["game"],"language":v["language"],"creator_group":v["creator_group"],
                      "baseline":evaluate(v,baseline["predictions"][v["id"]],tolerance),
                      "variant":evaluate(v,variant["predictions"][v["id"]],tolerance)})
     return {"schema_version":1,"corpus_sha256":stamp,"gaps":lock["gaps"],"tolerance_seconds":tolerance,
-            "holdout":rows,"quality_acceptance":"NOT_EVALUATED"}
+            "holdout":rows,"paired_intervals":paired_intervals(rows),"quality_acceptance":"NOT_EVALUATED"}
 
 def main():
     import argparse
