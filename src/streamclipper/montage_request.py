@@ -47,6 +47,9 @@ class MontageRequest:
                 raise ValueError("Ungültige Montage-Kompositionsdauer")
             if (req.width,req.height)!=dimensions(self.plan.aspect):
                 raise ValueError("Montage-Komposition hat anderes Zielformat")
+        if self.compositions:
+            expected=sum(2*r.duration/(b.speed+(b.end_speed if b.end_speed is not None else b.speed))+b.freeze for b,r in zip(self.plan.beats,self.compositions))
+            if not .2<=expected<=900:raise ValueError("Komponierte Montage maximal 15 Minuten")
         if not self.media_bindings:raise ValueError("Montage-Medienbindung fehlt")
         if verify_media and bindings(self.video,self.plan,self.compositions)!=self.media_bindings:
             raise ValueError("Montage-Medien wurden geändert oder verschoben")
