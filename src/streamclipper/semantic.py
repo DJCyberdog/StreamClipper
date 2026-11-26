@@ -258,7 +258,8 @@ def recognize_gameplay(video: VideoInfo, model_directory: str, *,
                        max_frames: int = 180,
                        progress: Progress | None = None,
                        cancelled: Cancelled | None = None,
-                       timestamps: list[float] | None = None) -> list[EventEvidence]:
+                       timestamps: list[float] | None = None,
+                       profile: str | None = None) -> list[EventEvidence]:
     """Local CLIP zero-shot resemblance on a bounded sample of JPEG video frames."""
     from .media import CancelledError, sampled_jpeg_frames
     from .model_checks import validate_clip_model
@@ -277,8 +278,20 @@ def recognize_gameplay(video: VideoInfo, model_directory: str, *,
     model = CLIPModel.from_pretrained(str(folder), local_files_only=True)
     device = "cuda" if torch.cuda.is_available() else "cpu"
     model.to(device).eval()
-    labels = [name for name, _, _ in _VISUAL_LABELS]
-    prompts = [prompt for _, prompt, _ in _VISUAL_LABELS]
+    catalogue = _VISUAL_LABELS
+    if profile == "generic":
+        catalogue = (
+            ("crash", "A dramatic sudden collision in a video game", True),
+            ("explosion", "A dramatic explosion or environmental destruction in a video game", True),
+            ("combat", "An intense battle or close contest in a video game", True),
+            ("ordinary", "An ordinary uneventful scene of gameplay", False),
+            ("menu", "A pause menu, loading screen, inventory or interface overlay", False),
+            ("dialogue", "An ordinary conversation in a video game", False),
+        )
+    elif profile not in (None, "open-world"):
+        raise ValueError("Unknown gameplay profile")
+    labels = [name for name, _, _ in catalogue]
+    prompts = [prompt for _, prompt, _ in catalogue]
     results = []
     count = len(timestamps) if timestamps is not None else max_frames
     for index, (at, data) in enumerate(sampled_jpeg_frames(video, max_frames=max_frames,
