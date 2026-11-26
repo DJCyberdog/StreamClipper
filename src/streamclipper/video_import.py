@@ -97,7 +97,7 @@ def kill_tree(proc):
     except OSError:pass
     proc.wait(timeout=10)
 
-def run_worker(source,args,*,budget,timeout,cancelled=None,on_line=None,cwd=None):
+def run_worker(source,args,*,budget,timeout,cancelled=None,on_line=None,cwd=None,monitor=None):
     if cancelled and cancelled():raise CancelledError("Import abgebrochen")
     with guarded_proxy(budget) as (proxy,gate):
         if getattr(sys,"frozen",False):raise RuntimeError("Videoimport erfordert die portable Python-Runtime")
@@ -123,12 +123,15 @@ def run_worker(source,args,*,budget,timeout,cancelled=None,on_line=None,cwd=None
                     try:q.put(None,timeout=.2);break
                     except queue.Full:pass
         thread=threading.Thread(target=read,daemon=True);thread.start()
-        deadline=time.monotonic()+timeout
+        deadline=time.monotonic()+timeout;next_monitor=0.
         try:
             while True:
                 if cancelled and cancelled():raise CancelledError("Import abgebrochen; Teildownload erhalten")
                 if gate.stop.is_set():raise ValueError("Transferlimit erreicht")
-                if time.monotonic()>deadline:raise RuntimeError("Zeitlimit beim Medienimport")
+                now=time.monotonic()
+                if now>deadline:raise RuntimeError("Zeitlimit beim Medienimport")
+                if monitor and now>=next_monitor:
+                    monitor();next_monitor=now+1
                 try:line=q.get(timeout=.2)
                 except queue.Empty:continue
                 if line is None:break
@@ -206,9 +209,10 @@ def download(meta,directory,*,height=None,audio_id=None,subtitles=False,authoriz
                 row=json.loads(line[len("SC_PROGRESS:"):])
                 if progress:progress({"stage":"download","done":number(row.get("downloaded_bytes")),"total":number(row.get("total_bytes")) or number(row.get("total_bytes_estimate")),"speed":number(row.get("speed")),"eta":number(row.get("eta"))})
             elif line.startswith("SC_MERGE:") and progress:progress({"stage":"merge"})
+        def monitor():
             used=sum(p.stat().st_size for p in staging.iterdir() if p.is_file())
             if used>2*max_bytes or shutil.disk_usage(folder).free<128*1024**2:raise ValueError("Lokales Speicherlimit erreicht")
-        run_worker(fresh.source,args,budget=max_bytes+64*1024**2,timeout=8*3600,cancelled=cancelled,on_line=report,cwd=staging)
+        run_worker(fresh.source,args,budget=max_bytes+64*1024**2,timeout=8*3600,cancelled=cancelled,on_line=report,cwd=staging,monitor=monitor)
         if cancelled and cancelled():raise CancelledError("Import abgebrochen")
         if len(finished)!=1:raise ValueError("Kein eindeutiger fertiger Download")
         path=(staging/finished[0]).resolve()
@@ -224,15 +228,16 @@ def download(meta,directory,*,height=None,audio_id=None,subtitles=False,authoriz
         if not valid:raise ValueError("Importdatei enthält keinen unterstützten lokalen Mediencontainer")
         # Restrict even local container probing to local protocols/demuxers.
         from .media import probe_video_local_container
+        if progress:progress({"stage":"verify"})
         video=probe_video_local_container(path)
         # Verify an actual decoded frame from the start and near the end.
         for t in (0.,max(0.,video.duration-1.)):
             if cancelled and cancelled():raise CancelledError("Import abgebrochen")
             result=subprocess.run([tool_path("ffmpeg"),"-hide_banner","-nostdin","-v","error","-xerror",
                 "-protocol_whitelist","file,pipe","-format_whitelist","mov,matroska,webm,mpegts",
-                "-ss",f"{t:.3f}","-i",str(path),"-map","0:v:0","-frames:v","1","-f","null","-"],
-                stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=45)
-            if result.returncode:raise ValueError("Importdatei lässt sich nicht zuverlässig dekodieren")
+                "-ss",f"{t:.3f}","-i",str(path),"-map","0:v:0","-frames:v","1","-vf","scale=2:2","-pix_fmt","gray","-f","rawvideo","pipe:1"],
+                stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,timeout=45)
+            if result.returncode or len(result.stdout)!=4:raise ValueError("Importdatei lässt sich nicht zuverlässig dekodieren")
         if video.duration<=0 or video.width<=0 or video.height<=0:raise ValueError("Keine dekodierbare Videoquelle")
         if fresh.duration and abs(video.duration-fresh.duration)>max(3,fresh.duration*.02):raise ValueError("Importdauer stimmt nicht")
         if container!="native" and path.suffix.lower()!="."+container:raise ValueError("Gewünschtes Containerformat nicht erreichbar")
