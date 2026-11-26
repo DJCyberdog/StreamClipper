@@ -45,7 +45,7 @@ def exchange(client_id,secret,code,verifier,redirect):
             raw=response.read(65537)
         if len(raw)>65536:raise ValueError("Token-Antwort zu groß")
         doc=json.loads(raw)
-        if doc.get("token_type","").lower()!="bearer" or YOUTUBE_SCOPE not in doc.get("scope","").split():raise ValueError("Scope fehlt")
+        if doc.get("token_type","").lower()!="bearer" or set(doc.get("scope","").split())!={YOUTUBE_SCOPE}:raise ValueError("Scope fehlt")
         if not isinstance(doc.get("access_token"),str) or not 1<=len(doc["access_token"])<=8192:raise ValueError("Token fehlt")
         expires=int(doc["expires_in"])
         if not 0<expires<=86400:raise ValueError("Tokenablauf ungültig")
@@ -58,6 +58,8 @@ def authorize_youtube(client_id,client_secret,*,authorized=False,cancelled=None,
         raise ValueError("Registrierte Desktop-App-Konfiguration erforderlich")
     verifier,challenge=pkce();state=secrets.token_urlsafe(32);result=[]
     class Handler(BaseHTTPRequestHandler):
+        def setup(self):
+            self.request.settimeout(3);super().setup()
         def log_message(self,*args):pass # code/state never logged
         def do_GET(self):
             try:
