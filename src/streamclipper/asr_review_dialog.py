@@ -1,6 +1,6 @@
 """Manual review of flagged ASR cues; optional selected-row reprocessing."""
 from threading import Event
-from .m18_language import tr
+from .m18_language import tr,trf
 from PySide6.QtCore import QThread,Signal
 from PySide6.QtWidgets import (QDialog,QVBoxLayout,QLabel,QPushButton,QTableWidget,
     QTableWidgetItem,QComboBox,QLineEdit,QPlainTextEdit)
@@ -36,7 +36,7 @@ class ASRReviewDialog(QDialog):
         self.retry=QPushButton(tr("Ausgewählte Zeile erneut transkribieren"));self.retry.clicked.connect(self.start);layout.addWidget(self.retry)
         self.proposal=QPlainTextEdit();self.proposal.setPlaceholderText(tr("Zweittranskription prüfen und ggf. korrigieren"));layout.addWidget(self.proposal)
         self.apply=QPushButton(tr("Geprüften Text übernehmen"));self.apply.setEnabled(False);self.apply.clicked.connect(self.commit);layout.addWidget(self.apply)
-        self.status=QLabel(f"{len(self.rows)} auffällige Zeilen");self.status.setWordWrap(True);layout.addWidget(self.status)
+        self.status=QLabel(trf("{count} auffällige Zeilen",count=len(self.rows)));self.status.setWordWrap(True);layout.addWidget(self.status)
         close=QPushButton(tr("Schließen / Abbrechen"));close.clicked.connect(self.reject);layout.addWidget(close)
         if self.rows:self.table.selectRow(0)
         self.retry.setEnabled(bool(self.rows))
@@ -56,7 +56,7 @@ class ASRReviewDialog(QDialog):
     def commit(self):
         if self.worker or self.target is None:return
         try:self.value=accept_retry(self.result,self.target,self.result.transcript[self.target],self.proposal.toPlainText())
-        except ValueError as exc:self.status.setText(str(exc));return
+        except ValueError as exc:self.status.setText(tr(str(exc)));return
         self.accept()
     def reject(self):
         if self.worker:self.closing=True;self.worker.stop.set();self.status.setText(tr("Abbruch läuft …"));return

@@ -287,3 +287,15 @@ def test_instagram_and_snapchat_grant_response():
         "access_token":"secret","refresh_token":"secret2","expires_in":3600},now=100)
     assert snap.expires==3700 and "secret" not in repr(snap)
     with pytest.raises(PermissionError):parse_snapchat_grant({"scope":"snapchat-marketing-api","token_type":"Bearer"})
+
+
+def test_m18_translation_preserves_dynamic_fields_and_error_contract():
+    from streamclipper.m18_language import tr,trf,english_enabled,CATALOG
+    assert tr("Erwartete Tonspur fehlt",True)=="Expected audio track missing"
+    assert tr("Erwartete Tonspur fehlt",False)=="Erwartete Tonspur fehlt"
+    assert tr("private-file.mp4",True)=="private-file.mp4"
+    # The catalog's placeholders must be identical in both languages.
+    from string import Formatter
+    for source,translated in CATALOG.items():
+        keys=lambda s:sorted((field,spec) for _,field,spec,_ in Formatter().parse(s) if field is not None)
+        assert keys(source)==keys(translated),source

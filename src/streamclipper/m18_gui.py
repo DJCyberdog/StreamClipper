@@ -4,7 +4,7 @@ from pathlib import Path
 import time
 from PySide6.QtCore import QObject,QTimer
 from PySide6.QtWidgets import (QFileDialog,QInputDialog,QMessageBox,QLineEdit,QLabel,QApplication)
-from .m18_language import tr
+from .m18_language import tr,trf
 from .portable import installation_directory
 from .local_integrations import root,record_marker,markers,take_commands,WatchFolder,obs_seconds
 from .channel_ingestion import Channel,parse_channel,load,save,poll
@@ -57,7 +57,7 @@ class Integrations(QObject):
             take_commands()
         self.deck=value
     def configure_obs(self):
-        choices=["OBS-Aufnahme","OBS-Stream","Editor-Modus (OBS trennen)"]
+        choices=[tr(x) for x in ("OBS-Aufnahme","OBS-Stream","Editor-Modus (OBS trennen)")]
         choice,ok=QInputDialog.getItem(self.w,tr("OBS"),tr("Zeitbasis:"),choices,0,False)
         if not ok:return
         if choice==choices[2]:
@@ -93,7 +93,7 @@ class Integrations(QObject):
         if not ok:return
         points=[t+offset for t in markers(session,kind) if 0<=t+offset<self.w._video_info.duration]
         if not points:self.error("Marker","Keine passenden Marker");return
-        if QMessageBox.question(self.w,"Marker",f"{len(points)} Zeitmarken als manuelle Highlights übernehmen? Zeitbasis selbst prüfen.")!=QMessageBox.StandardButton.Yes:return
+        if QMessageBox.question(self.w,"Marker",trf("{count} Zeitmarken als manuelle Highlights übernehmen? Zeitbasis selbst prüfen.",count=min(len(points),100)))!=QMessageBox.StandardButton.Yes:return
         for t in points[:100]:
             a=max(0,t-5);z=min(self.w._video_info.duration,t+15)
             if z-a>=.2:
@@ -117,7 +117,7 @@ class Integrations(QObject):
         if not self.idle():return
         try:self.channels=load(self.channels_path)
         except (OSError,ValueError,TypeError,KeyError) as exc:self.error("Kanalaufnahme",exc);return
-        labels=["Neuen autorisierten Kanal hinzufügen"]+[f"{i+1}. {c.url} · {'pausiert' if c.paused else 'aktiv'}" for i,c in enumerate(self.channels)]
+        labels=[tr("Neuen autorisierten Kanal hinzufügen")]+[f"{i+1}. {c.url} · {tr('pausiert' if c.paused else 'aktiv')}" for i,c in enumerate(self.channels)]
         choice,ok=QInputDialog.getItem(self.w,tr("Kanalaufnahme"),tr("Konfiguration (kein Abruf ohne Sitzungsfreigabe):"),labels,0,False)
         if not ok:return
         if choice==labels[0]:
@@ -138,9 +138,10 @@ class Integrations(QObject):
             self.channels.append(Channel(s.url,s.provider,target,interval,count,size*1024**3,paused=False))
         else:
             i=labels.index(choice)-1;c=self.channels[i]
-            action,ok=QInputDialog.getItem(self.w,tr("Kanal"),tr("Aktion:"),["Aktivieren/Pausieren","Registrierung löschen (keine Medien löschen)"],0,False)
+            actions=[tr("Aktivieren/Pausieren"),tr("Registrierung löschen (keine Medien löschen)")]
+            action,ok=QInputDialog.getItem(self.w,tr("Kanal"),tr("Aktion:"),actions,0,False)
             if not ok:return
-            if action.startswith("Registrierung"):self.channels.pop(i)
+            if action==actions[1]:self.channels.pop(i)
             else:self.channels[i]=replace(c,paused=not c.paused)
         try:save(self.channels_path,self.channels)
         except (ValueError,OSError) as exc:self.error("Kanal",exc)
@@ -163,7 +164,7 @@ class Integrations(QObject):
                 found=self.watch.scan(now)
                 if found:
                     self.ready=list(dict.fromkeys(self.ready+found))[-1000:]
-                    self.w.statusBar().showMessage(f"Watch Folder: {len(self.ready)} stabile Aufnahme(n) verfügbar")
+                    self.w.statusBar().showMessage(trf("Watch Folder: {count} stabile Aufnahme(n) verfügbar",count=len(self.ready)))
             except OSError:
                 self.watch=None;self.w.statusBar().showMessage(tr("Watch Folder nicht erreichbar – pausiert"))
         if self.deck:
@@ -202,7 +203,7 @@ class Integrations(QObject):
             intervals.extend([(s.start,s.end) for s in plan.output_scenes] if plan else [(c.start,c.end)])
         try:target=export_nle(w.analysis.video,intervals,path)
         except (ValueError,OSError) as exc:self.error("NLE",exc);return
-        w.statusBar().showMessage("Schnittliste exportiert: "+str(target))
+        w.statusBar().showMessage(tr("Schnittliste exportiert: ")+str(target))
     def alternative(self):
         w=self.w
         if not self.idle() or not w.analysis or not w.apply_word_editor() or not w.apply_transcript_editor():return
@@ -233,27 +234,27 @@ class Integrations(QObject):
         try:cues=load_subtitles(path,w._video_info.duration)
         except (OSError,ValueError) as exc:self.error("Untertitel",exc);return
         previous=w.analysis or AnalysisResult(w._video_info,[])
-        if QMessageBox.question(w,"Untertitel",f"{len(cues)} vorhandene Untertitel übernehmen? Aktuelles Transkript wird ersetzt (Undo verfügbar).")!=QMessageBox.StandardButton.Yes:return
+        if QMessageBox.question(w,"Untertitel",trf("{count} vorhandene Untertitel übernehmen? Aktuelles Transkript wird ersetzt (Undo verfügbar).",count=len(cues)))!=QMessageBox.StandardButton.Yes:return
         w.analysis_finished(replace(previous,transcript=cues,translations=(),caption_language=""),preserve_history=True)
         w._register_edit(previous)
     def youtube(self):
         if not self.idle():return
         from .publish_prepare import authorize_youtube
         from . import publish_credentials as vault
-        action,ok=QInputDialog.getItem(self.w,tr("YouTube OAuth (M18)"),tr("Nur Kontovorbereitung, kein Upload:"),
-            ["Registrierte Desktop-App verbinden","Gespeicherten Token laden","Lokalen Token entfernen"],0,False)
+        actions=[tr(x) for x in ("Registrierte Desktop-App verbinden","Gespeicherten Token laden","Lokalen Token entfernen")]
+        action,ok=QInputDialog.getItem(self.w,tr("YouTube OAuth (M18)"),tr("Nur Kontovorbereitung, kein Upload:"),actions,0,False)
         if not ok:return
         client,ok=QInputDialog.getText(self.w,tr("Google Desktop Client"),tr("Registrierte OAuth-Client-ID:"))
         if not ok:return
         try:vault.target(client)
         except ValueError as exc:self.error("YouTube",exc);return
-        if action=="Lokalen Token entfernen":
+        if action==actions[2]:
             self.youtube_token=None
             if vault.supported():
                 try:vault.remove(client)
                 except (OSError,RuntimeError) as exc:self.error("YouTube",exc)
             return
-        if action=="Gespeicherten Token laden":
+        if action==actions[1]:
             if not vault.supported():self.error("YouTube","Windows-Tokenspeicher nicht verfügbar");return
             try:self.youtube_token=vault.read(client)
             except (OSError,RuntimeError) as exc:self.error("YouTube",exc);return

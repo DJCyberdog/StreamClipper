@@ -1,6 +1,6 @@
 """Staged translations for the selected highlight; local model runs in QThread."""
 from threading import Event
-from .m18_language import tr
+from .m18_language import tr,trf
 from PySide6.QtCore import QThread,Signal,Qt
 from PySide6.QtWidgets import (QDialog,QVBoxLayout,QHBoxLayout,QLabel,QLineEdit,QTableWidget,
     QTableWidgetItem,QPushButton,QFileDialog,QMessageBox,QDialogButtonBox)
@@ -82,7 +82,7 @@ class TranslationDialog(QDialog):
         self.worker=TranslationWorker([self.original.transcript[self.rows[i]].text for i in indices],folder,self)
         self.worker.ready.connect(self.ready)
         self.worker.failure.connect(self.hint.setText)
-        self.worker.progress.connect(lambda a,b:self.hint.setText(f"Übersetzung {a}/{b}"))
+        self.worker.progress.connect(lambda a,b:self.hint.setText(trf("Übersetzung {a}/{b}",a=a,b=b)))
         self.worker.finished.connect(self.done)
         self.table.setEnabled(False);self.language.setEnabled(False)
         self.worker.start()
@@ -112,7 +112,7 @@ class TranslationDialog(QDialog):
             old=self.generated.get(i)
             entries.append((row,text,old[1] if old and old[0]==text else "manual"))
         try:self.value=set_translations(self.original,self.loaded_language,entries)
-        except ValueError as exc:QMessageBox.warning(self,tr("Übersetzung"),str(exc));return
+        except ValueError as exc:QMessageBox.warning(self,tr("Übersetzung"),tr(str(exc)));return
         self.accept()
 
     def reject(self):

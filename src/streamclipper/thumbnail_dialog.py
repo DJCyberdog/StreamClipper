@@ -1,6 +1,6 @@
 """Thumbnail designer using a frozen RenderRequest and a worker-owned frame."""
 from threading import Event
-from .m18_language import tr
+from .m18_language import tr,trf
 from PySide6.QtCore import QThread,Signal,Qt
 from PySide6.QtGui import QImage,QPixmap
 from PySide6.QtWidgets import (QDialog,QVBoxLayout,QFormLayout,QDoubleSpinBox,QComboBox,
@@ -89,7 +89,7 @@ class ThumbnailDialog(QDialog):
     def ready(self,frame):
         if self.closing:return
         self.frame=frame;self.captured_at=self.at.value()
-        self.hint.setText(f"Renderframe bei {self.captured_at:.3f} s geladen")
+        self.hint.setText(trf("Renderframe bei {at:.3f} s geladen",at=self.captured_at))
         self.refresh()
 
     def done(self):
@@ -103,7 +103,7 @@ class ThumbnailDialog(QDialog):
             qt=QImage(image.tobytes(),image.width,image.height,image.width*3,QImage.Format.Format_RGB888).copy()
             self.preview.setPixmap(QPixmap.fromImage(qt).scaled(680,300,Qt.AspectRatioMode.KeepAspectRatio,
                                         Qt.TransformationMode.SmoothTransformation))
-        except (ValueError,RuntimeError) as exc:self.hint.setText(str(exc))
+        except (ValueError,RuntimeError) as exc:self.hint.setText(tr(str(exc)))
 
     def save(self):
         if self.worker or self.frame is None:return
@@ -113,7 +113,7 @@ class ThumbnailDialog(QDialog):
         if not destination:return
         try:target=save_thumbnail(self.frame,self.design(),destination)
         except (OSError,ValueError,RuntimeError) as exc:
-            QMessageBox.warning(self,"Thumbnail",str(exc));return
+            QMessageBox.warning(self,"Thumbnail",tr(str(exc)));return
         self.hint.setText(tr("Gespeichert: ")+str(target));self.refresh()
 
     def reject(self):

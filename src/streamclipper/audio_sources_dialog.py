@@ -1,6 +1,6 @@
 """M15a explicit container audio stream selection and extraction."""
 from threading import Event
-from .m18_language import tr
+from .m18_language import tr,trf
 from PySide6.QtCore import QThread,Signal,Qt
 from PySide6.QtWidgets import (QDialog,QVBoxLayout,QFormLayout,QTableWidget,QTableWidgetItem,
     QLabel,QComboBox,QPushButton,QFileDialog,QHBoxLayout)
@@ -88,11 +88,11 @@ class AudioSourcesDialog(QDialog):
                                             s.title,"—" if s.start_time is None else f"{s.start_time:.3f}")):
                     self.table.setItem(row,col,QTableWidgetItem(str(field)))
             if value.streams:self.table.selectRow(0)
-            self.status.setText(f"{len(value.streams)} Audiospur(en) gefunden. "
-                +("Einspuraufnahme: KI-Trennung ist als Pilot verfügbar." if len(value.streams)==1 else ""))
+            self.status.setText(trf("{count} Audiospur(en) gefunden. ",count=len(value.streams))
+                +(tr("Einspuraufnahme: KI-Trennung ist als Pilot verfügbar.") if len(value.streams)==1 else ""))
         else:
             self.extracted=value
-            self.status.setText("Extrahiert: "+str(value)+" · provenance.json im gleichen Ordner.")
+            self.status.setText(tr("Extrahiert: ")+str(value)+tr(" · provenance.json im gleichen Ordner."))
 
     def done(self):
         worker=self.worker;self.worker=None;worker.deleteLater();self.controls()
@@ -119,7 +119,7 @@ class AudioSourcesDialog(QDialog):
         if not path:return
         from .reconstructed_speech import select_reconstructed
         try:self.selection=select_reconstructed(self.snapshot,path)
-        except Exception as exc:self.status.setText(str(exc));return
+        except Exception as exc:self.status.setText(tr(str(exc)));return
         self.action="speech";self.accept()
 
     def reset_speech(self):

@@ -1,5 +1,5 @@
 """M13a scene-selection dialog; edits are staged until explicit save."""
-from .m18_language import tr
+from .m18_language import tr,trf
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QDialog, QDialogButtonBox, QVBoxLayout, QHBoxLayout, QFormLayout,
@@ -161,7 +161,7 @@ class SceneSelectionDialog(QDialog):
         worker = self.frame_worker
         if worker is not None and not worker.cancelled.is_set() and self.monitor.set_frame(jpeg):
             self.frame_at = worker.at
-            self.frame_status.setText(f"Quellbild bei ca. {worker.at:.3f} s · Region mit Maus aufziehen")
+            self.frame_status.setText(trf("Quellbild bei ca. {at:.3f} s · Region mit Maus aufziehen",at=worker.at))
         else:
             self.frame_status.setText(tr("Quellbild konnte nicht angezeigt werden."))
 

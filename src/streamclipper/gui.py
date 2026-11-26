@@ -3291,7 +3291,7 @@ class MainWindow(QMainWindow):
         url,ok=QInputDialog.getText(self,tr("Videoimport"),tr("HTTPS-Einzelvideo (Twitch, YouTube, Kick, weitere unterstützte Quellen):"))
         if not ok or not url.strip():return
         try:source=parse_source(url)
-        except ValueError as exc:QMessageBox.warning(self,tr("Video-URL"),str(exc));return
+        except ValueError as exc:QMessageBox.warning(self,tr("Video-URL"),tr(str(exc)));return
         if QMessageBox.question(self,tr("Netzwerkzugriff und Rechte"),
             tr("Nur eigene oder ausdrücklich autorisierte Inhalte importieren. Plattformbedingungen beachten. Öffentliche Abrufbarkeit allein genügt nicht. Metadaten jetzt abrufen?"))!=QMessageBox.StandardButton.Yes:return
         self.progress.setRange(0,0);self.progress.setFormat(tr("Video-Metadaten"))
@@ -3342,7 +3342,7 @@ class MainWindow(QMainWindow):
                 estimate.setText("Format: "+" + ".join(f.ext for f in selected)+" · "+(tr("geschätzt %.2f GiB")%(size/1024**3) if size else tr("Größe unbekannt"))+" · "+(tr("Ton vorhanden") if any(f.audio for f in selected) else tr("Keine Tonspur verfügbar")))
                 buttons.button(QDialogButtonBox.StandardButton.Ok).setEnabled(True)
             except ValueError as exc:
-                estimate.setText(str(exc));buttons.button(QDialogButtonBox.StandardButton.Ok).setEnabled(False)
+                estimate.setText(tr(str(exc)));buttons.button(QDialogButtonBox.StandardButton.Ok).setEnabled(False)
         quality.currentIndexChanged.connect(update);audio.currentIndexChanged.connect(update);update()
         buttons.accepted.connect(dialog.accept);buttons.rejected.connect(dialog.reject)
         if dialog.exec()!=QDialog.DialogCode.Accepted:return
@@ -3987,6 +3987,7 @@ class MainWindow(QMainWindow):
             f"{len(result.candidates)} Clips, {len(result.transcript)} Transkript-Abschnitte")
 
     def job_failed(self, message: str) -> None:
+        from .m18_language import tr
         # Preserve manual markers even if a subsequent AI pass fails.
         if self._manual_pending and self.source:
             try:
@@ -4000,10 +4001,10 @@ class MainWindow(QMainWindow):
                 pass
         self._busy(False)
         if "abgebrochen" in message.lower():
-            self.statusBar().showMessage(message)
+            self.statusBar().showMessage(tr(message))
         else:
-            QMessageBox.critical(self, "Verarbeitung fehlgeschlagen", message)
-            self.statusBar().showMessage("Fehler – Details im Dialog")
+            QMessageBox.critical(self, tr("Verarbeitung fehlgeschlagen"), tr(message))
+            self.statusBar().showMessage(tr("Fehler – Details im Dialog"))
 
     def _ensure_manual_result(self) -> bool:
         if self.analysis:

@@ -1,6 +1,6 @@
 """Explicit ordered montage editing dialog. Original highlights are immutable."""
 from dataclasses import replace
-from .m18_language import tr
+from .m18_language import tr,trf
 from PySide6.QtWidgets import (QDialog,QVBoxLayout,QHBoxLayout,QListWidget,QComboBox,
     QPushButton,QLabel,QInputDialog,QFileDialog,QMessageBox)
 from .montage import Beat,Montage,sampled_ramp,LOOKS
@@ -48,7 +48,7 @@ class MontageDialog(QDialog):
         for b in self.beats:self.list.addItem(f"{b.start:.2f}–{b.end:.2f}s · {b.speed:g}x"+(f" → {b.end_speed:g}x" if b.end_speed is not None else "")+f" · Hold {b.freeze:g}s · {b.look}"+(" · LUT" if b.lut else "")+(" · Sound" if b.sound else ""))
         if self.beats:self.list.setCurrentRow(min(max(0,i),len(self.beats)-1))
         self.timeline.set_parts(self.beats,self.list.currentRow())
-        self.total.setText(f"{len(self.beats)} Teile · {sum(b.duration for b in self.beats):.2f}s")
+        self.total.setText(trf("{count} Teile · {seconds:.2f}s",count=len(self.beats),seconds=sum(b.duration for b in self.beats)))
     def selected(self):
         i=self.list.currentRow()
         return (i,self.beats[i]) if 0<=i<len(self.beats) else (-1,None)
@@ -91,7 +91,7 @@ class MontageDialog(QDialog):
         if not ok:return
         try:parts=sampled_ramp(b.start,b.end,initial,final,steps,curve)
         except ValueError as e:QMessageBox.warning(self,tr("Rampe"),str(e));return
-        if QMessageBox.question(self,tr("Tempo-Rampe"),f"Teil durch {steps} editierbare Tempoabschnitte ersetzen? Effekte dieses Teils werden zurückgesetzt.")!=QMessageBox.StandardButton.Yes:return
+        if QMessageBox.question(self,tr("Tempo-Rampe"),trf("Teil durch {steps} editierbare Tempoabschnitte ersetzen? Effekte dieses Teils werden zurückgesetzt.",steps=steps))!=QMessageBox.StandardButton.Yes:return
         self.beats[i:i+1]=parts;self.refresh(i)
     def continuous(self):
         i,b=self.selected()
@@ -116,7 +116,7 @@ class MontageDialog(QDialog):
                          for b,r in zip(req.plan.beats,req.compositions or (None,)*len(req.plan.beats)))
             if duration>45:raise ValueError(tr("Vorschau maximal 45 Sekunden; einzelnen kürzeren Abschnitt wählen."))
             play_preview(req,self)
-        except (OSError,ValueError,RuntimeError) as exc:QMessageBox.warning(self,tr("Montage-Vorschau"),str(exc))
+        except (OSError,ValueError,RuntimeError) as exc:QMessageBox.warning(self,tr("Montage-Vorschau"),tr(str(exc)))
 
     def freeze(self):
         i,b=self.selected()
@@ -166,7 +166,7 @@ class MontageDialog(QDialog):
                 item=import_sound(source,label,rights)
             else:item=items[labels.index(choice)-1]
             self.put(i,replace(b,sound=item["path"]))
-        except (OSError,ValueError,RuntimeError) as exc:QMessageBox.warning(self,tr("Soundbibliothek"),str(exc))
+        except (OSError,ValueError,RuntimeError) as exc:QMessageBox.warning(self,tr("Soundbibliothek"),tr(str(exc)))
 
     def current_plan(self):
         return Montage(tuple(self.beats),self.aspect.currentText(),self.encoder.currentData()).validate(self.analysis.video.duration)
@@ -189,7 +189,7 @@ class MontageDialog(QDialog):
         path,_=QFileDialog.getSaveFileName(self,tr("Montageplan speichern"),"Montage.json","JSON (*.json)")
         if not path:return
         try:save_plan(path,self.current_request())
-        except (OSError,ValueError,RuntimeError) as exc:QMessageBox.warning(self,tr("Montageplan"),str(exc))
+        except (OSError,ValueError,RuntimeError) as exc:QMessageBox.warning(self,tr("Montageplan"),tr(str(exc)))
 
     def load(self):
         from .montage_request import load_plan
@@ -198,7 +198,7 @@ class MontageDialog(QDialog):
         try:
             req=load_plan(path)
             if req.video!=self.analysis.video:raise ValueError(tr("Montageplan gehört zu anderer Aufnahme"))
-        except (OSError,ValueError,RuntimeError,KeyError,TypeError) as exc:QMessageBox.warning(self,tr("Montageplan"),str(exc));return
+        except (OSError,ValueError,RuntimeError,KeyError,TypeError) as exc:QMessageBox.warning(self,tr("Montageplan"),tr(str(exc)));return
         self.request=req;self.beats=list(req.plan.beats)
         self.aspect.setCurrentText(req.plan.aspect)
         self.encoder.setCurrentIndex(self.encoder.findData(req.plan.encoder))

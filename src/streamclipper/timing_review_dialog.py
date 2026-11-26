@@ -1,6 +1,6 @@
 """Review only source-matched speech evidence. No automatic transcript change."""
 from threading import Event
-from .m18_language import tr
+from .m18_language import tr,trf
 from PySide6.QtCore import QThread,Signal,Qt
 from PySide6.QtWidgets import (QDialog,QVBoxLayout,QLabel,QPushButton,QTableWidget,
     QTableWidgetItem,QDoubleSpinBox,QHBoxLayout,QCheckBox,QPlainTextEdit)
@@ -63,7 +63,7 @@ class TimingReviewDialog(QDialog):
             for col,value in enumerate((p.before.text,f"{p.before.start:.3f} – {p.before.end:.3f}",
                 " | ".join(f"{c.start:.3f} – {c.end:.3f}" for c in parts),f"{p.before.end-p.before.start-sum(c.end-c.start for c in parts):.3f}",p.reason),1):
                 self.table.setItem(i,col,QTableWidgetItem(value))
-        self.status.setText(f"{len(self.proposals)} Vorschläge · {len(protected)} geschützte Zeilen. Bitte einzeln prüfen und markieren.")
+        self.status.setText(trf("{count} Vorschläge · {protected} geschützte Zeilen. Bitte einzeln prüfen und markieren.",count=len(self.proposals),protected=len(protected)))
         self.apply.setEnabled(self.worker is None and bool(self.proposals))
     def done(self):
         worker=self.worker;self.worker=None;worker.deleteLater()
@@ -73,7 +73,7 @@ class TimingReviewDialog(QDialog):
         selected=[p for i,p in enumerate(self.proposals) if self.table.item(i,0).checkState()==Qt.CheckState.Checked]
         if not selected:return
         try:self.value=(apply_pause_splits if self.split.isChecked() else apply_proposals)(self.result,selected)
-        except ValueError as exc:self.status.setText(str(exc));return
+        except ValueError as exc:self.status.setText(tr(str(exc)));return
         self.accept()
     def reject(self):
         if self.worker:

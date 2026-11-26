@@ -26,3 +26,36 @@ def test_roundtrip_ui_labels_without_mutating_user_content():
         assert button.text()=="Aufnahme öffnen…" and tabs.tabText(0)=="Spuren"
         assert w.mode.currentData()=="crop" and not events
     finally:w.close();app.processEvents()
+
+
+def test_specialist_dialogs_use_language_without_changing_ids():
+    from streamclipper.models import AnalysisResult,VideoInfo,Candidate
+    from streamclipper.m17_montage_dialog import MontageDialog
+    from streamclipper.caption_style import CaptionStyle
+    from streamclipper.caption_style_dialog import CaptionStyleDialog
+    app=QApplication.instance() or QApplication([])
+    w=QMainWindow()
+    candidate=Candidate(0,5,50,"Untertitel",2)
+    result=AnalysisResult(VideoInfo("dummy.mp4",30,1920,1080,30,True),[candidate])
+    try:
+        for english in (True,False):
+            apply_language(w,english,persist=False)
+            dlg=MontageDialog(result)
+            try:
+                assert dlg.windowTitle()==("M17 · Montage & effects" if english else "M17 · Montage & Effekte")
+                assert dlg.source.currentData()==candidate
+                assert dlg.encoder.currentData()=="auto_h264"
+                dlg.add()
+                assert dlg.total.text()==("1 parts · 5.00s" if english else "1 Teile · 5.00s")
+                assert dlg.beats[0].start==0 and dlg.beats[0].end==5
+                assert candidate.reason=="Untertitel"
+            finally:dlg.close()
+            style=CaptionStyle()
+            cap=CaptionStyleDialog(style)
+            try:
+                assert cap.windowTitle()==("Branding · subtitles" if english else "Branding · Untertitel")
+                assert cap.mode.currentData()==style.mode
+                assert cap.position.currentData()==style.position
+            finally:cap.close()
+    finally:
+        apply_language(w,False,persist=False);w.close();app.processEvents()
