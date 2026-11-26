@@ -12,3 +12,7 @@ build/
 *.webm
 *.highlights.json
 data/
+
+runtime/
+runtime-stage-*/
+bin/
