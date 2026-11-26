@@ -219,7 +219,7 @@ def detect_and_track(video: VideoInfo, model_directory: str | Path, *,
     frames=sampled_jpeg_frames(video,timestamps=stamps,max_frames=max_frames,cancelled=cancelled)
     processed=0
     for rows in frame_batches(frames,vision_batch_size(device,batch_size,2),cancelled):
-        sizes=[(image.height,image.width) for _,image in rows]
+        sizes=[(image.size[1],image.size[0]) for _,image in rows]
         inputs=processor(images=[image for _,image in rows],return_tensors='pt')
         inputs={key:value.to(device) for key,value in inputs.items()}
         with torch.no_grad():
