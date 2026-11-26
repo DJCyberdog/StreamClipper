@@ -168,6 +168,7 @@ def download(meta,directory,*,height=None,audio_id=None,subtitles=False,authoriz
     if staging.is_symlink():raise ValueError("Unsicheres Staging")
     staging.mkdir(exist_ok=True)
     from .render_queue import _lock_file,_unlock_file
+    if (staging/".lock").is_symlink():raise ValueError("Unsicheres Staging-Lock")
     lock=(staging/".lock").open("a+b")
     acquired=False
     try:
@@ -198,6 +199,14 @@ def download(meta,directory,*,height=None,audio_id=None,subtitles=False,authoriz
         path=(staging/finished[0]).resolve()
         if path.parent!=staging.resolve() or path.suffix.lower() not in EXT or not path.is_file() or path.stat().st_size>max_bytes:
             raise ValueError("Ungültige Importdatei")
+        # Reject manifest/playlist masquerading as a media container before probing.
+        with path.open("rb") as stream:head=stream.read(4096)
+        if path.suffix.lower() in (".mp4",".mov"):
+            valid=len(head)>=12 and head[4:8] in (b"ftyp",b"moov",b"mdat",b"wide",b"free")
+        elif path.suffix.lower() in (".mkv",".webm"):valid=head.startswith(bytes.fromhex("1a45dfa3"))
+        elif path.suffix.lower()==".ts":valid=len(head)>=377 and head[0]==head[188]==head[376]==0x47
+        else:valid=False
+        if not valid:raise ValueError("Importdatei enthält keinen unterstützten lokalen Mediencontainer")
         video=probe_video(path)
         if video.duration<=0 or video.width<=0 or video.height<=0:raise ValueError("Keine dekodierbare Videoquelle")
         if fresh.duration and abs(video.duration-fresh.duration)>max(3,fresh.duration*.02):raise ValueError("Importdauer stimmt nicht")
