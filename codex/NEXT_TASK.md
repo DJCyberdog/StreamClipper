@@ -1,3 +1,7 @@
+# NEXT_TASK — M18 third pass
+
+Prior exact head 116c30d all three workflows PASS. New recoverable import publication journal, SHA-256/receipt collision protection, identical completed import reuse, silent-phase disk checks, actual frame verification, expected-audio check, English preflight and progress text, Instagram/Snapchat confidential OAuth contracts. Verify latest exact-head CI and fix concrete failures. Full app localization, actual provider connections, allowed authenticated import, native authorized download/OBS/Deck/NLE and security acceptance remain open. See docs/M18_ACCEPTANCE.md. No M19 or release automatically.
+
 # NEXT_TASK — M18 second pass
 
 M18 260b4c2 all three workflows PASS. Second pass: restricted Python import worker + local media probe, no silent quality changes or receipt overwrite, expanded persistent DE/EN catalog, TikTok desktop PKCE/token contract, conservative retry policy, native acceptance runner and new regression tests. Verify exact-head CI. Full localization and approved provider OAuth/token infrastructure still incomplete; authorized native provider corpus and security tests unavailable. See docs/M18_ACCEPTANCE.md; M21 mandatory before 1.0. No merge/release or automatic M19 transition.
