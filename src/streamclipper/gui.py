@@ -86,13 +86,17 @@ def display_time(seconds: float) -> str:
 class AnalysisThread(QThread):
     progress_changed = Signal(int)
     backend_notice = Signal(str)
+    phase_changed = Signal(str)
+    stage_changed = Signal(str,int)
     done = Signal(object)
     failed = Signal(str)
 
     def __init__(self, source: str, length: int, parent=None,
                  speech_model: str | None = None, vision_model: str | None = None,
-                 detector_model: str | None = None, speech_source=None, asr_cache_root=None):
+                 detector_model: str | None = None, speech_source=None, asr_cache_root=None,
+                 m16_options=None):
         super().__init__(parent)
+        self.m16_options = m16_options
         self.speech_source=speech_source
         self.asr_cache_root=asr_cache_root
         self.source = source
@@ -107,9 +111,30 @@ class AnalysisThread(QThread):
 
     def run(self) -> None:
         from .vision_device import device_notice
+        from .hardware_media import phase_notice,stage_notice
         token = device_notice.set(self.backend_notice.emit)
+        phase_token = phase_notice.set(self.phase_changed.emit)
+        stage_token = stage_notice.set(self.stage_changed.emit)
         try:
-            result = analyze(self.source, clip_seconds=self.length,
+            if self.m16_options is not None:
+                from .m16_pipeline import analyze_m16
+                from .m16_review import read_chat
+                options = dict(self.m16_options)
+                chat = options.pop('chat_path', None)
+                remote_chat = options.pop('remote_chat', None)
+                if chat:
+                    options['chat_messages'] = read_chat(chat, probe_video(self.source).duration)
+                elif remote_chat:
+                    from .m16_chat_import import download_chat
+                    self.backend_notice.emit("Twitch-Chat wird ausdrücklich angefordert …")
+                    options['chat_messages'] = download_chat(*remote_chat,probe_video(self.source),
+                                                             cancelled=self._cancelled.is_set)
+                result = analyze_m16(self.source, self.length, progress=self.progress_changed.emit,
+                    cancelled=self._cancelled.is_set, speech_model=self.speech_model,
+                    vision_model=self.vision_model, detector_model=self.detector_model,
+                    speech_source=self.speech_source, **options)
+            else:
+                result = analyze(self.source, clip_seconds=self.length,
                              progress=self.progress_changed.emit,
                              cancelled=self._cancelled.is_set,
                              speech_model=self.speech_model,
@@ -128,6 +153,24 @@ class AnalysisThread(QThread):
             self.failed.emit(str(exc))
         finally:
             device_notice.reset(token)
+            phase_notice.reset(phase_token)
+            stage_notice.reset(stage_token)
+
+
+class M16ReviewThread(QThread):
+    done = Signal(object)
+    failed = Signal(str)
+    def __init__(self, operation, parent=None):
+        super().__init__(parent)
+        self.operation=operation
+        self._cancelled=threading.Event()
+    def cancel(self):
+        self._cancelled.set()
+    def run(self):
+        try:
+            self.done.emit(self.operation(self._cancelled.is_set))
+        except Exception as exc:
+            self.failed.emit(str(exc))
 
 
 class ExportThread(QThread):
@@ -325,22 +368,34 @@ class WaveformThread(QThread):
             self.failed.emit(self.filename, str(exc))
 
 
+class LiveResourcesThread(QThread):
+    sampled = Signal(object)
+    def run(self):
+        from .live_resources import sample
+        try:self.sampled.emit(sample())
+        except Exception:self.sampled.emit(None)
+
+
 class ProxyThread(QThread):
     """Small preview transcode stays off the Qt UI thread."""
     progress_changed = Signal(int)
     done = Signal(str, object)
     failed = Signal(str, str)
     was_cancelled = Signal(str)
+    phase_changed = Signal(str)
 
-    def __init__(self, video: VideoInfo, parent=None) -> None:
+    def __init__(self, video: VideoInfo, parent=None, hardware_mode="legacy") -> None:
         super().__init__(parent)
         self.video = video
+        self.hardware_mode=hardware_mode
         self._cancelled = threading.Event()
 
     def cancel(self) -> None:
         self._cancelled.set()
 
     def run(self) -> None:
+        from .hardware_media import mode,phase_notice
+        token=mode.set(self.hardware_mode); notice=phase_notice.set(self.phase_changed.emit)
         try:
             result = ensure_proxy(
                 self.video, cancelled=self._cancelled.is_set,
@@ -353,6 +408,8 @@ class ProxyThread(QThread):
             self.was_cancelled.emit(self.video.path)
         except (OSError, ValueError, RuntimeError) as exc:
             self.failed.emit(self.video.path, str(exc))
+        finally:
+            mode.reset(token);phase_notice.reset(notice)
 
 
 class RenderPreviewThread(QThread):
@@ -1404,7 +1461,29 @@ class MainWindow(QMainWindow):
 
         self.progress = QProgressBar()
         self.progress.setValue(0)
+        self.hardware_mode=QComboBox()
+        self.hardware_mode.addItem('Auto · NVDEC Szenenscan / NVENC Proxy','auto')
+        self.hardware_mode.addItem('GPU bevorzugen · auch Einzelbilder','gpu')
+        self.hardware_mode.addItem('Nur CPU · Analyse / Proxy','cpu')
+        self.hardware_mode.setToolTip('Gilt für M16-Analyse und neue Vorschau-Proxys; Export hat eigene Encoderwahl. Auto hält sparse CPU-Seeks bei. Hardware-Fallback sichtbar.')
+        self.phase_status=QLabel('Bereit');self.phase_status.setWordWrap(True)
+        self.backend_status=QLabel('Inferenzgerät: noch kein Modell aktiv')
+        self.resource_cpu=QLabel('CPU / RAM: n/a')
+        self.resource_gpu=QLabel('NVIDIA: n/a');self.resource_gpu.setWordWrap(True)
+        self.resource_clock=QLabel('Analysezeit: –')
+        preview_layout.addWidget(self.hardware_mode)
+        preview_layout.addWidget(self.phase_status)
+        preview_layout.addWidget(self.backend_status)
+        preview_layout.addWidget(self.resource_cpu)
+        preview_layout.addWidget(self.resource_gpu)
+        preview_layout.addWidget(self.resource_clock)
         main.addWidget(self.progress)
+        self._analysis_started=None
+        self._stage_name=None;self._stage_start=None;self._stage_percent=0
+        self._resource_worker=LiveResourcesThread(self)
+        self._resource_worker.sampled.connect(self._show_resource_sample)
+        self._resource_timer=QTimer(self);self._resource_timer.setInterval(2000)
+        self._resource_timer.timeout.connect(self._poll_resources);self._resource_timer.start()
         self.statusBar().showMessage("Bereit")
         self._timeline_buttons = (self.timeline_in, self.timeline_out,
                                   self.timeline_play, self.timeline_add,
@@ -1413,6 +1492,40 @@ class MainWindow(QMainWindow):
         self._busy(False)
         self.setStyleSheet(EDITOR_STYLESHEET)
         self._load_workspace_on_start()
+
+    def _poll_resources(self):
+        import time
+        if not self._resource_worker.isRunning():self._resource_worker.start()
+        if self._analysis_started is not None:
+            elapsed=time.monotonic()-self._analysis_started
+            clock=f'Analysezeit: {display_time(elapsed)}'
+            if self._stage_start is not None:
+                dt=time.monotonic()-self._stage_start
+                p=self._stage_percent
+                clock+=f' · {self._stage_name}: {p}%'
+                if 5<=p<100 and dt>=10:
+                    eta=dt*(100-p)/p
+                    clock+=f' · Phase noch ca. {display_time(eta)}'
+            self.resource_clock.setText(clock)
+
+    def _stage_progress(self,name,percent):
+        import time
+        if name!=self._stage_name or percent<self._stage_percent:
+            self._stage_name=name;self._stage_start=time.monotonic()
+        self._stage_percent=percent
+
+    def _show_resource_sample(self,row):
+        if row is None:
+            self.resource_cpu.setText('CPU / RAM: n/a');self.resource_gpu.setText('NVIDIA: n/a');return
+        from .live_resources import format_sample
+        cpu,gpu=format_sample(row)
+        self.resource_cpu.setText(cpu+' (System)');self.resource_gpu.setText(gpu+' (System)')
+
+    def _analysis_stopped(self):
+        self._poll_resources()
+        self._analysis_started=None
+        self.phase_status.setText('Analyse abgeschlossen' if self.progress.value()==100 else 'Analyse beendet / abgebrochen')
+        self._busy(False)
 
     _WORKSPACE_TABS = {
         "Highlights": 0, "Schnitt": 3, "Audio": 3,
@@ -1452,6 +1565,30 @@ class MainWindow(QMainWindow):
         self.asr_cache_action.setToolTip("Speichert rohe Transkriptfenster lokal; nach Abbruch mit gleicher Quelle und Modell wiederverwendbar.")
         audio_menu.addAction("KI-Stems / Audio-Mix …",self._edit_stem_mix)
         audio_menu.addAction("Voice-over-Datei auf ausgewählte Audiospur …",self._add_audio_file_to_track)
+        gaming = self.menuBar().addMenu("Gaming Intelligence (M16)")
+        self.m16_action = gaming.addAction("Experimentelle M16-Analyse")
+        self.m16_action.setCheckable(True)
+        self.m16_fast_action = gaming.addAction("Schnelle Vision (CUDA FP16 / Batch, experimentell)")
+        self.m16_fast_action.setCheckable(True)
+        self.m16_reaction_model = None
+        gaming.addAction("Akustisches Reaktionsmodell auswählen / deaktivieren …", self._m16_choose_reaction_model)
+        self.m16_cache_action = gaming.addAction("Lokale Analyse-Zwischenstände behalten")
+        self.m16_cache_action.setCheckable(True)
+        self.m16_cache_action.setToolTip("Speichert auch private Transkripttexte lokal. Kein Upload.")
+        self.m16_feedback_action = gaming.addAction("Persönliche Ranking-Präferenzen verwenden")
+        self.m16_feedback_action.setCheckable(True)
+        self.m16_profile = "generic"
+        gaming.addAction("Spielprofil auswählen …", self._m16_choose_profile)
+        gaming.addAction("Vorschlag bewerten …", self._m16_feedback)
+        gaming.addAction("Ranking-Präferenzen zurücksetzen …", self._m16_reset_feedback)
+        gaming.addAction("Transkript nach Momenten durchsuchen …", self._m16_search)
+        gaming.addAction("Semantische Sprachsuche (lokales Modell) …", self._m16_semantic_search)
+        gaming.addAction("Semantische Bildsuche (CLIP) …", self._m16_visual_search)
+        gaming.addAction("Highlight-Kontaktbogen speichern …", self._m16_contact_sheet)
+        self.m16_chat_action = gaming.addAction("Lokalen Chat beim nächsten M16-Lauf auswählen")
+        self.m16_chat_action.setCheckable(True)
+        self.m16_remote_chat_action = gaming.addAction("Twitch-Chat beim nächsten M16-Lauf laden (lokaler Helfer)")
+        self.m16_remote_chat_action.setCheckable(True)
         branding = self.menuBar().addMenu("Branding")
         branding.addAction("Untertitel gestalten …", self._edit_caption_style)
         branding.addAction("Untertitel übersetzen …", self._edit_translations)
@@ -1924,7 +2061,8 @@ class MainWindow(QMainWindow):
             return
         self.proxy_progress.setValue(0)
         self.proxy_status.setText("Proxy wird im Hintergrund erstellt …")
-        worker = ProxyThread(self._video_info, self)
+        worker = ProxyThread(self._video_info, self, hardware_mode=self.hardware_mode.currentData())
+        worker.phase_changed.connect(self.phase_status.setText)
         self.proxy_worker = worker
         worker.progress_changed.connect(
             lambda value, w=worker: self._proxy_worker_progress(w, value))
@@ -2053,6 +2191,7 @@ class MainWindow(QMainWindow):
         self.render_preview_button.setEnabled(
             bool(self._video_info) and not busy)
         self.encoder_mode.setEnabled(not busy)
+        self.hardware_mode.setEnabled(not busy)
         ready = self.analysis is not None and not busy
         self.single_export.setEnabled(ready and bool(self.table.selectedItems()))
         self.all_export.setEnabled(ready and bool(self.analysis.candidates if self.analysis else []))
@@ -3354,6 +3493,122 @@ class MainWindow(QMainWindow):
             return
         dialog.exec()
 
+    def _m16_choose_profile(self):
+        value, ok = QInputDialog.getItem(self, "M16 Spielprofil", "Profil (experimentell):",
+                                         ["generic", "open-world"], 0, False)
+        if ok:
+            self.m16_profile = value
+
+    def _m16_choose_reaction_model(self):
+        if self._history_blocked:return
+        choice,ok=QInputDialog.getItem(self,"Reaktionsmodell","Akustische Modellanalyse:",
+                                       ["Lokales Modell wählen","Deaktivieren (Pegel und Stimmlage bleiben)"],0,False)
+        if not ok:return
+        if choice.startswith("Deaktivieren"):
+            self.m16_reaction_model=None;return
+        path=QFileDialog.getExistingDirectory(self,"Lokaler Audio-Klassifikator mit Lachen/Rufen-Klassen",
+                                              str(installation_directory()/"data"/"models"))
+        if path:self.m16_reaction_model=path
+
+    def _m16_feedback(self):
+        if self._history_blocked or not self.analysis: return
+        c = self.selected_candidate()
+        if c is None or c.origin != "auto": return
+        kind, ok = QInputDialog.getItem(self, "M16 Feedback", "Welche Evidenz möchtest du bewerten?",
+                          ["speech", "motion", "visual", "object", "reaction"], 0, False)
+        if not ok: return
+        vote, ok = QInputDialog.getItem(self, "M16 Feedback", "Persönliche Relevanz:",
+                                        ["Annehmen", "Ablehnen"], 0, False)
+        if not ok: return
+        try:
+            from .m16_review import record_feedback
+            from .gaming_intelligence import digest
+            stat = Path(self.analysis.video.path).stat()
+            source_id = digest([str(Path(self.analysis.video.path).resolve()),stat.st_size,stat.st_mtime_ns])
+            corrected=None
+            raw,ok=QInputDialog.getText(self,"M16 Feedback","Optional bessere Grenzen in Sekunden: Start, Ende (leer = unverändert)")
+            if not ok:return
+            if raw.strip():
+                corrected=tuple(float(v.strip()) for v in raw.split(","))
+                if len(corrected)!=2 or not 0<=corrected[0]<corrected[1]<=self.analysis.video.duration:
+                    raise ValueError("Ungültige Zeitgrenzen")
+            record_feedback(installation_directory()/"data"/"settings"/"m16_feedback.json",
+                            source_id,c,kind,1 if vote=="Annehmen" else -1,corrected=corrected)
+            self.statusBar().showMessage("Lokales Feedback gespeichert; vorhandener Clip unverändert.")
+        except (OSError, ValueError) as exc:
+            QMessageBox.warning(self,"M16 Feedback",str(exc))
+
+    def _m16_reset_feedback(self):
+        if self._history_blocked:return
+        if QMessageBox.question(self,"Feedback zurücksetzen","Lokale persönliche M16-Bewertungen löschen?")==QMessageBox.StandardButton.Yes:
+            from .gaming_intelligence import atomic_json
+            try:atomic_json(installation_directory()/"data"/"settings"/"m16_feedback.json",{"schema_version":1,"rows":[]})
+            except OSError as exc:QMessageBox.warning(self,"M16 Feedback",str(exc))
+
+    def _m16_search(self):
+        if self._history_blocked or not self.analysis:return
+        query,ok=QInputDialog.getText(self,"Transkript durchsuchen","Suchbegriffe (lexikalisch):")
+        if not ok:return
+        from .gaming_intelligence import search_transcript
+        hits=search_transcript(self.analysis.transcript,query)
+        if not hits:
+            QMessageBox.information(self,"Suche","Keine Treffer.");return
+        self._m16_show_hits(hits)
+
+    def _m16_show_hits(self,hits):
+        if not hits:
+            QMessageBox.information(self,"Suche","Keine Treffer.");return
+        labels=[f"{i+1}. {display_time(c.start)} — {c.text[:140]}" for i,c in enumerate(hits)]
+        value,ok=QInputDialog.getItem(self,"Treffer","Zum Moment springen:",labels,0,False)
+        if ok:self.seek_to(round(hits[labels.index(value)].start*1000))
+
+    def _m16_review_job(self,operation,completed):
+        self.worker=M16ReviewThread(operation,self)
+        self.worker.done.connect(completed)
+        self.worker.failed.connect(self.job_failed)
+        self.worker.finished.connect(lambda:self._busy(False))
+        self._busy(True)
+        self.statusBar().showMessage("M16 Review läuft lokal …")
+        self.worker.start()
+
+    def _m16_semantic_search(self):
+        if self._history_blocked or not self.analysis or not self.analysis.transcript:return
+        query,ok=QInputDialog.getText(self,"Semantische Sprachsuche","Gesuchter Moment in eigenen Worten:")
+        if not ok or not query.strip():return
+        model=QFileDialog.getExistingDirectory(self,"Lokales Text-Embedding-Modell",str(installation_directory()/"data"/"models"))
+        if not model:return
+        from .m16_review import semantic_transcript_search
+        cues=tuple(self.analysis.transcript)
+        self._m16_review_job(lambda cancel:semantic_transcript_search(cues,query,model,cancelled=cancel),
+                             lambda hits:self._m16_show_hits([c for _,c in hits]))
+
+    def _m16_visual_search(self):
+        if self._history_blocked or not self.source:return
+        query,ok=QInputDialog.getText(self,"Semantische Bildsuche",
+                    "Beschreibe das gesuchte Bild möglichst auf Englisch (CLIP):")
+        if not ok or not query.strip():return
+        model=self.vision_path.text().strip()
+        if not model:
+            model=QFileDialog.getExistingDirectory(self,"Lokales CLIP-Modell auswählen",
+                                                   str(installation_directory()/"data"/"models"))
+        if not model:return
+        try:video=probe_video(self.source)
+        except (OSError,RuntimeError,ValueError) as exc:
+            QMessageBox.warning(self,"Bildsuche",str(exc));return
+        anchors=tuple(c.peak_at for c in self.analysis.candidates) if self.analysis else ()
+        from .m16_visual_search import visual_search
+        self._m16_review_job(lambda cancel:visual_search(video,query,model,anchors=anchors,cancelled=cancel),
+                             self._m16_show_hits)
+
+    def _m16_contact_sheet(self):
+        if self._history_blocked or not self.analysis or not self.analysis.candidates:return
+        path,_=QFileDialog.getSaveFileName(self,"Kontaktbogen speichern","highlights-contact-sheet.png","PNG (*.png)")
+        if not path:return
+        from .m16_review import contact_sheet
+        video=self.analysis.video;candidates=tuple(self.analysis.candidates)
+        self._m16_review_job(lambda cancel:contact_sheet(video,candidates,path,cancelled=cancel),
+                             lambda result:self.statusBar().showMessage("Kontaktbogen gespeichert: "+str(result)))
+
     def start_analysis(self) -> None:
         if not self.source or not self.confirm_discard_edits():
             return
@@ -3392,6 +3647,32 @@ class MainWindow(QMainWindow):
             except (FileNotFoundError, ValueError) as exc:
                 QMessageBox.warning(self, 'Whisper-Modell unvollständig', str(exc))
                 return
+        m16_options = None
+        if self.m16_action.isChecked():
+            m16_options = {"profile":self.m16_profile,"fast_vision":self.m16_fast_action.isChecked(),
+                           "reaction_model":self.m16_reaction_model,"hardware_mode":self.hardware_mode.currentData()}
+            if self.m16_chat_action.isChecked() and self.m16_remote_chat_action.isChecked():
+                QMessageBox.warning(self,"Chat","Bitte genau eine Chat-Quelle auswählen.");return
+            if self.m16_remote_chat_action.isChecked():
+                url,ok=QInputDialog.getText(self,"Twitch-Chat laden","Öffentliche VOD-URL der unveränderten Aufnahme:")
+                if not ok:return
+                try:canonical,_=parse_twitch_vod_url(url)
+                except ValueError as exc:QMessageBox.warning(self,"Chat",str(exc));return
+                helper,_=QFileDialog.getOpenFileName(self,"Vertrauenswürdige lokale TwitchDownloaderCLI.exe auswählen",
+                                                    "","Anwendung (*.exe)")
+                if not helper:return
+                m16_options["remote_chat"]=(helper,canonical)
+            if self.m16_chat_action.isChecked():
+                chat,_=QFileDialog.getOpenFileName(self,"Lokaler Chat mit VOD-Zeitstempeln","","Chat-Export (*.jsonl *.json)")
+                if not chat:return
+                m16_options['chat_path']=chat
+            if self.m16_cache_action.isChecked():
+                m16_options["cache_root"] = installation_directory()/"data"/"projects"/"m16_cache"
+            if self.m16_feedback_action.isChecked():
+                from .m16_review import personal_preferences
+                try:m16_options["preferences"]=personal_preferences(installation_directory()/"data"/"settings"/"m16_feedback.json")
+                except (OSError,ValueError) as exc:
+                    QMessageBox.warning(self,"M16 Feedback",str(exc));return
         self._manual_pending = [c for c in self.analysis.candidates if c.origin == "manual"] if self.analysis else []
         self.analysis = None
         self.transcript_dirty = False
@@ -3404,12 +3685,20 @@ class MainWindow(QMainWindow):
         self.worker = AnalysisThread(self.source, self.length.value(), self,
                                      speech_model=speech, vision_model=vision,
                                      detector_model=detector,speech_source=self.speech_source if speech else None,
-                                     asr_cache_root=installation_directory()/ "data"/"projects"/"asr_windows" if speech and self.speech_source and self.asr_cache_action.isChecked() else None)
+                                     asr_cache_root=installation_directory()/ "data"/"projects"/"asr_windows" if speech and self.speech_source and self.asr_cache_action.isChecked() else None,
+                                     m16_options=m16_options)
         self.worker.progress_changed.connect(self.progress.setValue)
-        self.worker.backend_notice.connect(lambda message: self.statusBar().showMessage(message))
+        self.worker.backend_notice.connect(self.backend_status.setText)
+        self.worker.phase_changed.connect(self.phase_status.setText)
+        self.worker.stage_changed.connect(self._stage_progress)
         self.worker.done.connect(self.analysis_finished)
         self.worker.failed.connect(self.job_failed)
-        self.worker.finished.connect(lambda: self._busy(False))
+        self.worker.finished.connect(self._analysis_stopped)
+        import time
+        self._analysis_started=time.monotonic()
+        self._stage_name=None;self._stage_start=None;self._stage_percent=0
+        self.progress.setRange(0,100);self.progress.setFormat('Analyse · %p %')
+        self.phase_status.setText('Analyse wird vorbereitet …');self.backend_status.setText('Inferenzgerät: ausstehend')
         self._busy(True)
         self.statusBar().showMessage("Analyse läuft lokal (Audio / optionale Modelle) …" + (' · Whisper: '+getattr(self.speech_source,'label',f'Stream {self.speech_source.index}') if speech and self.speech_source else ''))
         self.worker.start()
@@ -4323,6 +4612,9 @@ class MainWindow(QMainWindow):
         self.player.setSource(QUrl())
         self.player.setVideoOutput(None)
         self.player.setAudioOutput(None)
+        self._resource_timer.stop()
+        if not self._resource_worker.wait(3000):
+            self._resource_timer.start();event.ignore();return
         self._save_workspace_layout(quiet=True)
         event.accept()
 

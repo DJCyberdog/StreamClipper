@@ -679,6 +679,13 @@ transkript unverändert, lokale Modelle optional und explizit bereitgestellt.
 - Die bereits für 1.0 freigegebenen **D-B2 Twitch-Chat-Analyse** und **D-B3 semantische Videosuche** als **optionale** zusätzliche Evidenz-/Review-Schicht implementieren, mit klarer Datenherkunft und Datenschutzgrenzen; ohne Chat muss die Kern-KI vollständig funktionieren.
 - Keine Chat-Anzahl, Textsuche oder Stimmreaktion als alleinigen „viral“-Beweis verkaufen.
 
+**M16g – Hardware Acceleration & Resource Monitoring (Owner 26.11.2026)**
+
+- Hardware-Auswahl für M16-Analyse und Proxy (Auto, GPU bevorzugen, CPU); bestehende Export-Encoderwahl bleibt separat. Auto nutzt NVDEC/CUDA-Skalierung für den Vollscan nach realem Probe-Frame; sparse Einzelbild-Seeks bleiben aus Performance-Gründen CPU, außer bei GPU-Präferenz. Keine unbelegte Zero-Copy-Behauptung.
+- Reale NVDEC/CUDA- und NVENC-Funktionsprüfung; sichtbarer CPU-Fallback bei Laufzeitfehlern; unveränderte Zeitbasis und bestehende Proxy-/Export-QA. H.264/HEVC-NVENC weiter über vorhandenen Exportpfad.
+- Permanente lokale Ressourcenanzeige für CPU, RAM, GPU, VRAM, Video-Decode/Encode soweit vom Treiber gemeldet; fehlende Messwerte als n/a statt erfundener Zahlen. Aktuelle Analysephase, tatsächliches Inferenzgerät, Fortschritt und verstrichene Zeit. Restzeit nur bei belastbarer Schätzung.
+- Abnahme: reale GPU-Messungen auf RTX 5060 Ti, CPU/GPU-Parität der Frames und relevanter Analyseergebnisse, kein stiller Fallback, Abbruch/Restart und Zeitbasis. Keine automatische Freigabe allein durch FFmpeg-Featurelisting.
+
 **Abnahme-Gates für M16:**
 
 - [ ] Reproduzierbares, versioniertes Evaluationsset mit mindestens 100 annotierten Momenten, Negativfällen und festem unabhängigen Holdout vorhanden; Lizenz und Privatsphäre der VODs gewahrt.

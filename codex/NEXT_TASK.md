@@ -1,3 +1,15 @@
+# NEXT_TASK — M16g integrated, acceptance outstanding
+
+Owner confirms M15 works locally. M16a–g implementation paths integrated; hardware preferences, actual FFmpeg probes, CPU fallback, NVENC proxy, live resource monitoring and phase ETA now included. See docs/M16_ACCEPTANCE.md. Verify latest exact-head CI and native GPU diagnostic; use authorized annotated independent corpus for quality gate. No M17 or release until remaining gates resolved or explicitly changed by owner.
+
+# NEXT_TASK — M16 second implementation pass
+
+M15 hosted workflows all green at 0aec35ee and merged into M16. New M16 paths: CUDA FP16/batching, ASR window resume, acoustic classifier and pitch, visual search, explicit local Twitch chat helper/export, development-only weight search and grouped confidence intervals. See appended docs/M16_ACCEPTANCE.md. Check exact latest CI, fix any concrete failures. Native model/GUI/6h RTX tests and >=100 independently annotated authorized gaming moments with holdout remain hard gates. No synthetic quality claims, automatic release/merge, or M17 until acceptance.
+
+# NEXT_TASK — M16 integrated pilot (Owner 2026-11-26)
+
+Owner authorized parallel M16 development while locally testing M15; previous no-start gate is superseded for stacked development only, not merge/acceptance. PR #54, see docs/M16_ACCEPTANCE.md. Check exact head CI; fix concrete failures; acquire authorized frozen >=100-moment corpus, run baseline/M16 paired benchmark and native 6h RTX evidence. Remaining scope and gates documented; no quality claim, merge or M17. M15 remains separately testable.
+
 # NEXT_TASK — M15 unified acceptance
 
 M15a–f technical implementation exists; exact prior 1a346205 all four workflows PASS. M15f now adds frozen audio/annotation/split lock and paired comparison. See docs/M15F_ACCEPTANCE.md. Verify new head CI. Do not repeat passed hosted smokes as a substitute for actual independent gaming benchmark. Remaining work is acquisition of authorized real corpus, native Windows RTX 5060 Ti six-hour evidence and listening, exact distribution/license review, evidence-based ASR/optional alignment choice. No M16 or merge until acceptance; M14 native gate separately open.

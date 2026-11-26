@@ -671,38 +671,40 @@ def sampled_jpeg_frames(video: VideoInfo, *, max_frames: int = 180,
         count = max(1, min(max_frames, int(math.ceil(video.duration / 3.0))))
         interval = video.duration / count
         positions = [(index + 0.5) * interval for index in range(count)]
-    ffmpeg = tool_path("ffmpeg")
-    for at in positions:
-        if cancelled and cancelled():
-            raise CancelledError("Analyse abgebrochen")
-        cmd = [ffmpeg, "-hide_banner", "-nostdin", "-loglevel", "error",
-               "-ss", f"{at:.3f}", "-i", video.path,
-               "-map", "0:v:0", "-an", "-sn", "-frames:v", "1",
-               "-vf", "scale=320:-2:flags=fast_bilinear", "-q:v", "6",
-               "-f", "image2pipe", "-vcodec", "mjpeg", "pipe:1"]
-        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    from .hardware_media import choose_decode,decode_options,notify
+    ffmpeg=tool_path("ffmpeg")
+    gpu=choose_decode(ffmpeg,video,sparse=True)
+    notify("Frame-Extraktion: "+("NVDEC / scale_cuda" if gpu else "FFmpeg CPU"))
+    def extract(at,use_gpu):
+        prefix,filters=decode_options(320,-2) if use_gpu else ([], "scale=320:-2:flags=fast_bilinear")
+        cmd=[ffmpeg,"-hide_banner","-nostdin","-loglevel","error",*prefix,
+             "-ss",f"{at:.3f}","-i",video.path,"-map","0:v:0","-an","-sn",
+             "-frames:v","1","-vf",filters,"-q:v","6","-f","image2pipe","-vcodec","mjpeg","pipe:1"]
+        proc=subprocess.Popen(cmd,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL)
         try:
             while True:
-                if cancelled and cancelled():
-                    raise CancelledError("Analyse abgebrochen")
-                try:
-                    frame, _ = proc.communicate(timeout=0.2)
-                    break
-                except subprocess.TimeoutExpired:
-                    continue
-            if proc.returncode != 0:
-                raise RuntimeError(f"FFmpeg konnte Frame bei {at:.2f}s nicht dekodieren.")
+                if cancelled and cancelled():raise CancelledError("Analyse abgebrochen")
+                try:frame,_=proc.communicate(timeout=.2);break
+                except subprocess.TimeoutExpired:continue
+            if proc.returncode!=0:raise RuntimeError(f"FFmpeg konnte Frame bei {at:.2f}s nicht dekodieren.")
             if not frame.startswith(b"\xff\xd8") or not frame.endswith(b"\xff\xd9"):
                 raise RuntimeError(f"Ungültiger JPEG-Frame bei {at:.2f}s.")
-            if len(frame) > 8_000_000:
-                raise RuntimeError("Ein einzelnes Video-Frame überschreitet 8 MB.")
-            yield round(at, 3), frame
+            if len(frame)>8_000_000:raise RuntimeError("Ein einzelnes Video-Frame überschreitet 8 MB.")
+            return frame
         finally:
-            if proc.poll() is None:
-                proc.kill()
+            if proc.poll() is None:proc.kill()
             proc.wait()
-            if proc.stdout:
-                proc.stdout.close()
+            if proc.stdout:proc.stdout.close()
+    for at in positions:
+        if cancelled and cancelled():raise CancelledError("Analyse abgebrochen")
+        try:frame=extract(at,gpu)
+        except CancelledError:raise
+        except RuntimeError:
+            if not gpu:raise
+            gpu=False
+            notify("NVDEC-Frame fehlgeschlagen – weitere Frames auf CPU")
+            frame=extract(at,False)
+        yield round(at,3),frame
 
 
 def waveform_peaks(video: VideoInfo, *, max_bins: int = 8192,
@@ -782,10 +784,10 @@ def stream_offsets(source: str | Path) -> tuple[float, float]:
     return video_start - format_start, audio_start - video_start
 
 
-def encode_preview_proxy(
+def _encode_preview_proxy(
         video: VideoInfo, target: str | Path, *,
         progress: Progress | None = None,
-        cancelled: Cancelled | None = None) -> None:
+        cancelled: Cancelled | None = None, gpu_encode: bool = False) -> None:
     """Transcode a complete, small MP4 with VFR PTS spacing preserved.
 
     This is a streaming FFmpeg operation: no video/audio bytes are buffered
@@ -805,7 +807,8 @@ def encode_preview_proxy(
                 "scale=854:480:force_original_aspect_ratio=decrease:"
                 "force_divisible_by=2,setsar=1,format=yuv420p"),
         "-fps_mode:v", "passthrough",
-        "-c:v", "libx264", "-preset", "veryfast", "-crf", "29",
+        *(["-c:v","h264_nvenc","-preset","p4","-rc","vbr","-cq","29","-b:v","0"] if gpu_encode else
+          ["-c:v","libx264","-preset","veryfast","-crf","29"]),
         "-pix_fmt", "yuv420p",
     ]
     if video.has_audio:
@@ -862,6 +865,23 @@ def encode_preview_proxy(
             reader.join(timeout=2)
             if proc.stdout:
                 proc.stdout.close()
+
+
+def encode_preview_proxy(video: VideoInfo,target: str | Path,*,progress=None,cancelled=None):
+    from .hardware_media import prefer_gpu,notify
+    from .encoders import probe_nvenc
+    if cancelled and cancelled():raise CancelledError("Proxy-Erstellung abgebrochen")
+    gpu=prefer_gpu() and probe_nvenc(tool_path("ffmpeg"),"h264_nvenc")
+    if prefer_gpu() and not gpu:notify("Proxy: NVENC nicht verfügbar – CPU")
+    notify("Proxy: "+("H.264 NVENC" if gpu else "libx264 CPU"))
+    if gpu:
+        try:return _encode_preview_proxy(video,target,progress=progress,cancelled=cancelled,gpu_encode=True)
+        except CancelledError:raise
+        except RuntimeError:
+            notify("Proxy: NVENC fehlgeschlagen – neuer CPU-Versuch")
+            if cancelled and cancelled():raise CancelledError("Proxy-Erstellung abgebrochen")
+            Path(target).unlink(missing_ok=True)
+    return _encode_preview_proxy(video,target,progress=progress,cancelled=cancelled)
 
 
 def concatenate_scene_parts(parts: list[Path], destination: Path, *, cancelled=None) -> None:

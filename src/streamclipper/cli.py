@@ -34,6 +34,11 @@ def main(argv: list[str] | None = None) -> None:
                    help="Max. Objekterkennungsbilder (3–300; Standard 90)")
     a.add_argument("--max-visual-frames", type=int, default=180,
                    help="Höchstens so viele Videoframes klassifizieren (Standard: 180)")
+    a.add_argument("--m16-profile", choices=["generic","open-world"], help="Experimental M16 engine")
+    a.add_argument("--m16-hardware", choices=["auto","gpu","cpu","legacy"], default="legacy")
+    a.add_argument("--m16-fast-vision", action="store_true", help="Experimental CUDA FP16 and bounded batches")
+    a.add_argument("--m16-cache", type=Path, help="Explicit local cache (contains transcript text)")
+    a.add_argument("--m16-chat", type=Path, help="Local JSONL chat timestamps")
     t = commands.add_parser("transcribe", help="Whole recording -> local SRT/TXT/VTT subtitles")
     t.add_argument("video")
     t.add_argument("--speech-model", default=str(default_models_directory() / "whisper-small"),
@@ -53,12 +58,22 @@ def main(argv: list[str] | None = None) -> None:
                    help="JSON-Bericht aus 'analyze' mit Whisper-Transkript")
     args = parser.parse_args(argv)
     if args.command == "analyze":
-        result = analyze(args.video, args.clip_seconds, args.max_clips,
+        engine=analyze
+        options={}
+        if args.m16_profile:
+            from .m16_pipeline import analyze_m16
+            from .m16_review import read_chat
+            engine=analyze_m16
+            options={"profile":args.m16_profile,"cache_root":args.m16_cache,"fast_vision":args.m16_fast_vision,"hardware_mode":args.m16_hardware}
+            if args.m16_chat:options["chat_messages"]=read_chat(args.m16_chat,probe_video(args.video).duration)
+        elif args.m16_cache or args.m16_chat or args.m16_fast_vision or args.m16_hardware!="legacy":
+            parser.error("M16 options require --m16-profile")
+        result = engine(args.video, args.clip_seconds, args.max_clips,
                          progress=lambda p: print(f"\rAnalyse: {p:3d}%", end="", flush=True),
                          speech_model=args.speech_model, vision_model=args.vision_model,
                          max_visual_frames=args.max_visual_frames,
                          detector_model=args.detector_model,
-                         max_object_frames=args.max_object_frames)
+                         max_object_frames=args.max_object_frames,**options)
         destination = Path(args.output or (str(Path(args.video).with_suffix("")) + ".highlights.json"))
         result.save_json(destination)
         print(f"\n{len(result.candidates)} Kandidaten gespeichert: {destination}")

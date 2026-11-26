@@ -105,7 +105,8 @@ def transcribe_video(video: VideoInfo, model_directory: str, *,
     if cancelled and cancelled():
         raise CancelledError("Analyse abgebrochen")
 
-    device = os.environ.get("STREAMCLIPPER_WHISPER_DEVICE", "auto").lower()
+    from .hardware_media import mode,notify
+    device = "cpu" if mode.get()=="cpu" else os.environ.get("STREAMCLIPPER_WHISPER_DEVICE", "auto").lower()
     if device not in {"auto", "cuda", "cpu"}:
         raise ValueError("STREAMCLIPPER_WHISPER_DEVICE: auto, cuda oder cpu erwartet")
 
@@ -119,6 +120,8 @@ def transcribe_video(video: VideoInfo, model_directory: str, *,
                                  compute_type="int8" if chosen_device == "cpu" else "default",
                                  local_files_only=True)
             if model_cache is not None:model_cache[key]=model
+        actual=getattr(getattr(model,"model",None),"device",None) or chosen_device
+        notify("Whisper: "+str(actual))
         options={} if quality_options is None else quality_options.whisper_kwargs()
         segments, _ = model.transcribe(
             video.path, beam_size=options.pop('beam_size',2), vad_filter=True,
@@ -175,6 +178,7 @@ def transcribe_video(video: VideoInfo, model_directory: str, *,
         if model_cache is not None:
             model_cache.pop((str(folder.resolve()),requested_device),None)
             model_cache[("fallback",str(folder.resolve()),requested_device)]=True
+        notify("Whisper: CUDA-Fehler – CPU-Fallback")
         spans = transcribe_on("cpu")
 
     if progress:
@@ -258,7 +262,9 @@ def recognize_gameplay(video: VideoInfo, model_directory: str, *,
                        max_frames: int = 180,
                        progress: Progress | None = None,
                        cancelled: Cancelled | None = None,
-                       timestamps: list[float] | None = None) -> list[EventEvidence]:
+                       timestamps: list[float] | None = None,
+                       profile: str | None = None, device_override: str | None = None,
+                       batch_size: int | None = 1, mixed_precision: bool = False) -> list[EventEvidence]:
     """Local CLIP zero-shot resemblance on a bounded sample of JPEG video frames."""
     from .media import CancelledError, sampled_jpeg_frames
     from .model_checks import validate_clip_model
@@ -275,30 +281,46 @@ def recognize_gameplay(video: VideoInfo, model_directory: str, *,
         raise CancelledError("Analyse abgebrochen")
     processor = AutoProcessor.from_pretrained(str(folder), local_files_only=True)
     model = CLIPModel.from_pretrained(str(folder), local_files_only=True)
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+    from .hardware_media import torch_device
+    device = torch_device(torch,device_override)
     model.to(device).eval()
     from .vision_device import report_vision_device
     report_vision_device("CLIP",device)
-    labels = [name for name, _, _ in _VISUAL_LABELS]
-    prompts = [prompt for _, prompt, _ in _VISUAL_LABELS]
+    catalogue = _VISUAL_LABELS
+    if profile == "generic":
+        catalogue = (
+            ("crash", "A dramatic sudden collision in a video game", True),
+            ("explosion", "A dramatic explosion or environmental destruction in a video game", True),
+            ("combat", "An intense battle or close contest in a video game", True),
+            ("ordinary", "An ordinary uneventful scene of gameplay", False),
+            ("menu", "A pause menu, loading screen, inventory or interface overlay", False),
+            ("dialogue", "An ordinary conversation in a video game", False),
+        )
+    elif profile not in (None, "open-world"):
+        raise ValueError("Unknown gameplay profile")
+    labels = [name for name, _, _ in catalogue]
+    prompts = [prompt for _, prompt, _ in catalogue]
     results = []
     count = len(timestamps) if timestamps is not None else max_frames
-    for index, (at, data) in enumerate(sampled_jpeg_frames(video, max_frames=max_frames,
-                                                           timestamps=timestamps,
-                                                           cancelled=cancelled)):
-        if cancelled and cancelled():
-            raise CancelledError("Analyse abgebrochen")
-        with Image.open(BytesIO(data)) as image:
-            inputs = processor(text=prompts, images=image.convert("RGB"),
-                               return_tensors="pt", padding=True)
-        inputs = {key: value.to(device) for key, value in inputs.items()}
+    from .vision_batch import frame_batches, inference_context, vision_batch_size
+    frames = sampled_jpeg_frames(video,max_frames=max_frames,timestamps=timestamps,cancelled=cancelled)
+    processed = 0
+    for rows in frame_batches(frames,vision_batch_size(device,batch_size),cancelled):
+        inputs = processor(text=prompts,images=[image for _,image in rows],return_tensors="pt",padding=True)
+        inputs = {key: value.to(device) for key,value in inputs.items()}
         with torch.no_grad():
-            probability = model(**inputs).logits_per_image.softmax(dim=1)[0].tolist()
-        hit = visual_match(dict(zip(labels, probability)), at)
-        if hit:
-            results.append(hit)
-        if progress:
-            progress(min(100, int(100 * (index + 1) / max(count, 1))))
+            with inference_context(torch,device,mixed_precision):
+                logits=model(**inputs).logits_per_image
+            if not bool(torch.isfinite(logits).all()):
+                if not mixed_precision:raise RuntimeError("CLIP non-finite output")
+                logits=model(**inputs).logits_per_image
+            if not bool(torch.isfinite(logits).all()):raise RuntimeError("CLIP non-finite output")
+            probabilities=logits.float().softmax(dim=1).tolist()
+        for (at,_),probability in zip(rows,probabilities,strict=True):
+            hit=visual_match(dict(zip(labels,probability)),at)
+            if hit:results.append(hit)
+        processed+=len(rows)
+        if progress:progress(min(99,int(100*processed/max(count,1))))
     if progress:
         progress(100)
     return temporal_visual_consensus(results)

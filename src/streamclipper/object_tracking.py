@@ -151,10 +151,45 @@ def _load_detector_model(model_class, folder: Path):
         raise
 
 
+def relative_motion_evidence(detections, *, max_evidence=120):
+    """Sparse camera-relative track motion. Not a calibrated physical velocity."""
+    import statistics
+    tracks=group_tracklets(detections)
+    pairs={}
+    for idx,track in enumerate(tracks):
+        for a,b in zip(track,track[1:]):
+            dt=b.at-a.at
+            if not 0<dt<=1.35:continue
+            x,y=_center(a.box);xx,yy=_center(b.box)
+            pairs.setdefault((a.at,b.at),[]).append((idx,(xx-x)/dt,(yy-y)/dt))
+    residuals={}
+    for (a,b),rows in sorted(pairs.items()):
+        # A shared translation from >=3 simultaneous tracks is only an
+        # approximate camera motion estimate; zoom/rotation remain unresolved.
+        if len(rows)<3:continue
+        for idx,x,y in rows:
+            others=[r for r in rows if r[0]!=idx]
+            dx=statistics.median(r[1] for r in others)
+            dy=statistics.median(r[2] for r in others)
+            residuals.setdefault(idx,[]).append((a,b,x-dx,y-dy))
+    hints=[]
+    for idx,rows in residuals.items():
+        for left,right in zip(rows,rows[1:]):
+            if abs(left[1]-right[0])>.01:continue
+            delta=math.hypot(right[2]-left[2],right[3]-left[3])
+            if delta<.045:continue
+            hints.append(EventEvidence(round(right[0],3),"object",min(.68,.40+delta),
+                "Relative Tracklet-Bewegung ändert sich; gemeinsame Bildverschiebung näherungsweise entfernt; kein bestätigtes Ereignis"))
+    return sorted(hints,key=lambda e:(-e.strength,e.at))[:max_evidence]
+
+
 def detect_and_track(video: VideoInfo, model_directory: str | Path, *,
                      anchors: Sequence[EventEvidence], max_frames: int = 90,
                      cancelled: Cancelled | None = None,
-                     progress: Progress | None = None) -> list[EventEvidence]:
+                     progress: Progress | None = None,
+                     timestamps: list[float] | None = None, device_override: str | None = None,
+                     relative_motion: bool = False, batch_size: int | None = 1,
+                     mixed_precision: bool = False) -> list[EventEvidence]:
     """Sample <=90 images (default) around interesting timestamps, track locally.
 
     Uses existing optional torch/transformers/Pillow installation. No remote
@@ -173,35 +208,40 @@ def detect_and_track(video: VideoInfo, model_directory: str | Path, *,
         raise RuntimeError('Objekterkennung benötigt das optionale Paket .[vision]') from exc
     processor = AutoImageProcessor.from_pretrained(str(folder), local_files_only=True)
     model = _load_detector_model(AutoModelForObjectDetection, folder)
-    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    from .hardware_media import torch_device
+    device = torch_device(torch,device_override)
     model.to(device).eval()
     from .vision_device import report_vision_device
     report_vision_device("DETR / Objekterkennung",device)
-    stamps = select_scene_timestamps(anchors, video.duration, max_frames=max_frames)
+    stamps = timestamps if timestamps is not None else select_scene_timestamps(anchors, video.duration, max_frames=max_frames)
     detections: list[Detection] = []
-    for index, (at, encoded) in enumerate(sampled_jpeg_frames(video, timestamps=stamps,
-                                                              max_frames=max_frames,
-                                                              cancelled=cancelled)):
-        if cancelled and cancelled():
-            raise CancelledError('Objektanalyse abgebrochen')
-        with Image.open(BytesIO(encoded)) as raw:
-            frame = raw.convert('RGB')
-        width, height = frame.size
-        inputs = processor(images=frame, return_tensors='pt')
-        inputs = {key: value.to(device) for key, value in inputs.items()}
+    from .vision_batch import frame_batches, inference_context, vision_batch_size
+    frames=sampled_jpeg_frames(video,timestamps=stamps,max_frames=max_frames,cancelled=cancelled)
+    processed=0
+    for rows in frame_batches(frames,vision_batch_size(device,batch_size,2),cancelled):
+        sizes=[(image.size[1],image.size[0]) for _,image in rows]
+        inputs=processor(images=[image for _,image in rows],return_tensors='pt')
+        inputs={key:value.to(device) for key,value in inputs.items()}
         with torch.no_grad():
-            prediction = model(**inputs)
-        found = processor.post_process_object_detection(
-            prediction, threshold=0.55, target_sizes=[(height, width)])[0]
-        for score, label_id, coordinates in zip(found['scores'], found['labels'], found['boxes']):
-            label = str(model.config.id2label[int(label_id)]).lower()
-            if label not in CATEGORIES:
-                continue
-            bbox = tuple(max(0.0, min(1.0, float(v)/dim))
-                         for v, dim in zip(coordinates.tolist(), (width, height, width, height)))
-            detections.append(Detection(at, label, float(score), bbox))
-        if progress:
-            progress(min(99, round(100*(index+1)/max(len(stamps),1))))
+            with inference_context(torch,device,mixed_precision):
+                prediction=model(**inputs)
+            if not (bool(torch.isfinite(prediction.logits).all()) and bool(torch.isfinite(prediction.pred_boxes).all())):
+                if not mixed_precision:raise RuntimeError("DETR non-finite output")
+                prediction=model(**inputs)
+            if not (bool(torch.isfinite(prediction.logits).all()) and bool(torch.isfinite(prediction.pred_boxes).all())):
+                raise RuntimeError("DETR non-finite output")
+            prediction.logits=prediction.logits.float()
+            prediction.pred_boxes=prediction.pred_boxes.float()
+            found=processor.post_process_object_detection(prediction,threshold=.55,target_sizes=sizes)
+        for (at,_),(height,width),objects in zip(rows,sizes,found,strict=True):
+            for score,label_id,coordinates in zip(objects['scores'],objects['labels'],objects['boxes']):
+                label=str(model.config.id2label[int(label_id)]).lower()
+                if label not in CATEGORIES:continue
+                bbox=tuple(max(0.,min(1.,float(v)/dim)) for v,dim in zip(coordinates.tolist(),(width,height,width,height)))
+                detections.append(Detection(at,label,float(score),bbox))
+        processed+=len(rows)
+        if progress:progress(min(99,round(100*processed/max(len(stamps),1))))
     if progress:
         progress(100)
-    return object_track_evidence(detections, anchors)
+    standard=object_track_evidence(detections, anchors)
+    return standard+relative_motion_evidence(detections) if relative_motion else standard
