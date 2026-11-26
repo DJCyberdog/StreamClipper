@@ -3,8 +3,8 @@ import argparse
 from dataclasses import asdict
 import json
 from pathlib import Path
-from streamclipper.m16_benchmark import freeze
-from streamclipper.m16_pipeline import analyze_m16
+from streamclipper.m16_benchmark import freeze,file_hash
+from streamclipper.m16_pipeline import analyze_m16,fingerprint_model
 from streamclipper.story_clipping import StoryOptions,PROFILES,refine_result
 from streamclipper.m17_benchmark import compare_boundaries
 from streamclipper.gaming_intelligence import atomic_json
@@ -22,9 +22,12 @@ def main():
     if freeze(manifest)!=lock:raise ValueError("Frozen corpus changed")
     paths={v["id"]:manifest.parent/v["path"] for v in json.loads(manifest.read_text(encoding="utf-8"))["vods"]}
     rows=[];options=StoryOptions(*PROFILES[a.story_profile])
+    model_paths=(a.speech_model,a.vision_model,a.detector_model)
+    models=[fingerprint_model(p,None) for p in model_paths]
     for v in lock["vods"]:
         if v["split"]!="holdout":continue
         source=paths[v["id"]]
+        if file_hash(source)!=v["sha256"]:raise ValueError("Source changed")
         if abs(probe_video(source).duration-v["duration"])>.1:raise ValueError("Duration mismatch")
         evidence=[]
         baseline=analyze_m16(str(source),speech_model=a.speech_model,vision_model=a.vision_model,
@@ -33,6 +36,7 @@ def main():
         rows.append({"vod":v["id"],"game":v["game"],"language":v["language"],
             "metrics":compare_boundaries(baseline.candidates,story.candidates,v["moments"],v["duration"])})
     if freeze(manifest)!=lock:raise ValueError("Corpus changed during benchmark")
+    if models!=[fingerprint_model(p,None) for p in model_paths]:raise ValueError("Models changed during benchmark")
     atomic_json(output,{"schema_version":1,"commit":a.commit,"corpus_sha256":lock["corpus_sha256"],
-        "settings":asdict(options),"holdout":rows,"gaps":lock["gaps"],"quality_acceptance":"NOT_EVALUATED"})
+        "settings":asdict(options),"model_fingerprints":models,"holdout":rows,"gaps":lock["gaps"],"quality_acceptance":"NOT_EVALUATED"})
 if __name__=="__main__":main()
