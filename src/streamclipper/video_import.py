@@ -210,7 +210,12 @@ def download(meta,directory,*,height=None,audio_id=None,subtitles=False,authoriz
                 if progress:progress({"stage":"download","done":number(row.get("downloaded_bytes")),"total":number(row.get("total_bytes")) or number(row.get("total_bytes_estimate")),"speed":number(row.get("speed")),"eta":number(row.get("eta"))})
             elif line.startswith("SC_MERGE:") and progress:progress({"stage":"merge"})
         def monitor():
-            used=sum(p.stat().st_size for p in staging.iterdir() if p.is_file())
+            used=0
+            for item in staging.iterdir():
+                try:
+                    if item.is_symlink():raise ValueError("Unsicheres Staging")
+                    if item.is_file():used+=item.stat().st_size
+                except FileNotFoundError:continue # fragment moved by downloader
             if used>2*max_bytes or shutil.disk_usage(folder).free<128*1024**2:raise ValueError("Lokales Speicherlimit erreicht")
         run_worker(fresh.source,args,budget=max_bytes+64*1024**2,timeout=8*3600,cancelled=cancelled,on_line=report,cwd=staging,monitor=monitor)
         if cancelled and cancelled():raise CancelledError("Import abgebrochen")
