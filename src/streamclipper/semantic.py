@@ -178,6 +178,7 @@ def transcribe_video(video: VideoInfo, model_directory: str, *,
         if model_cache is not None:
             model_cache.pop((str(folder.resolve()),requested_device),None)
             model_cache[("fallback",str(folder.resolve()),requested_device)]=True
+        notify("Whisper: CUDA-Fehler – CPU-Fallback")
         spans = transcribe_on("cpu")
 
     if progress:
