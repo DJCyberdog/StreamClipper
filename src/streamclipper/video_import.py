@@ -167,8 +167,6 @@ def download(meta,directory,*,height=None,audio_id=None,subtitles=False,authoriz
     estimate=sum(f.bytes or 0 for f in formats)
     folder=Path(directory).resolve(strict=True)
     if not folder.is_dir():raise ValueError("Zielordner fehlt")
-    if estimate>max_bytes or shutil.disk_usage(folder).free<max(2*estimate,2*max_bytes)+512*1024**2:
-        raise ValueError("Nicht genügend Speicher für Download und Merge; kleineres Limit wählen")
     fmt="+".join(f.id for f in formats)
     key=hashlib.sha256((fresh.source.url+"|"+fmt+"|"+str(subtitles)+"|"+container).encode()).hexdigest()[:24]
     staging=folder/(".sc-import-"+key)
@@ -181,6 +179,15 @@ def download(meta,directory,*,height=None,audio_id=None,subtitles=False,authoriz
     try:
         _lock_file(lock);acquired=True
         if any(p.is_symlink() for p in staging.iterdir()):raise ValueError("Unsicheres Staging")
+        from .import_publication import begin,finish
+        identity={"url":fresh.source.url,"id":fresh.id,"formats":[f.id for f in formats],"subtitles":subtitles,"container":container}
+        existing=finish(staging,folder,identity,cancelled)
+        if existing is not None:
+            if existing.stat().st_size>max_bytes:raise ValueError("Vorhandener Import überschreitet gewähltes Limit")
+            if progress:progress({"stage":"complete","recovered":True})
+            return existing
+        if estimate>max_bytes or shutil.disk_usage(folder).free<max(2*estimate,2*max_bytes)+512*1024**2:
+            raise ValueError("Nicht genügend Speicher für Download und Merge; kleineres Limit wählen")
         # IDs/formats are restricted to literal safe characters, not user templates.
         args=["--quiet","--progress","--newline","--no-overwrites","--continue","--part",
               "--max-filesize",str(max_bytes),"--format",fmt,
@@ -229,23 +236,19 @@ def download(meta,directory,*,height=None,audio_id=None,subtitles=False,authoriz
         if video.duration<=0 or video.width<=0 or video.height<=0:raise ValueError("Keine dekodierbare Videoquelle")
         if fresh.duration and abs(video.duration-fresh.duration)>max(3,fresh.duration*.02):raise ValueError("Importdauer stimmt nicht")
         if container!="native" and path.suffix.lower()!="."+container:raise ValueError("Gewünschtes Containerformat nicht erreichbar")
+        if any(f.audio for f in formats) and not video.has_audio:raise ValueError("Erwartete Tonspur fehlt")
         target=folder/f"{fresh.source.provider}_{fresh.id}{path.suffix.lower()}"
-        result=_publish_without_overwrite(path,target)
-        record={"schema_version":1,"provider":fresh.source.provider,"url":fresh.source.url,"id":fresh.id,
+        record={"schema_version":2,"provider":fresh.source.provider,"url":fresh.source.url,"id":fresh.id,
                 "title":fresh.title,"channel":fresh.channel,"duration":video.duration,"has_audio":video.has_audio,
-                "formats":[f.id for f in formats],"container":path.suffix.lower()[1:],"downloaded_utc":__import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat(),"subtitles":[]}
-        for sidecar in sorted(staging.glob("video.*")):
-            if sidecar.suffix.lower() in (".srt",".vtt",".ass",".ttml") and sidecar.is_file():
-                suffix=sidecar.name.removeprefix("video.")
-                if re.fullmatch(r"[A-Za-z0-9_.-]{1,100}",suffix):
-                    sub=_publish_without_overwrite(sidecar,result.with_name(result.stem+"."+suffix))
-                    record["subtitles"].append(sub.name)
-        receipt=result.with_name(result.name+".import.json")
-        pending=staging/"receipt.json"
-        atomic_json(pending,record)
-        try:os.link(pending,receipt)
-        except FileExistsError:raise RuntimeError("Importvideo gespeichert, aber vorhandene Belegdatei nicht überschrieben") from None
-        finally:pending.unlink(missing_ok=True)
+                "formats":[f.id for f in formats],"container":path.suffix.lower()[1:],"downloaded_utc":__import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat()}
+        sidecars=[]
+        if subtitles:
+            for sidecar in sorted(staging.glob("video.*")):
+                if sidecar.suffix.lower() in (".srt",".vtt",".ass",".ttml") and sidecar.is_file() and not sidecar.is_symlink():
+                    suffix=sidecar.name.removeprefix("video.")
+                    if re.fullmatch(r"[A-Za-z0-9_.-]{1,100}",suffix):
+                        sidecars.append((sidecar,suffix))
+        result=begin(staging,folder,path,target,record,sidecars,identity,cancelled)
         if progress:progress({"stage":"complete"})
         return result
     finally:
