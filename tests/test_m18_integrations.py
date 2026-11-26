@@ -162,3 +162,52 @@ def test_real_alternative_export(tmp_path,suffix):
     info=probe_video(dest)
     assert abs(info.duration-1)<.55
     assert info.has_audio==(suffix==".webm") and src.read_bytes()==original
+
+
+def test_worker_guard_rejects_direct_network_and_child_processes(tmp_path):
+    from streamclipper.import_worker import guard
+    a=guard("http://127.0.0.1:34567",str(tmp_path/"ffmpeg"),str(tmp_path/"ffprobe"))
+    a("socket.connect",(None,("127.0.0.1",34567)))
+    for address in (("127.0.0.1",80),("8.8.8.8",443),("::1",34567,0,0)):
+        with pytest.raises(PermissionError):a("socket.connect",(None,address))
+    with pytest.raises(PermissionError):a("socket.getaddrinfo",("example.org",443))
+    with pytest.raises(PermissionError):a("subprocess.Popen",("python",["python","-c","pass"],None,None))
+    a("subprocess.Popen",(str(tmp_path/"ffmpeg"),["ffmpeg","-i","video.mp4"],None,None))
+    with pytest.raises(PermissionError):a("subprocess.Popen",(str(tmp_path/"ffmpeg"),["ffmpeg","-i","https://example.org/a.mp4"],None,None))
+
+def test_tiktok_provider_contract():
+    from urllib.parse import urlsplit,parse_qs,urlencode
+    import hashlib
+    from streamclipper.provider_prepare import prepare_tiktok,parse_tiktok_token,retry_decision,TikTokPreparation
+    grant=prepare_tiktok("testclient","http://127.0.0.1:12345/callback/",authorized=True)
+    q=parse_qs(urlsplit(grant.url()).query)
+    assert q["code_challenge"]==[hashlib.sha256(grant.verifier.encode()).hexdigest()]
+    good=grant.redirect+"?"+urlencode(dict(state=grant.state,code="abc",scopes="video.upload"))
+    assert grant.callback(good)=="abc" and "client_secret" not in grant.exchange_fields("abc")
+    with pytest.raises(ValueError):grant.callback(good.replace("127.0.0.1","example.org"))
+    with pytest.raises(PermissionError):grant.callback(good.replace("video.upload","video.publish"))
+    token=parse_tiktok_token(dict(access_token="private",refresh_token="private2",expires_in=7200,scope="video.upload",token_type="Bearer"),"video.upload",now=10)
+    assert token.expires==7210 and "private" not in repr(token)
+    with pytest.raises(NotImplementedError):TikTokPreparation().publish()
+    assert retry_decision("upload",503,attempt=0,ambiguous=True)==("RECONCILE",None)
+    assert retry_decision("publish",503,attempt=0)==("REQUIRES_ACTION",None)
+    assert retry_decision("status",429,attempt=1,retry_after=5)==("RETRY",5)
+
+def test_language_preference(tmp_path):
+    from streamclipper.m18_language import load_preference,save_preference,tr
+    p=tmp_path/"settings"/"language.json"
+    assert not load_preference(p)
+    save_preference(True,p);assert load_preference(p)
+    save_preference(False,p);assert not load_preference(p)
+    assert tr("Untertitel",True)=="Subtitles"
+    assert tr("arbitrary filename.mp4",True)=="arbitrary filename.mp4"
+
+def test_real_worker_option_parser():
+    import sys
+    pytest.importorskip("yt_dlp")
+    result=subprocess.run([sys.executable,"-m","streamclipper.import_worker",
+        "http://127.0.0.1:34567",tool_path("ffmpeg"),tool_path("ffprobe"),
+        "--ignore-config","--no-plugin-dirs","--no-remote-components","--no-js-runtimes",
+        "--no-cookies","--no-cookies-from-browser","--no-netrc","--version"],
+        capture_output=True,text=True,timeout=30)
+    assert result.returncode==0,result.stderr[-1000:]
