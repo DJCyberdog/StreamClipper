@@ -49,7 +49,7 @@ class Montage:
     beats:tuple[Beat,...]
     aspect:str="9:16"
     encoder:str="auto_h264"
-    def validate(self,duration):
+    def validate(self,duration,*,verify_media=True):
         if not 1<=len(self.beats)<=64 or self.aspect not in ("9:16","16:9","1:1"):
             raise ValueError("Ungültiger Montageplan")
         if self.encoder not in ("auto_h264","cpu_h264","nvenc_h264"):
