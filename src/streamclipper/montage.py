@@ -28,6 +28,7 @@ class Beat:
     lut:str=""
     sound:str=""
     sound_gain:float=-12.
+    end_speed:float | None=None
     def validate(self,duration,*,verify_media=True):
         if not all(math.isfinite(v) for v in (self.start,self.end,self.speed,self.freeze,self.zoom,self.sound_gain)):
             raise ValueError("Ungültige Effektparameter")
@@ -35,6 +36,9 @@ class Beat:
             raise ValueError("Ungültiges Zeitfenster")
         if not .25<=self.speed<=4 or not 0<=self.freeze<=5 or not 1<=self.zoom<=2 or not -60<=self.sound_gain<=0:
             raise ValueError("Ungültige Effektparameter")
+        if self.end_speed is not None:
+            from .speed_curve import duration as curve_duration
+            curve_duration(self.end-self.start,self.speed,self.end_speed)
         if self.look not in LOOKS or len(self.text)>120 or (self.text and not self.freeze):
             raise ValueError("Standbildtext benötigt Standbild")
         if self.lut and (Path(self.lut).suffix.lower()!=".cube" or (verify_media and (not Path(self.lut).is_file() or Path(self.lut).stat().st_size>16*1024*1024))):
@@ -42,7 +46,11 @@ class Beat:
         if verify_media and self.sound and not Path(self.sound).is_file():raise ValueError("Lokaler Sound fehlt")
         return self
     @property
-    def duration(self):return (self.end-self.start)/self.speed+self.freeze
+    def duration(self):
+        if self.end_speed is not None:
+            from .speed_curve import duration as curve_duration
+            return curve_duration(self.end-self.start,self.speed,self.end_speed)+self.freeze
+        return (self.end-self.start)/self.speed+self.freeze
 
 @dataclass(frozen=True)
 class Montage:
@@ -97,6 +105,10 @@ def build_part(video,beat,aspect,encoder,work,destination):
     cmd=[tool_path("ffmpeg"),"-hide_banner","-nostdin","-loglevel","error","-n",
          "-ss",f"{beat.start:.6f}","-t",f"{beat.end-beat.start:.6f}","-i",video.path]
     index=1
+    warped_idx=None
+    if video.has_audio and beat.end_speed is not None:
+        warped_idx=index;index+=1
+        cmd+=["-f","f32le","-ar","48000","-ac","2","-i",str(work/"curve-output.f32")]
     if not video.has_audio:
         cmd+=["-f","lavfi","-i","anullsrc=r=48000:cl=stereo"];index+=1
     sound_idx=None
@@ -105,7 +117,12 @@ def build_part(video,beat,aspect,encoder,work,destination):
     overlay_idx=None
     if beat.text:
         overlay_idx=index;cmd+=["-i",str(work/"freeze-text.png")]
-    filters=f"[0:v:0]setpts=(PTS-STARTPTS)/{beat.speed:.8f},scale={w}:{h}:force_original_aspect_ratio=increase,crop={w}:{h},setsar=1,fps=30"
+    pts=f"(PTS-STARTPTS)/{beat.speed:.8f}"
+    if beat.end_speed is not None:
+        from .speed_curve import setpts_expression
+        pts="'"+setpts_expression(beat.end-beat.start,beat.speed,beat.end_speed)+"'"
+    filters=f"[0:v:0]setpts={pts},scale={w}:{h}:force_original_aspect_ratio=increase,crop={w}:{h},setsar=1,fps=30"
+    if beat.end_speed is not None:filters+=f",tpad=stop_mode=clone:stop_duration=0.12,trim=duration={active:.9f}"
     if beat.look!="neutral":filters+=","+LOOKS[beat.look]
     if beat.lut:filters+=",lut3d=file=look.cube"
     if beat.freeze:
@@ -118,6 +135,7 @@ def build_part(video,beat,aspect,encoder,work,destination):
         filters+=f";[v0][{overlay_idx}:v:0]overlay=0:0:enable='gte(t,{active:.6f})'[v]"
     else:filters+=";[v0]null[v]"
     audio=f"[0:a:0]asetpts=PTS-STARTPTS,{atempo(beat.speed)}" if video.has_audio else "[1:a:0]anull"
+    if warped_idx is not None:audio=f"[{warped_idx}:a:0]asetpts=PTS-STARTPTS"
     audio+=f",aresample=48000,aformat=sample_rates=48000:channel_layouts=stereo,apad,atrim=duration={d:.6f}[a0]"
     if sound_idx is not None:
         audio+=f";[{sound_idx}:a:0]asetpts=PTS-STARTPTS,aresample=48000,aformat=sample_rates=48000:channel_layouts=stereo,volume={beat.sound_gain:.2f}dB,atrim=duration={d:.6f}[s];[a0][s]amix=inputs=2:duration=first:normalize=0,alimiter=limit=.95[a]"
@@ -183,6 +201,9 @@ def render_montage(video,plan,destination,*,cancelled=None,progress=None,notice=
                         except OSError:font=ImageFont.load_default()
                         draw.multiline_text((w//2,int(h*.75)),beat.text,font=font,fill="white",stroke_width=3,stroke_fill="black",anchor="mm",align="center")
                         im.save(work/"freeze-text.png")
+                    if part_video.has_audio and beat.end_speed is not None:
+                        from .speed_curve import render_audio
+                        render_audio(part_video,beat,work,cancelled)
                     part=work/f"part-{i:03d}.mp4"
                     run_part(build_part(part_video,beat,plan.aspect,profile,work,part),work,cancelled)
                     actual=probe_video(part)
