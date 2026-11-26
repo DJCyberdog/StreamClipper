@@ -706,6 +706,14 @@ Dieses Paket gehört zu **M17 (Montage/Clip-Varianten)**, nutzt **M16-Ereignisze
 - **Vorschlag statt Zwang:** Nutzer:innen können alle Grenzen in der Timeline verändern; ein manuell gesetztes Intervall wird nicht durch erneute Analyse überschrieben.
 - Gegen M10.5-Fixfenster auf annotierten Momenten vergleichen: Anteil vollständig enthaltener Ereignisse, abgeschnittene Anfänge/Pointen, unnötige Leerlaufsekunden, Exportkonformität. Ein Quality-Gate darf nicht nur auf höheren Ranking-Scores basieren.
 
+**M17b – Montage, Effekte und Varianten (Umsetzungspaket)**
+
+- B-B1 geordnete Montage; #21 Hook-Vorschläge; #22 grobe Kapitel; #31 Längenvarianten und #32 A/B-Einstiege.
+- #24 editierbare abschnittsweise Tempo-Rampe mit Tonhöhenkorrektur; #25 Standbild am Abschnittsende mit statischem Zoom und optionalem Text; #27 eigene/lizenzierte lokale Sounds; #29 Farblooks und lokale .cube-LUT.
+- Versionierte Montagepläne mit Medienbindung (Pfad, Größe, mtime) speichern/laden; optional Editor-Komposition je Abschnitt vor Effekten rendern (aktuelle Exportkonfiguration oder gespeicherter Snapshot), Originalmedienmodus ausdrücklich bestätigen. Bestehende Renderqueue, MP4-QA und Wiederanlaufbelege verwenden. Eigene/lizenzierte Sounds lokal mit Rechtehinweis importieren.
+- Tempo-Rampen: editierbare lineare oder geglättete diskrete Annäherung (2–32 Stützstellen) mit Tonhöhenkorrektur; zusätzlich kontinuierliche lineare Tempoänderung mit gemeinsamer A/V-Zeitabbildung und natürlicher Tonhöhenänderung. Klickbare Montage-Zeitachse und exportgetreue Vorschau je Abschnitt oder für Montagen bis 45 Sekunden. Eigenständige JSON-Montagepläne im Editor-Dialog (kein neuer Track auf der Haupttimeline).
+- Native Export-/A/V-Zeitbasis- und GUI-Abnahme, unabhängige M17a-Clipgrenzen-Validierung. Keine Qualitätsbehauptung aus synthetischen Tests.
+
 ### 5.8 M18a – Plattformübergreifender Videoimport (verbindlicher Erweiterungsauftrag)
 
 **Owner-Wunsch 22.11.2026:** Der bisherige manuelle Twitch-VOD-Import aus M5 wird zu einem **gemeinsamen Videoimport** erweitert, ohne pro Plattform einen unverbundenen Downloader zu implementieren. Der vorhandene `yt-dlp`-Adapter (`src/streamclipper/twitch_import.py`) liefert die Basis, erhält aber eine providerneutrale Schnittstelle. Dieses Paket ist **keine neue Hauptfeature-ID**; die Tierlist bleibt bei 60 und der Milestone bei M18. **D-Tier #48 bezeichnet dagegen die spätere optionale automatische Kanalaufnahme, nicht den manuellen URL-Import.**
