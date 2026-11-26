@@ -125,3 +125,67 @@ def test_relative_motion_rejects_common_translation():
     changed=[Detection(t,"car",.9,box(x+.02*t+(.07 if t==2 and x==.6 else 0)))
              for t in (0,1,2) for x in (.1,.35,.6)]
     assert relative_motion_evidence(changed)
+
+
+def test_batch_tail_order_and_cancel():
+    from io import BytesIO
+    from PIL import Image
+    from streamclipper.vision_batch import frame_batches,vision_batch_size
+    from streamclipper.media import CancelledError
+    buf=BytesIO();Image.new("RGB",(4,3)).save(buf,format="JPEG")
+    rows=[(float(i),buf.getvalue()) for i in range(5)]
+    batches=list(frame_batches(rows,2))
+    assert [len(b) for b in batches]==[2,2,1]
+    assert [t for b in batches for t,_ in b]==list(range(5))
+    assert vision_batch_size("cpu",None)==1 and vision_batch_size("cuda",None)==4
+    with pytest.raises(CancelledError):list(frame_batches(rows,2,lambda:True))
+
+def test_acoustic_pitch_and_labels():
+    import numpy as np
+    from streamclipper.m16_reactions import pitch_hz,reaction_labels
+    rate=16000;t=np.arange(640)/rate
+    tone=.2*np.sin(2*np.pi*200*t)
+    assert pitch_hz(tone,rate)==pytest.approx(200,rel=.03)
+    assert pitch_hz(np.zeros(640),rate) is None
+    assert reaction_labels({0:"Laughter",1:"Screaming",2:"Speech"})=={0:"Lachen",1:"Schreien"}
+
+def test_visual_search_budget_and_deduplication():
+    from streamclipper.m16_visual_search import search_positions,diverse_hits
+    stamps=search_positions(21600,240,[20,21599])
+    assert len(stamps)<=240 and min(stamps)<=20 and max(stamps)>21590
+    assert diverse_hits([(1,5),(.9,6),(.8,20)],2)==[(1,5),(.8,20)]
+
+def test_chat_export_discards_identity_and_checks_id(tmp_path):
+    from streamclipper.m16_chat_import import parse_chat_export
+    p=tmp_path/"chat.json"
+    p.write_text(json.dumps({"video":{"id":"123"},"comments":[
+        {"content_offset_seconds":12.5,"commenter":{"name":"private"},"message":"private"},
+        {"content_offset_seconds":1000}]}),encoding="utf-8")
+    assert parse_chat_export(p,100,vod_id="123")==[{"at":12.5}]
+    assert read_chat(p,100)==[{"at":12.5}]
+    with pytest.raises(ValueError,match="requested VOD"):parse_chat_export(p,100,vod_id="124")
+
+def test_development_tuning_rejects_holdout_evidence():
+    from streamclipper.m16_tuning import tune_weights
+    def vod(id,split):
+        return {"id":id,"split":split,"duration":100,"moments":[
+            {"id":"m","start":10,"end":20,"label":"crash","uncertain":False}]}
+    lock={"corpus_sha256":"frozen","vods":[vod("dev","development"),vod("hold","holdout")]}
+    evidence={"dev":[ev(15,"visual")]}
+    result=tune_weights(lock,evidence)
+    assert result["development_ids"]==["dev"] and len(result["trials"])==13
+    assert result==tune_weights(lock,evidence)
+    with pytest.raises(ValueError,match="development VOD IDs"):
+        tune_weights(lock,{**evidence,"hold":[ev(15,"visual")]})
+
+def test_full_review_and_cluster_interval():
+    from streamclipper.m16_benchmark import paired_intervals
+    vod={"duration":100,"fully_reviewed":True,"moments":[
+         {"id":"m","start":10,"end":20,"label":"crash","uncertain":False}]}
+    report=evaluate(vod,[dict(start=10,end=20,peak_at=15),dict(start=59,end=61,peak_at=60)])
+    assert report["precision_at_8"]==.125
+    assert report["false_alarms_per_hour"]==pytest.approx(36)
+    better={**report,"precision_at_8":.25}
+    rows=[{"creator_group":str(i),"baseline":report,"variant":better} for i in range(2)]
+    ci=paired_intervals(rows,repetitions=100)
+    assert ci["metrics"]["precision_at_8"]["bootstrap_95"]==[.125,.125]
