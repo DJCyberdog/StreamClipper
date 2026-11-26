@@ -1565,6 +1565,16 @@ class MainWindow(QMainWindow):
         self.asr_cache_action.setToolTip("Speichert rohe Transkriptfenster lokal; nach Abbruch mit gleicher Quelle und Modell wiederverwendbar.")
         audio_menu.addAction("KI-Stems / Audio-Mix …",self._edit_stem_mix)
         audio_menu.addAction("Voice-over-Datei auf ausgewählte Audiospur …",self._add_audio_file_to_track)
+        story = self.menuBar().addMenu("Story & Montage (M17)")
+        self.m17_action = story.addAction("Dynamische Clipgrenzen bei M16-Analyse")
+        self.m17_action.setCheckable(True)
+        story.addAction("Story-Längenbudget einstellen …", self._m17_options)
+        story.addAction("Storygrenzen aus aktuellem Transkript vorschlagen …", self._m17_refine)
+        story.addAction("15/30/60s-Varianten & Hooks …", self._m17_variants)
+        story.addAction("Kapitelübersicht …", self._m17_chapters)
+        story.addAction("Montage & Effekte …", self._m17_montage)
+        from .story_clipping import StoryOptions
+        self.m17_options=StoryOptions()
         gaming = self.menuBar().addMenu("Gaming Intelligence (M16)")
         self.m16_action = gaming.addAction("Experimentelle M16-Analyse")
         self.m16_action.setCheckable(True)
@@ -3493,6 +3503,78 @@ class MainWindow(QMainWindow):
             return
         dialog.exec()
 
+    def _m17_options(self):
+        from .story_clipping import PROFILES,StoryOptions
+        name,ok=QInputDialog.getItem(self,"Story-Längenbudget","Zielbereich (keine Plattform-Limitprüfung):",
+                                      ["short","social","extended","Benutzerdefiniert"],1,False)
+        if not ok:return
+        if name in PROFILES:a,z=PROFILES[name]
+        else:
+            a,ok=QInputDialog.getInt(self,"Story","Mindestdauer (s)",int(self.m17_options.minimum),5,180)
+            if not ok:return
+            z,ok=QInputDialog.getInt(self,"Story","Maximaldauer (s)",max(a,int(self.m17_options.maximum)),a,180)
+            if not ok:return
+        self.m17_options=StoryOptions(a,z)
+        self.statusBar().showMessage(f"Storybudget: {a:g}–{z:g}s")
+
+    def _m17_refine(self):
+        if self._history_blocked or not self.analysis or not self.apply_word_editor() or not self.apply_transcript_editor():return
+        from .story_clipping import refine_result
+        previous=self.analysis
+        proposed=refine_result(previous,options=self.m17_options)
+        # This explicit command uses corrected transcript and existing anchors,
+        # not unavailable raw M16 evidence from older reports.
+        if QMessageBox.question(self,"Story-Vorschläge",
+             f"{len(proposed.candidates)} Vorschläge aus aktuellem Transkript und Ereignisankern übernehmen? Manuelle Clips bleiben erhalten.")!=QMessageBox.StandardButton.Yes:return
+        self.analysis_finished(proposed,preserve_history=True)
+        self._register_edit(previous)
+
+    def _m17_variants(self):
+        if self._history_blocked or not self.analysis or not self.apply_word_editor() or not self.apply_transcript_editor():return
+        c=self.selected_candidate()
+        if c is None:return
+        from .story_clipping import length_variants,hook_candidates
+        choices=list(length_variants(c,self.analysis.video.duration,self.analysis.transcript))
+        from dataclasses import replace
+        for t,label in hook_candidates(c,self.analysis.transcript):
+            if c.end-t>=.2:choices.append(("Hook: "+label,replace(c,start=t,peak_at=max(t,c.peak_at))))
+        labels=[f"{i+1}. {name} · {display_time(v.start)} – {display_time(v.end)}" for i,(name,v) in enumerate(choices)]
+        selected,ok=QInputDialog.getItem(self,"A/B-Varianten","Variante wählen; Original bleibt erhalten:",labels,0,False)
+        if not ok:return
+        name,v=choices[labels.index(selected)]
+        self.seek_to(round(v.start*1000))
+        if QMessageBox.question(self,"Variante","Als zusätzlichen bearbeitbaren manuellen Clip hinzufügen?")==QMessageBox.StandardButton.Yes:
+            self.manual_label.setText(name)
+            self.add_manual_interval(v.start,v.end)
+
+    def _m17_chapters(self):
+        if self._history_blocked or not self.analysis:return
+        from .story_clipping import chapters
+        rows=chapters(self.analysis.video.duration,self.analysis.candidates,self.analysis.transcript)
+        labels=[f"{i+1}. {display_time(a)} – {display_time(z)} · {label}" for i,(a,z,label) in enumerate(rows)]
+        choice,ok=QInputDialog.getItem(self,"Kapitel","Grobgliederung nach Ereignisankern (keine Missionsklassifikation):",labels,0,False)
+        if ok:self.seek_to(round(rows[labels.index(choice)][0]*1000))
+
+    def _m17_montage(self):
+        if self._history_blocked or not self.analysis:return
+        from .m17_montage_dialog import MontageDialog
+        dialog=MontageDialog(self.analysis,self)
+        if dialog.exec()!=QDialog.DialogCode.Accepted:return
+        if QMessageBox.question(self,"Separater Montage-Export",
+            "Montage verwendet Originalvideo/-ton und die hier gewählten Effekte. Bestehende Projektspuren, Untertitel und Szenenpläne werden NICHT übernommen. Fortfahren?")!=QMessageBox.StandardButton.Yes:return
+        path,_=QFileDialog.getSaveFileName(self,"Montage exportieren","Montage.mp4","MP4 (*.mp4)")
+        if not path:return
+        from .montage import render_montage
+        video=self.analysis.video;plan=dialog.plan
+        self.progress.setRange(0,0);self.progress.setFormat("Montage wird gerendert")
+        self._m16_review_job(lambda cancel:render_montage(video,plan,path,cancelled=cancel),
+                             lambda output:self._m17_montage_done(output))
+        self.worker.finished.connect(lambda:self.progress.setRange(0,100))
+
+    def _m17_montage_done(self,output):
+        self.progress.setRange(0,100);self.progress.setValue(100);self.progress.setFormat("Montage · %p %")
+        QMessageBox.information(self,"Montage fertig",str(output))
+
     def _m16_choose_profile(self):
         value, ok = QInputDialog.getItem(self, "M16 Spielprofil", "Profil (experimentell):",
                                          ["generic", "open-world"], 0, False)
@@ -3648,9 +3730,11 @@ class MainWindow(QMainWindow):
                 QMessageBox.warning(self, 'Whisper-Modell unvollständig', str(exc))
                 return
         m16_options = None
+        if self.m17_action.isChecked():self.m16_action.setChecked(True)
         if self.m16_action.isChecked():
             m16_options = {"profile":self.m16_profile,"fast_vision":self.m16_fast_action.isChecked(),
                            "reaction_model":self.m16_reaction_model,"hardware_mode":self.hardware_mode.currentData()}
+            if self.m17_action.isChecked():m16_options["story_options"]=self.m17_options
             if self.m16_chat_action.isChecked() and self.m16_remote_chat_action.isChecked():
                 QMessageBox.warning(self,"Chat","Bitte genau eine Chat-Quelle auswählen.");return
             if self.m16_remote_chat_action.isChecked():
