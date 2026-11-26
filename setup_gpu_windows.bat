@@ -7,25 +7,17 @@ if not exist "%~dp0runtime\python.exe" (
   pause
   exit /b 1
 )
-where nvidia-smi >nul 2>&1
-if errorlevel 1 (
-  echo HINWEIS: nvidia-smi nicht gefunden. Bitte NVIDIA-Treiber pruefen.
-)
-echo.
-echo Installiere NVIDIA CUDA-12/cuBLAS und cuDNN-9-Bibliotheken lokal in runtime.
-echo Groesse: mehr als 1 GB. Keine Installation in Systemordner.
-echo.
-"%~dp0runtime\python.exe" -m pip install -r requirements-gpu-windows.txt
-if errorlevel 1 goto :failure
-"%~dp0runtime\python.exe" scripts\check_gpu_runtime.py
-if errorlevel 1 goto :failure
-echo.
-echo NVIDIA-Whisper-Laufzeittest abgeschlossen. Start mit run_windows.bat.
-pause
-exit /b 0
+"%~dp0runtime\python.exe" "%~dp0scripts\setup_gpu_runtime.py" %*
+set "SC_GPU_STATUS=%ERRORLEVEL%"
+if "%SC_GPU_STATUS%"=="3" goto :pending
+if not "%SC_GPU_STATUS%"=="0" goto :failure
+echo GPU-Einrichtung fuer beide Backends abgeschlossen.
+goto :finish
+:pending
+echo Whisper-Test ausstehend. Modell herunterladen und GPU-Setup erneut starten.
+goto :finish
 :failure
-echo.
-echo GPU-Einrichtung nicht erfolgreich. Fehler oben lesen.
-echo CPU-Fallback bleibt moeglich. Installation blieb in diesem Ordner.
+echo GPU-Einrichtung nicht vollstaendig verifiziert. Ausgabe oben pruefen.
+:finish
 pause
-exit /b 1
+exit /b %SC_GPU_STATUS%
