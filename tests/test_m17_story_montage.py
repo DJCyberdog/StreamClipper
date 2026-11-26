@@ -147,3 +147,13 @@ def test_queue_modified_source_fails_closed(tmp_path):
         assert result.status=="FAILED" and "geändert" in result.detail
         assert not Path(job.destination).exists()
     finally:queue.close()
+
+
+def test_sampled_ramp_monotone_and_bounded():
+    from streamclipper.montage import sampled_ramp
+    beats=sampled_ramp(1,9,.5,2,16,"smooth")
+    assert len(beats)==16 and beats[0].start==1 and beats[-1].end==9
+    assert beats[0].speed==.5 and beats[-1].speed==2
+    assert [b.speed for b in beats]==sorted(b.speed for b in beats)
+    assert all(a.end==b.start for a,b in zip(beats,beats[1:]))
+    with pytest.raises(ValueError):sampled_ramp(0,1,steps=32)
