@@ -84,7 +84,7 @@ if ($gpuArgs.Count -gt 0) {
 }
 & $python -I -m ensurepip --upgrade
 if ($LASTEXITCODE -ne 0) { throw 'Local pip bootstrap failed' }
-& $python -I -c "import sysconfig,pathlib; p=pathlib.Path(sysconfig.get_path('purelib')); (p/'00_streamclipper_source.pth').write_text('import sys, os; sys.path.insert(0, os.path.join(sys.prefix, os.pardir, chr(115)+chr(114)+chr(99)))\n',encoding='ascii')"
+& $python -I -c "import sysconfig,pathlib; p=pathlib.Path(sysconfig.get_path('purelib')); (p/'00_streamclipper_source.pth').write_text('import sys, os; sys.path.insert(0, os.path.abspath(os.path.join(sys.prefix, os.pardir, chr(115)+chr(114)+chr(99))))\n',encoding='ascii')"
 if ($LASTEXITCODE -ne 0) { throw 'Relative source registration failed' }
 if (!(Test-Path (Join-Path $bin 'ffmpeg.exe')) -or !(Test-Path (Join-Path $bin 'ffprobe.exe'))) {
     $archive = Join-Path $downloads 'ffmpeg.zip'
