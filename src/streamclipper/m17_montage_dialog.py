@@ -9,7 +9,7 @@ class MontageDialog(QDialog):
         super().__init__(parent)
         self.analysis=analysis;self.beats=[];self.plan=None
         self.request_factory=request_factory;self.request=None;self.destination_mode="direct"
-        self.setWindowTitle("M17 · Montage & Effekte");self.resize(700,450)
+        self.setWindowTitle("M17 · Montage & Effekte");self.resize(880,580)
         layout=QVBoxLayout(self)
         layout.addWidget(QLabel("Montage · bestehende Editor-Komposition optional übernehmen"))
         from PySide6.QtWidgets import QCheckBox
@@ -20,11 +20,15 @@ class MontageDialog(QDialog):
         for c in analysis.candidates:self.source.addItem(f"{c.start:.2f}–{c.end:.2f}s · {c.reason[:65]}",c)
         layout.addWidget(self.source)
         self.list=QListWidget();layout.addWidget(self.list)
+        from .m17_preview import MontageTimeline
+        self.timeline=MontageTimeline(self);layout.addWidget(self.timeline)
+        self.timeline.selected.connect(self.list.setCurrentRow)
+        self.list.currentRowChanged.connect(self.timeline.set_current)
         for group in [
             [("Hinzufügen",self.add),("Entfernen",self.remove),("↑",lambda:self.move(-1)),("↓",lambda:self.move(1))],
-            [("Zeit & Tempo",self.timing),("Tempo-Rampe",self.ramp),("Standbild",self.freeze)],
+            [("Zeit & Tempo",self.timing),("Tempo-Rampe",self.ramp),("Kontinuierliches Tempo",self.continuous),("Standbild",self.freeze)],
             [("Look / LUT",self.look),("Eigener Sound",self.sound),("Soundbibliothek",self.library),("Effekte zurücksetzen",self.reset)],
-            [("Plan speichern",self.save),("Plan öffnen",self.load)]]:
+            [("Plan speichern",self.save),("Plan öffnen",self.load),("Abschnitt-Vorschau",lambda:self.preview(True)),("Montage-Vorschau",lambda:self.preview(False))]]:
             row=QHBoxLayout();layout.addLayout(row)
             for label,callback in group:
                 btn=QPushButton(label);btn.clicked.connect(callback);row.addWidget(btn)
@@ -40,8 +44,9 @@ class MontageDialog(QDialog):
 
     def refresh(self,i=0):
         self.list.clear()
-        for b in self.beats:self.list.addItem(f"{b.start:.2f}–{b.end:.2f}s · {b.speed:g}x · Hold {b.freeze:g}s · {b.look}"+(" · LUT" if b.lut else "")+(" · Sound" if b.sound else ""))
+        for b in self.beats:self.list.addItem(f"{b.start:.2f}–{b.end:.2f}s · {b.speed:g}x"+(f" → {b.end_speed:g}x" if b.end_speed is not None else "")+f" · Hold {b.freeze:g}s · {b.look}"+(" · LUT" if b.lut else "")+(" · Sound" if b.sound else ""))
         if self.beats:self.list.setCurrentRow(min(max(0,i),len(self.beats)-1))
+        self.timeline.set_parts(self.beats,self.list.currentRow())
         self.total.setText(f"{len(self.beats)} Teile · {sum(b.duration for b in self.beats):.2f}s")
     def selected(self):
         i=self.list.currentRow()
@@ -69,7 +74,7 @@ class MontageDialog(QDialog):
         z,ok=QInputDialog.getDouble(self,"Out","Ende (s)",b.end,0,self.analysis.video.duration,3)
         if not ok:return
         s,ok=QInputDialog.getDouble(self,"Tempo","Geschwindigkeit",b.speed,.25,4,2)
-        if ok:self.put(i,replace(b,start=a,end=z,speed=s))
+        if ok:self.put(i,replace(b,start=a,end=z,speed=s,end_speed=None))
     def ramp(self):
         i,b=self.selected()
         if b is None:return
@@ -87,6 +92,31 @@ class MontageDialog(QDialog):
         except ValueError as e:QMessageBox.warning(self,"Rampe",str(e));return
         if QMessageBox.question(self,"Tempo-Rampe",f"Teil durch {steps} editierbare Tempoabschnitte ersetzen? Effekte dieses Teils werden zurückgesetzt.")!=QMessageBox.StandardButton.Yes:return
         self.beats[i:i+1]=parts;self.refresh(i)
+    def continuous(self):
+        i,b=self.selected()
+        if b is None:return
+        a,ok=QInputDialog.getDouble(self,"Kontinuierliche Tempoänderung","Starttempo",b.speed,.25,4,2)
+        if not ok:return
+        z,ok=QInputDialog.getDouble(self,"Kontinuierliche Tempoänderung","Endtempo",b.end_speed if b.end_speed is not None else 2,.25,4,2)
+        if not ok:return
+        if QMessageBox.question(self,"Natürliche Tempoänderung","Bild und Ton werden kontinuierlich beschleunigt/verlangsamt; die Tonhöhe ändert sich dabei. Für Tonhöhenkorrektur die bisherige diskrete Rampe nutzen. Übernehmen?")!=QMessageBox.StandardButton.Yes:return
+        self.put(i,replace(b,speed=a,end_speed=z))
+
+    def preview(self,selected):
+        from .montage_request import MontageRequest
+        from .m17_preview import play_preview
+        try:
+            req=self.current_request()
+            if selected:
+                i,b=self.selected()
+                if b is None:return
+                req=MontageRequest.create(req.video,replace(req.plan,beats=(b,)),req.compositions[i:i+1])
+            duration=sum((r.duration if req.compositions else b.end-b.start)*2/(b.speed+(b.end_speed if b.end_speed is not None else b.speed))+b.freeze
+                         for b,r in zip(req.plan.beats,req.compositions or (None,)*len(req.plan.beats)))
+            if duration>45:raise ValueError("Vorschau maximal 45 Sekunden; einzelnen kürzeren Abschnitt wählen.")
+            play_preview(req,self)
+        except (OSError,ValueError,RuntimeError) as exc:QMessageBox.warning(self,"Montage-Vorschau",str(exc))
+
     def freeze(self):
         i,b=self.selected()
         if b is None:return
