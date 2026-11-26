@@ -80,7 +80,7 @@ def analyze_m16(path,clip_seconds=25,max_clips=8,*,progress=None,cancelled=None,
         else:speech_source.validate()
     identity=None
     if cache_root is not None:
-        identity={"schema":1,"engine":"m16-pilot-2","source":sha256_file(video.path,cancelled=cancelled),
+        identity={"schema":1,"engine":"m16-pilot-3","source":sha256_file(video.path,cancelled=cancelled),
                   "duration":video.duration,"speech_source":speech_source.method_suffix if speech_source else None,
                   "models":[fingerprint_model(m,cancelled) for m in (speech_model,vision_model,detector_model)],
                   "versions":{m:package_version(m) for m in ("faster-whisper","ctranslate2","torch","transformers","av")},
@@ -112,11 +112,21 @@ def analyze_m16(path,clip_seconds=25,max_clips=8,*,progress=None,cancelled=None,
     transcript=[]
     if speech_model:
         def speech(p):
-            if speech_source is None:result=transcribe_video(video,speech_model,progress=p,cancelled=cancelled)
+            selection=speech_source
+            cache=None
+            if cache_root is not None:
+                from .asr_window_cache import ASRWindowCache
+                cache=ASRWindowCache.for_whisper(Path(cache_root)/"asr_windows",speech_model,cancelled=cancelled)
+                if selection is None and video.has_audio:
+                    snapshot=inventory(video.path)
+                    if snapshot.streams:
+                        selection=SpeechSource(snapshot,snapshot.streams[0].index,"unspecified")
+            if selection is None:
+                result=transcribe_video(video,speech_model,progress=p,cancelled=cancelled)
             else:
-                engine=transcribe_reconstructed if isinstance(speech_source,ReconstructedSpeech) else transcribe_selected_stream
-                result=engine(video,speech_model,speech_source,transcriber=partial(transcribe_video,model_cache={}),
-                              progress=p,cancelled=cancelled)
+                engine=transcribe_reconstructed if isinstance(selection,ReconstructedSpeech) else transcribe_selected_stream
+                result=engine(video,speech_model,selection,transcriber=partial(transcribe_video,model_cache={}),
+                              progress=p,cancelled=cancelled,window_cache=cache)
             return [asdict(c) for c in result]
         raw=run("speech",speech)
         transcript=[TranscriptSegment(**{**c,"words":tuple(TranscriptWord(**w) for w in c.get("words",[]))}) for c in raw]
@@ -161,4 +171,4 @@ def analyze_m16(path,clip_seconds=25,max_clips=8,*,progress=None,cancelled=None,
     if evidence_sink is not None:evidence_sink(tuple(checked_events(evidence,video.duration)))
     candidates=rank(evidence,video.duration,clip_seconds,max_clips,profile,preferences,weights_override=ranking_weights)
     if progress:progress(100)
-    return AnalysisResult(video,candidates,method="m16-experimental-"+profile+(speech_source.method_suffix if speech_source else ""),transcript=transcript)
+    return AnalysisResult(video,candidates,method="m16-experimental-"+profile+(speech_source.method_suffix if speech_source else ("|asr:aligned-default-first-stream" if speech_model and cache_root and video.has_audio else "")),transcript=transcript)
