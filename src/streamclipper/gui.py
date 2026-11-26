@@ -3366,7 +3366,7 @@ class MainWindow(QMainWindow):
             self.progress.setRange(0,100);self.progress.setValue(min(99,round(100*done/total)))
         elif stage=="complete":self.progress.setRange(0,100);self.progress.setValue(100)
         else:self.progress.setRange(0,0)
-        self.progress.setFormat(tr("FFmpeg-Merge") if stage=="merge" else tr("Videoimport · %p %") if total else tr("Videoimport"))
+        self.progress.setFormat(tr("FFmpeg-Merge") if stage=="merge" else tr("Importdatei prüfen") if stage=="verify" else tr("Videoimport · %p %") if total else tr("Videoimport"))
         text=tr("Videoimport · ")+stage
         if done is not None:text+=f" · {done/1024**2:.1f} MiB"
         if row.get("speed") is not None:text+=f" · {row['speed']/1024**2:.1f} MiB/s"
