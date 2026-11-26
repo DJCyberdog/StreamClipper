@@ -1,3 +1,7 @@
+# NEXT_TASK — M18 implementation pilot and M21 owner roadmap update
+
+M17 177b89f all three hosted workflows PASS. M18 guarded provider-neutral import, channel ingestion, local markers/Deck/watch folder, NLE/GIF/WebM, subtitles and publishing preparation integrated. M21 is mandatory final debugging/hardening before stable 1.0. See docs/M18_ACCEPTANCE.md. Full DE/EN coverage, provider OAuth/upload preparation and real authorized/native/security acceptance remain open; check exact-head CI and fix concrete failures. Do not merge/release or silently drop scope.
+
 # NEXT_TASK — M17 implementation closure candidate
 
 M17 previous exact head 572853e: all three hosted workflows PASS. Third pass adds continuous linear playback speed (shared video PTS and blockwise audio resampling; natural pitch, not pitch-corrected), existing pitch-corrected stepped ramp retained; clickable montage timeline and exact render preview <=45 seconds; model-bound benchmark and added FFmpeg/Qt regression tests. Verify exact new head CI, then native GUI/NVENC playback/export and independent annotated M16/M17 boundary metrics. No release, main merge or quality acceptance until required evidence is available. Montage remains separate dialog/JSON, not an embedded main-timeline track.
