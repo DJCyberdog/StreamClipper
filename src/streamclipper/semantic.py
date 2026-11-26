@@ -277,6 +277,8 @@ def recognize_gameplay(video: VideoInfo, model_directory: str, *,
     model = CLIPModel.from_pretrained(str(folder), local_files_only=True)
     device = "cuda" if torch.cuda.is_available() else "cpu"
     model.to(device).eval()
+    from .vision_device import report_vision_device
+    report_vision_device("CLIP",device)
     labels = [name for name, _, _ in _VISUAL_LABELS]
     prompts = [prompt for _, prompt, _ in _VISUAL_LABELS]
     results = []
