@@ -108,8 +108,27 @@ if (!(Test-Path (Join-Path $bin 'ffmpeg.exe')) -or !(Test-Path (Join-Path $bin '
     if (Test-Path $license) { Copy-Item -LiteralPath $license -Destination (Join-Path $bin 'FFmpeg-LICENSE.txt') -Force }
 }
 foreach ($name in @('ffmpeg.exe','ffprobe.exe')) {
-    & (Join-Path $bin $name) -version | Select-Object -First 1
-    if ($LASTEXITCODE -ne 0) { throw "$name failed" }
+    # Drain the complete native output before displaying its first line.
+    $versionOutput = @(& (Join-Path $bin $name) -version)
+    $exitCode = $LASTEXITCODE
+    if ($exitCode -ne 0 -or $versionOutput.Count -eq 0) { throw "$name version check failed (exit $exitCode)" }
+    Write-Host $versionOutput[0]
+}
+$smoke = Join-Path $downloads ('smoke-' + [Guid]::NewGuid().ToString('N') + '.wav')
+try {
+    & (Join-Path $bin 'ffmpeg.exe') -hide_banner -nostdin -loglevel error -f lavfi -i 'anullsrc=r=16000:cl=mono' -t 0.25 -c:a pcm_s16le $smoke
+    $exitCode = $LASTEXITCODE
+    if ($exitCode -ne 0) { throw "FFmpeg audio generation failed (exit $exitCode)" }
+    $probeOutput = @(& (Join-Path $bin 'ffprobe.exe') -v error -select_streams a:0 -show_entries stream=codec_name,sample_rate,channels -of json $smoke)
+    $exitCode = $LASTEXITCODE
+    if ($exitCode -ne 0) { throw "FFprobe media check failed (exit $exitCode)" }
+    $probe = ($probeOutput -join "`n") | ConvertFrom-Json
+    if (@($probe.streams).Count -ne 1 -or $probe.streams[0].codec_name -ne 'pcm_s16le' -or $probe.streams[0].sample_rate -ne '16000' -or $probe.streams[0].channels -ne 1) {
+        throw 'FFprobe returned unexpected audio properties'
+    }
+    Write-Host 'FFmpeg / FFprobe media self-test passed.'
+} finally {
+    Remove-Item -LiteralPath $smoke -Force -ErrorAction SilentlyContinue
 }
 & $python -I -c "import streamclipper, PySide6; print(streamclipper.__file__)"
 if ($LASTEXITCODE -ne 0) { throw 'Local import failed' }
