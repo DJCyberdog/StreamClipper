@@ -71,7 +71,33 @@ if ($LASTEXITCODE -ne 0) { throw 'Local pip bootstrap failed' }
 if ($LASTEXITCODE -ne 0) { throw 'Relative source registration failed' }
 if (!(Test-Path (Join-Path $bin 'ffmpeg.exe')) -or !(Test-Path (Join-Path $bin 'ffprobe.exe'))) {
     $archive = Join-Path $downloads 'ffmpeg.zip'
-    Invoke-WebRequest -Uri 'https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip' -OutFile $archive
+    $urls = @(
+        'https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip',
+        'https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip'
+    )
+    $downloaded = $false
+    foreach ($url in $urls) {
+        $partial = "$archive.partial"
+        try {
+            Write-Host "Downloading FFmpeg from $url"
+            Invoke-WebRequest -UseBasicParsing -Uri $url -OutFile $partial -ErrorAction Stop
+            # Reject incomplete/non-ZIP responses before promoting the download.
+            Add-Type -AssemblyName System.IO.Compression.FileSystem
+            $zip = [IO.Compression.ZipFile]::OpenRead($partial)
+            try {
+                foreach ($name in @('ffmpeg.exe','ffprobe.exe')) {
+                    if (@($zip.Entries | Where-Object { $_.Name -eq $name }).Count -ne 1) { throw "Archive missing unique $name" }
+                }
+            } finally { $zip.Dispose() }
+            Move-Item -LiteralPath $partial -Destination $archive -Force
+            $downloaded = $true
+            break
+        } catch {
+            Write-Warning "FFmpeg download failed: $($_.Exception.Message)"
+            Remove-Item -LiteralPath $partial -Force -ErrorAction SilentlyContinue
+        }
+    }
+    if (!$downloaded) { throw 'All FFmpeg downloads failed. Place ffmpeg.exe and ffprobe.exe in the local bin folder and rerun setup.' }
     $stage = Join-Path $downloads ('ffmpeg-' + [Guid]::NewGuid().ToString('N'))
     Expand-Archive -LiteralPath $archive -DestinationPath $stage
     $exe = @(Get-ChildItem -LiteralPath $stage -Filter ffmpeg.exe -Recurse)
