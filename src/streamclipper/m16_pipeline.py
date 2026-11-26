@@ -48,7 +48,7 @@ def visual_retry(fn):
     except (RuntimeError,ImportError):pass
     return fn("cpu")
 
-def analyze_m16(path,clip_seconds=25,max_clips=8,*,progress=None,cancelled=None,
+def _analyze_m16(path,clip_seconds=25,max_clips=8,*,progress=None,cancelled=None,
                 speech_model=None,vision_model=None,max_visual_frames=180,
                 detector_model=None,max_object_frames=90,speech_source=None,
                 cache_root=None,profile="generic",preferences=None,chat_messages=None,
@@ -80,16 +80,19 @@ def analyze_m16(path,clip_seconds=25,max_clips=8,*,progress=None,cancelled=None,
         else:speech_source.validate()
     identity=None
     if cache_root is not None:
-        identity={"schema":1,"engine":"m16-pilot-3","source":sha256_file(video.path,cancelled=cancelled),
+        identity={"schema":1,"engine":"m16-pilot-4","source":sha256_file(video.path,cancelled=cancelled),
                   "duration":video.duration,"speech_source":speech_source.method_suffix if speech_source else None,
                   "models":[fingerprint_model(m,cancelled) for m in (speech_model,vision_model,detector_model)],
                   "versions":{m:package_version(m) for m in ("faster-whisper","ctranslate2","torch","transformers","av")},
                   "requested_device":os.environ.get("STREAMCLIPPER_WHISPER_DEVICE","auto"),
-                  "profile":profile,"fast_vision":bool(fast_vision),"reaction_model":fingerprint_model(reaction_model,cancelled),"visual_budget":max_visual_frames,"object_budget":max_object_frames,
+                  "hardware_mode":__import__("streamclipper.hardware_media",fromlist=["mode"]).mode.get(),"profile":profile,"fast_vision":bool(fast_vision),"reaction_model":fingerprint_model(reaction_model,cancelled),"visual_budget":max_visual_frames,"object_budget":max_object_frames,
                   "rules":[asdict(r) for r in rules]}
     stages=["audio"]+(["speech"] if speech_model else [])+["motion"]+(["reaction"] if isinstance(speech_source,SpeechSource) and speech_source.role=="microphone" else [])+(["visual"] if vision_model else [])+(["object"] if detector_model else [])
     def run(name,fn,dependency=None):
         check()
+        from .hardware_media import notify
+        names={'audio':'Audioanalyse · CPU','speech':'Whisper · Sprachinferenz','motion':'Bewegungsanalyse','reaction':'Akustische Reaktionen','visual':'CLIP · Bildanalyse','object':'DETR · Objektspuren'}
+        notify(names[name])
         number=stages.index(name)
         def tick(n):
             if progress:progress(min(99,round(100*(number+max(0,min(100,n))/100)/len(stages))))
@@ -100,6 +103,7 @@ def analyze_m16(path,clip_seconds=25,max_clips=8,*,progress=None,cancelled=None,
             if doc.get("key")!=target.stem or doc.get("sha256")!=digest(doc["value"]):
                 raise ValueError("M16 cache corrupt")
             value=doc["value"]
+            notify(names[name]+' · Cache-Treffer')
         else:
             value=fn(tick);check()
             current=Path(video.path).stat()
@@ -168,7 +172,17 @@ def analyze_m16(path,clip_seconds=25,max_clips=8,*,progress=None,cancelled=None,
     if identity and sha256_file(video.path,cancelled=cancelled)!=identity["source"]:raise ValueError("Source hash changed")
     current=Path(video.path).stat()
     if (current.st_size,current.st_mtime_ns)!=source_stamp:raise ValueError("Source changed during analysis")
+    from .hardware_media import notify
+    notify('Evidenzfusion und Ranking · CPU')
     if evidence_sink is not None:evidence_sink(tuple(checked_events(evidence,video.duration)))
     candidates=rank(evidence,video.duration,clip_seconds,max_clips,profile,preferences,weights_override=ranking_weights)
     if progress:progress(100)
     return AnalysisResult(video,candidates,method="m16-experimental-"+profile+(speech_source.method_suffix if speech_source else ("|asr:aligned-default-first-stream" if speech_model and cache_root and video.has_audio else "")),transcript=transcript)
+
+
+def analyze_m16(*args,hardware_mode="legacy",**kwargs):
+    from .hardware_media import mode,MODES
+    if hardware_mode not in MODES:raise ValueError("Invalid hardware mode")
+    token=mode.set(hardware_mode)
+    try:return _analyze_m16(*args,**kwargs)
+    finally:mode.reset(token)
