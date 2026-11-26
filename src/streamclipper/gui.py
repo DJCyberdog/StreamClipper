@@ -116,8 +116,14 @@ class AnalysisThread(QThread):
                 from .m16_review import read_chat
                 options = dict(self.m16_options)
                 chat = options.pop('chat_path', None)
+                remote_chat = options.pop('remote_chat', None)
                 if chat:
                     options['chat_messages'] = read_chat(chat, probe_video(self.source).duration)
+                elif remote_chat:
+                    from .m16_chat_import import download_chat
+                    self.backend_notice.emit("Twitch-Chat wird ausdrücklich angefordert …")
+                    options['chat_messages'] = download_chat(*remote_chat,probe_video(self.source),
+                                                             cancelled=self._cancelled.is_set)
                 result = analyze_m16(self.source, self.length, progress=self.progress_changed.emit,
                     cancelled=self._cancelled.is_set, speech_model=self.speech_model,
                     vision_model=self.vision_model, detector_model=self.detector_model,
@@ -1485,6 +1491,10 @@ class MainWindow(QMainWindow):
         gaming = self.menuBar().addMenu("Gaming Intelligence (M16)")
         self.m16_action = gaming.addAction("Experimentelle M16-Analyse")
         self.m16_action.setCheckable(True)
+        self.m16_fast_action = gaming.addAction("Schnelle Vision (CUDA FP16 / Batch, experimentell)")
+        self.m16_fast_action.setCheckable(True)
+        self.m16_reaction_model = None
+        gaming.addAction("Akustisches Reaktionsmodell auswählen / deaktivieren …", self._m16_choose_reaction_model)
         self.m16_cache_action = gaming.addAction("Lokale Analyse-Zwischenstände behalten")
         self.m16_cache_action.setCheckable(True)
         self.m16_cache_action.setToolTip("Speichert auch private Transkripttexte lokal. Kein Upload.")
@@ -1496,9 +1506,12 @@ class MainWindow(QMainWindow):
         gaming.addAction("Ranking-Präferenzen zurücksetzen …", self._m16_reset_feedback)
         gaming.addAction("Transkript nach Momenten durchsuchen …", self._m16_search)
         gaming.addAction("Semantische Sprachsuche (lokales Modell) …", self._m16_semantic_search)
+        gaming.addAction("Semantische Bildsuche (CLIP) …", self._m16_visual_search)
         gaming.addAction("Highlight-Kontaktbogen speichern …", self._m16_contact_sheet)
         self.m16_chat_action = gaming.addAction("Lokalen Chat beim nächsten M16-Lauf auswählen")
         self.m16_chat_action.setCheckable(True)
+        self.m16_remote_chat_action = gaming.addAction("Twitch-Chat beim nächsten M16-Lauf laden (lokaler Helfer)")
+        self.m16_remote_chat_action.setCheckable(True)
         branding = self.menuBar().addMenu("Branding")
         branding.addAction("Untertitel gestalten …", self._edit_caption_style)
         branding.addAction("Untertitel übersetzen …", self._edit_translations)
@@ -3407,6 +3420,17 @@ class MainWindow(QMainWindow):
         if ok:
             self.m16_profile = value
 
+    def _m16_choose_reaction_model(self):
+        if self._history_blocked:return
+        choice,ok=QInputDialog.getItem(self,"Reaktionsmodell","Akustische Modellanalyse:",
+                                       ["Lokales Modell wählen","Deaktivieren (Pegel und Stimmlage bleiben)"],0,False)
+        if not ok:return
+        if choice.startswith("Deaktivieren"):
+            self.m16_reaction_model=None;return
+        path=QFileDialog.getExistingDirectory(self,"Lokaler Audio-Klassifikator mit Lachen/Rufen-Klassen",
+                                              str(installation_directory()/"data"/"models"))
+        if path:self.m16_reaction_model=path
+
     def _m16_feedback(self):
         if self._history_blocked or not self.analysis: return
         c = self.selected_candidate()
@@ -3479,6 +3503,24 @@ class MainWindow(QMainWindow):
         self._m16_review_job(lambda cancel:semantic_transcript_search(cues,query,model,cancelled=cancel),
                              lambda hits:self._m16_show_hits([c for _,c in hits]))
 
+    def _m16_visual_search(self):
+        if self._history_blocked or not self.source:return
+        query,ok=QInputDialog.getText(self,"Semantische Bildsuche",
+                    "Beschreibe das gesuchte Bild möglichst auf Englisch (CLIP):")
+        if not ok or not query.strip():return
+        model=self.vision_path.text().strip()
+        if not model:
+            model=QFileDialog.getExistingDirectory(self,"Lokales CLIP-Modell auswählen",
+                                                   str(installation_directory()/"data"/"models"))
+        if not model:return
+        try:video=probe_video(self.source)
+        except (OSError,RuntimeError,ValueError) as exc:
+            QMessageBox.warning(self,"Bildsuche",str(exc));return
+        anchors=tuple(c.peak_at for c in self.analysis.candidates) if self.analysis else ()
+        from .m16_visual_search import visual_search
+        self._m16_review_job(lambda cancel:visual_search(video,query,model,anchors=anchors,cancelled=cancel),
+                             self._m16_show_hits)
+
     def _m16_contact_sheet(self):
         if self._history_blocked or not self.analysis or not self.analysis.candidates:return
         path,_=QFileDialog.getSaveFileName(self,"Kontaktbogen speichern","highlights-contact-sheet.png","PNG (*.png)")
@@ -3528,9 +3570,21 @@ class MainWindow(QMainWindow):
                 return
         m16_options = None
         if self.m16_action.isChecked():
-            m16_options = {"profile":self.m16_profile}
+            m16_options = {"profile":self.m16_profile,"fast_vision":self.m16_fast_action.isChecked(),
+                           "reaction_model":self.m16_reaction_model}
+            if self.m16_chat_action.isChecked() and self.m16_remote_chat_action.isChecked():
+                QMessageBox.warning(self,"Chat","Bitte genau eine Chat-Quelle auswählen.");return
+            if self.m16_remote_chat_action.isChecked():
+                url,ok=QInputDialog.getText(self,"Twitch-Chat laden","Öffentliche VOD-URL der unveränderten Aufnahme:")
+                if not ok:return
+                try:canonical,_=parse_twitch_vod_url(url)
+                except ValueError as exc:QMessageBox.warning(self,"Chat",str(exc));return
+                helper,_=QFileDialog.getOpenFileName(self,"Vertrauenswürdige lokale TwitchDownloaderCLI.exe auswählen",
+                                                    "","Anwendung (*.exe)")
+                if not helper:return
+                m16_options["remote_chat"]=(helper,canonical)
             if self.m16_chat_action.isChecked():
-                chat,_=QFileDialog.getOpenFileName(self,"Lokaler Chat mit VOD-Zeitstempeln (JSONL)","","JSONL (*.jsonl)")
+                chat,_=QFileDialog.getOpenFileName(self,"Lokaler Chat mit VOD-Zeitstempeln","","Chat-Export (*.jsonl *.json)")
                 if not chat:return
                 m16_options['chat_path']=chat
             if self.m16_cache_action.isChecked():
