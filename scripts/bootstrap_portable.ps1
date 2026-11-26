@@ -44,7 +44,7 @@ if (!(Test-Path -LiteralPath $python)) {
 if ($LASTEXITCODE -ne 0) { throw 'Standalone runtime check failed' }
 # Non-editable wheels for dependencies; current source is loaded via relative .pth.
 $extras = if ($Minimal) { 'gui' } else { 'gui,speech,vision,models,twitch' }
-& $uv pip install --python $python --no-config --link-mode copy ".[${extras}]"
+& $uv pip install --python $python --no-config --link-mode copy --system ".[${extras}]"
 if ($LASTEXITCODE -ne 0) { throw 'Dependency installation failed' }
 & $python -I -m ensurepip --upgrade
 if ($LASTEXITCODE -ne 0) { throw 'Local pip bootstrap failed' }
