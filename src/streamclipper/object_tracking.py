@@ -145,7 +145,7 @@ def _load_detector_model(model_class, folder: Path):
             raise RuntimeError(
                 "Für den DETR-Objektdetektor fehlt das Python-Paket 'timm'. "
                 "StreamClipper schließen und im Projektordner Folgendes ausführen: "
-                r'.\.venv\Scripts\python.exe -m pip install -e ".[vision]"'
+                r'.\runtime\python.exe -m pip install "timm>=1.0,<2"'
                 " – anschließend StreamClipper neu starten."
             ) from exc
         raise
@@ -209,6 +209,8 @@ def detect_and_track(video: VideoInfo, model_directory: str | Path, *,
     model = _load_detector_model(AutoModelForObjectDetection, folder)
     device = device_override or ('cuda' if torch.cuda.is_available() else 'cpu')
     model.to(device).eval()
+    from .vision_device import report_vision_device
+    report_vision_device("DETR / Objekterkennung",device)
     stamps = timestamps if timestamps is not None else select_scene_timestamps(anchors, video.duration, max_frames=max_frames)
     detections: list[Detection] = []
     for index, (at, encoded) in enumerate(sampled_jpeg_frames(video, timestamps=stamps,
