@@ -106,6 +106,8 @@ def evaluate_manifest(path):
         row={"id":case["id"],"split":split,"language":case["language"],"conditions":case["conditions"],
              "inputs_sha256":{k:sha256_file(v) for k,v in (("reference",ref),("mix",mix),("estimate",estimate))},
              "baseline":baseline,"variant":variant,"si_sdr_improvement_db":b-a if a is not None and b is not None else None}
+        if interference:row["inputs_sha256"]["interferer"]=sha256_file(interference)
+        if case.get("frozen_case_sha256"):row["frozen_case_sha256"]=case["frozen_case_sha256"]
         for key in ("baseline_cues","variant_cues","timing_proposals_cues"):
             if key in case:
                 cues=json.loads(local(case[key]).read_text(encoding="utf-8"))
@@ -115,7 +117,8 @@ def evaluate_manifest(path):
         rows.append(row)
     return {"schema_version":1,"manifest_sha256":sha256_file(path),"evidence_kind":doc.get("evidence_kind","unspecified"),
             "model":doc.get("model"),"commit":doc.get("commit"),"platform":platform.platform(),
-            "cases":rows,"quality_acceptance":"NOT_EVALUATED"}
+            "cases":rows,"corpus_sha256":doc.get("corpus_sha256"),"asr_model_sha256":doc.get("asr_model_sha256"),
+            "missing_coverage":doc.get("missing_coverage"),"quality_acceptance":"NOT_EVALUATED"}
 
 def main():
     import argparse

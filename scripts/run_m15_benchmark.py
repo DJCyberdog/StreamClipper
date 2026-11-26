@@ -29,16 +29,25 @@ def main():
     p.add_argument("--device",choices=("auto","cpu","cuda"),default="auto")
     p.add_argument("--authorized-references",action="store_true",help="Confirm authorized local reference recordings")
     p.add_argument("--commit",required=True,help="Exact StreamClipper git commit")
+    p.add_argument('--corpus-lock',help='Frozen corpus JSON; required for real gaming evidence')
     args=p.parse_args()
     manifest=Path(args.manifest).resolve(strict=True)
     doc=json.loads(manifest.read_text(encoding="utf-8"))
     if doc.get("schema_version")!=1 or not doc.get("cases"):raise ValueError("Missing cases")
+    from streamclipper.m15_corpus import verify_corpus,digest,freeze_corpus
+    from streamclipper.asr_window_cache import model_identity
+    if doc.get("evidence_kind")=="real_authorized_gaming_holdout" and not args.corpus_lock:
+        raise ValueError("Real gaming benchmark requires --corpus-lock")
+    frozen=verify_corpus(manifest,args.corpus_lock) if args.corpus_lock else freeze_corpus(manifest)
+    frozen_cases={row["id"]:row for row in frozen["cases"]}
+    asr_identity=digest(model_identity(args.whisper))
     # Require explicit consent before TSE, and no automatic enrollment.
     if args.backend=="voxlock" and not args.authorized_references:raise ValueError("Authorized references must be confirmed")
     out=Path(args.output).resolve()
     out.mkdir(parents=True,exist_ok=False)
     result={"schema_version":1,"evidence_kind":doc.get("evidence_kind","unspecified"),
-        "model":args.backend,"commit":args.commit,"cases":[]}
+        "model":args.backend,"commit":args.commit,"corpus_sha256":frozen["corpus_sha256"],
+        "asr_model_sha256":asr_identity,"missing_coverage":frozen["missing_coverage"],"cases":[]}
     groups={};ids=set()
     for case in doc["cases"]:
         key=case["id"]
@@ -77,6 +86,7 @@ def main():
                 (folder/(name+".json")).write_text(json.dumps([asdict(c) for c in cues],ensure_ascii=False,allow_nan=False),encoding="utf-8")
             (folder/"handoff.json").write_text(json.dumps(handoff(corrected),ensure_ascii=False,allow_nan=False),encoding="utf-8")
         row={k:case[k] for k in ("id","split","speaker_group","language","conditions","reference_cues")}
+        row["frozen_case_sha256"]=digest(frozen_cases[case["id"]])
         row.update({"mix":str(mix),"reference_voice":str(source(case["reference_voice"])),
             "estimate":str(bundle/"voice_estimate.wav"),"baseline_cues":str(folder/"baseline.json"),
             "variant_cues":str(folder/"variant.json"),"timing_proposals_cues":str(folder/"timing_proposals.json"),
@@ -84,6 +94,8 @@ def main():
             **resources.report()})
         if case.get("interferer"):row["interferer"]=str(source(case["interferer"]))
         result["cases"].append(row)
+    if freeze_corpus(manifest)!=frozen or digest(model_identity(args.whisper))!=asr_identity:
+        raise ValueError("Corpus or ASR model changed during benchmark; no metrics published")
     index=out/"evaluated_cases.json"
     index.write_text(json.dumps(result,ensure_ascii=False,indent=2,allow_nan=False),encoding="utf-8")
     report=evaluate_manifest(index)
