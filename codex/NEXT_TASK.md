@@ -1,3 +1,7 @@
+# NEXT_TASK — M18 fourth pass: localization coverage
+
+M18 previous 56c9926 and specialist-localization commit 1835ab7 all three hosted workflows PASS. Fourth pass translates fourteen specialist UI modules and M18 static error presentation, adds dynamic templates and actual Qt regressions, plus scripts/audit_m18_locale.py. Verify exact-head workflows and use audit to identify concrete remaining language gaps; do not treat heuristic coverage as certification. Actual provider OAuth/authorized downloads, allowed authenticated import, native integrations and security/quality gates remain open. No scope deferral, main merge or M19 start without owner decision.
+
 # NEXT_TASK — M18 third pass
 
 Prior exact head 116c30d all three workflows PASS. New recoverable import publication journal, SHA-256/receipt collision protection, identical completed import reuse, silent-phase disk checks, actual frame verification, expected-audio check, English preflight and progress text, Instagram/Snapchat confidential OAuth contracts. Verify latest exact-head CI and fix concrete failures. Full app localization, actual provider connections, allowed authenticated import, native authorized download/OBS/Deck/NLE and security acceptance remain open. See docs/M18_ACCEPTANCE.md. No M19 or release automatically.

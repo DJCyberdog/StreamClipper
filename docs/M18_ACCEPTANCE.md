@@ -106,3 +106,35 @@ runtime all PASS. New implementation:
   reused imports, changed preflight, and provider grants. New exact-head
   CI still required. Real provider downloads, native integrations and
   adversarial security acceptance remain open. No M19 start.
+
+
+## Fourth M18 pass — specialist localization and residual coverage
+
+Exact previous M18 head 56c9926: all three hosted workflows PASS. First
+localization commit 1835ab7: CI, Windows portable build and true portable
+runtime PASS. Follow-up 4c6ea0f: general CI PASS, remaining checks pending
+at observation. Latest localization commit edcd688 requires exact-head
+verification.
+
+- Specialist UI translation added to fourteen modules: audio sources,
+  audio mix, audio separation, ASR review, timing review, caption style,
+  translation, callouts, scene selection, Smart Director, thumbnail,
+  highlight lexicon, montage and montage preview.
+- Existing German strings remain canonical; tr/trf translate presentation
+  and named formatting templates. Format placeholders are tested for
+  parity. M18 static backend exceptions retain their original messages
+  and are translated when displayed. Local paths, transcript content,
+  model/source IDs and persisted operation keys are not intentionally
+  translated. Channel and OAuth choices compare against selected labels
+  generated in the active language rather than a fixed German string.
+- Added actual Qt montage and caption-style language regressions, including
+  original candidate preservation and stable encoder/style IDs.
+- scripts/audit_m18_locale.py reports residual German-looking UI literals
+  without mutating source. It is a heuristic audit, NOT a certification
+  of complete coverage; dynamic labels, indirect controls, framework
+  dialogs and user-facing messages need further review.
+- Native language acceptance and remaining main-window/specialist strings
+  remain open. No external OAuth approval, provider corpus, or authorized
+  authenticated import evidence added in this pass. These external gates
+  and M16/M17 native/quality acceptance remain open. No move to M19, main
+  merge, or release authorized by this pass.
