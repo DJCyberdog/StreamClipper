@@ -208,7 +208,8 @@ def detect_and_track(video: VideoInfo, model_directory: str | Path, *,
         raise RuntimeError('Objekterkennung benötigt das optionale Paket .[vision]') from exc
     processor = AutoImageProcessor.from_pretrained(str(folder), local_files_only=True)
     model = _load_detector_model(AutoModelForObjectDetection, folder)
-    device = device_override or ('cuda' if torch.cuda.is_available() else 'cpu')
+    from .hardware_media import torch_device
+    device = torch_device(torch,device_override)
     model.to(device).eval()
     from .vision_device import report_vision_device
     report_vision_device("DETR / Objekterkennung",device)
