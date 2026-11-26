@@ -6,6 +6,7 @@ import math
 import threading
 import time
 
+from .m18_language import tr,trf
 from PySide6.QtCore import QThread, Signal, Qt
 from PySide6.QtGui import QImage
 from PySide6.QtWidgets import (QDialog, QDialogButtonBox, QVBoxLayout, QHBoxLayout,
@@ -69,13 +70,13 @@ class DirectorDialog(QDialog):
         super().__init__(parent)
         self.video,self.scene,self.value=video,scene,scene.director
         self.worker=None
-        self.setWindowTitle("Smart Director · Szene")
+        self.setWindowTitle(tr("Smart Director · Szene"))
         self.resize(730,680)
         outer=QVBoxLayout(self)
         scroll=QScrollArea();scroll.setWidgetResizable(True)
         body=QWidget();scroll.setWidget(body);outer.addWidget(scroll,1)
         layout=QVBoxLayout(body)
-        self.info=QLabel("Manuelle Keyframes haben Vorrang. Tracking ist ein begrenzter Bildmuster-Vorschlag.")
+        self.info=QLabel(tr("Manuelle Keyframes haben Vorrang. Tracking ist ein begrenzter Bildmuster-Vorschlag."))
         self.info.setWordWrap(True)
         layout.addWidget(self.info)
         self.keys=QListWidget()
@@ -85,13 +86,13 @@ class DirectorDialog(QDialog):
         self.x=self.num(0,1,region[0]+region[2]/2)
         self.y=self.num(0,1,region[1]+region[3]/2)
         self.zoom=self.num(1,1.6,1.2)
-        for name,field in (("Quellzeit",self.at),("Fokus X",self.x),("Fokus Y",self.y),("Zoom",self.zoom)):
-            form.addRow(name,field)
+        for name,field in (("Quellzeit",self.at),(tr("Fokus X"),self.x),(tr("Fokus Y"),self.y),("Zoom",self.zoom)):
+            form.addRow(tr(name),field)
         layout.addLayout(form)
         row=QHBoxLayout()
-        for name,action in (("Keyframe setzen",self.add_key),("Keyframe löschen",self.del_key),
-                            ("Subject Lock ab Punkt",lambda:self.analyze("track")),
-                            ("Tracking löschen",self.clear_track)):
+        for name,action in ((tr("Keyframe setzen"),self.add_key),(tr("Keyframe löschen"),self.del_key),
+                            (tr("Subject Lock ab Punkt"),lambda:self.analyze("track")),
+                            (tr("Tracking löschen"),self.clear_track)):
             self.button(row,name,action)
         layout.addLayout(row)
         self.zones=QListWidget()
@@ -100,39 +101,39 @@ class DirectorDialog(QDialog):
         self.kind=QComboBox()
         self.kind.addItems(KINDS)
         self.rect=[self.num(0,1,v) for v in region]
-        form.addRow("Overlay-Typ",self.kind)
+        form.addRow(tr("Overlay-Typ"),self.kind)
         for name,field in zip(("X","Y","Breite","Höhe"),self.rect):
-            form.addRow(name,field)
-        self.dynamic=QCheckBox("Zeitlich begrenzt (z. B. Alert)")
+            form.addRow(tr(name),field)
+        self.dynamic=QCheckBox(tr("Zeitlich begrenzt (z. B. Alert)"))
         self.zone_start=self.num(scene.start,scene.end,scene.start,3)
         self.zone_end=self.num(scene.start,scene.end,scene.end,3)
-        self.enabled=QCheckBox("Aktiv");self.enabled.setChecked(True)
-        self.mask=QCheckBox("Mit Schwarzmaske verdecken")
-        self.avoid=QCheckBox("Overlayfreien automatischen Crop verlangen")
+        self.enabled=QCheckBox(tr("Aktiv"));self.enabled.setChecked(True)
+        self.mask=QCheckBox(tr("Mit Schwarzmaske verdecken"))
+        self.avoid=QCheckBox(tr("Overlayfreien automatischen Crop verlangen"))
         self.avoid.setChecked(self.value.avoid_overlays)
-        self.removal=QCheckBox("Maskierung ausdrücklich aktivieren")
+        self.removal=QCheckBox(tr("Maskierung ausdrücklich aktivieren"))
         self.removal.setChecked(self.value.removal_enabled)
         self.inpaint_model=self.value.inpaint_model
-        self.inpaint_label=QLabel(self.inpaint_model or "Schwarzmaske (Standard)")
+        self.inpaint_label=QLabel(self.inpaint_model or tr("Schwarzmaske (Standard)"))
         self.inpaint_label.setWordWrap(True)
         self.safe=QComboBox();self.safe.addItems(["bottom","top"]);self.safe.setCurrentText(self.value.caption_safe)
-        for label,field in (("Zeitfenster",self.dynamic),("Start",self.zone_start),("Ende",self.zone_end),
-                            ("Zone",self.enabled),("Entfernung",self.mask),("Crop",self.avoid),
-                            ("Opt-in",self.removal),("Inpainting-Modell",self.inpaint_label),("Untertitel-Safe-Zone",self.safe)):
-            form.addRow(label,field)
+        for label,field in ((tr("Zeitfenster"),self.dynamic),("Start",self.zone_start),("Ende",self.zone_end),
+                            ("Zone",self.enabled),(tr("Entfernung"),self.mask),("Crop",self.avoid),
+                            ("Opt-in",self.removal),(tr("Inpainting-Modell"),self.inpaint_label),(tr("Untertitel-Safe-Zone"),self.safe)):
+            form.addRow(tr(label),field)
         layout.addLayout(form)
         row=QHBoxLayout()
-        for name,action in (("Zone hinzufügen",self.add_zone),("Zone ändern",self.edit_zone),
-                            ("Zone löschen",self.del_zone),("Randkandidaten",lambda:self.analyze("overlay")),
-                            ("CLIP-Overlay-Analyse",lambda:self.analyze("clip"))):
+        for name,action in ((tr("Zone hinzufügen"),self.add_zone),(tr("Zone ändern"),self.edit_zone),
+                            (tr("Zone löschen"),self.del_zone),(tr("Randkandidaten"),lambda:self.analyze("overlay")),
+                            (tr("CLIP-Overlay-Analyse"),lambda:self.analyze("clip"))):
             self.button(row,name,action)
         layout.addLayout(row)
         row=QHBoxLayout()
-        self.button(row,"OBS-Profil speichern",self.save_profile)
-        self.button(row,"OBS-Profil laden",self.load_profile)
-        self.button(row,"Crop-Konflikt prüfen",self.check_crop)
-        self.button(row,"VACE experimentell …",self.choose_inpainting)
-        self.button(row,"Schwarzmaske",self.clear_inpainting)
+        self.button(row,tr("OBS-Profil speichern"),self.save_profile)
+        self.button(row,tr("OBS-Profil laden"),self.load_profile)
+        self.button(row,tr("Crop-Konflikt prüfen"),self.check_crop)
+        self.button(row,tr("VACE experimentell …"),self.choose_inpainting)
+        self.button(row,tr("Schwarzmaske"),self.clear_inpainting)
         layout.addLayout(row)
         self.keys.currentRowChanged.connect(self.select_key)
         self.zones.currentRowChanged.connect(self.select_zone)
@@ -147,7 +148,7 @@ class DirectorDialog(QDialog):
         return field
 
     def button(self,row,label,action):
-        b=QPushButton(label);b.clicked.connect(action);row.addWidget(b)
+        b=QPushButton(tr(label));b.clicked.connect(action);row.addWidget(b)
 
     def refresh(self):
         self.keys.clear()
@@ -157,8 +158,7 @@ class DirectorDialog(QDialog):
         for z in self.value.zones:
             self.zones.addItem(f"{z.kind} · {z.region} · {'aktiv' if z.enabled else 'aus'}"
                                + (" · Maske" if z.mask else "") + (" · temporär" if z.start is not None else ""))
-        self.info.setText(f"{len(self.value.manual)} manuelle Keyframes · {len(self.value.tracked)} Trackingpunkte. "
-                          "Tracking endet bei unsicherer Zuordnung; Overlay-Vorschläge sind unbestätigt und bleiben bis zur Freigabe deaktiviert.")
+        self.info.setText(trf("{manual} manuelle Keyframes · {tracked} Trackingpunkte. Tracking endet bei unsicherer Zuordnung; Overlay-Vorschläge sind unbestätigt und bleiben bis zur Freigabe deaktiviert.",manual=len(self.value.manual),tracked=len(self.value.tracked)))
 
     def update_value(self,**kw):
         if self.worker is not None:
@@ -219,14 +219,14 @@ class DirectorDialog(QDialog):
         model_directory=None
         if mode=="clip":
             from .portable import local_model_directory
-            model_directory=QFileDialog.getExistingDirectory(self,"Installierten CLIP-Modellordner wählen",
+            model_directory=QFileDialog.getExistingDirectory(self,tr("Installierten CLIP-Modellordner wählen"),
                                                              str(local_model_directory()))
             if not model_directory:return
-        self.info.setText("Lokale Bildanalyse läuft …")
+        self.info.setText(tr("Lokale Bildanalyse läuft …"))
         self.worker=AnalysisWorker(self.video,self.scene,self.at.value(),self.x.value(),self.y.value(),mode,self,
                                    model_directory=model_directory)
         self.worker.result.connect(self.analysis_ready)
-        self.worker.failure.connect(self.info.setText)
+        self.worker.failure.connect(lambda message:self.info.setText(tr(message)))
         self.worker.finished.connect(self.analysis_done)
         self.worker.start()
 
@@ -252,17 +252,17 @@ class DirectorDialog(QDialog):
 
     def save_profile(self):
         if self.worker:return
-        path,_=QFileDialog.getSaveFileName(self,"OBS-Profil speichern","","JSON (*.json)")
+        path,_=QFileDialog.getSaveFileName(self,tr("OBS-Profil speichern"),"","JSON (*.json)")
         if not path:return
         try:
             # No source or credentials; only static regions.
             with open(path,"x",encoding="utf-8") as handle:
                 json.dump({"version":1,"zones":[asdict(z) for z in self.value.zones if z.start is None]},handle,ensure_ascii=False)
-        except (OSError,ValueError) as exc:QMessageBox.warning(self,"Profil nicht gespeichert",str(exc))
+        except (OSError,ValueError) as exc:QMessageBox.warning(self,tr("Profil nicht gespeichert"),str(exc))
 
     def load_profile(self):
         if self.worker:return
-        path,_=QFileDialog.getOpenFileName(self,"OBS-Profil laden","","JSON (*.json)")
+        path,_=QFileDialog.getOpenFileName(self,tr("OBS-Profil laden"),"","JSON (*.json)")
         if not path:return
         try:
             if Path(path).stat().st_size>65536:raise ValueError("Profil zu groß")
@@ -271,7 +271,7 @@ class DirectorDialog(QDialog):
             loaded=director_from_dict({"zones":doc["zones"]})
             if any(z.start is not None for z in loaded.zones):raise ValueError("Profil enthält temporäre Zonen")
             self.update_value(zones=(*self.value.zones,*loaded.zones))
-        except (OSError,ValueError,TypeError,KeyError) as exc:QMessageBox.warning(self,"Profil nicht geladen",str(exc))
+        except (OSError,ValueError,TypeError,KeyError) as exc:QMessageBox.warning(self,tr("Profil nicht geladen"),str(exc))
 
     def check_crop(self):
         text=[]
@@ -288,12 +288,12 @@ class DirectorDialog(QDialog):
     def choose_inpainting(self):
         if self.worker:return
         from .portable import local_model_directory
-        model=QFileDialog.getExistingDirectory(self,"Lokales VACE-Modell auswählen",
+        model=QFileDialog.getExistingDirectory(self,tr("Lokales VACE-Modell auswählen"),
                                               str(local_model_directory()))
         if not model:return
         if not (Path(model)/"model_index.json").is_file():
-            QMessageBox.warning(self,"VACE","Kein lokaler Diffusers-Modellordner");return
-        if QMessageBox.question(self,"Experimentelles KI-Inpainting",
+            QMessageBox.warning(self,"VACE",tr("Kein lokaler Diffusers-Modellordner"));return
+        if QMessageBox.question(self,tr("Experimentelles KI-Inpainting"),
             "Nicht abgenommen. Maximal 600 Frames pro Szene, bis Full HD. Überlappende KI-Fenster; Übergangsqualität ungeprüft. "
             "Hoher RAM-/VRAM-Bedarf; keine garantierte Rekonstruktion. "
             "Nur für diese Szene ausdrücklich aktivieren?")!=QMessageBox.StandardButton.Yes:
@@ -305,7 +305,7 @@ class DirectorDialog(QDialog):
     def clear_inpainting(self):
         if self.worker:return
         self.inpaint_model=""
-        self.inpaint_label.setText("Schwarzmaske (Standard)")
+        self.inpaint_label.setText(tr("Schwarzmaske (Standard)"))
 
     def finish(self):
         if self.worker:return
@@ -320,5 +320,5 @@ class DirectorDialog(QDialog):
 
     def reject(self):
         if self.worker:
-            self.worker.stop.set();self.info.setText("Analyse wird abgebrochen …");return
+            self.worker.stop.set();self.info.setText(tr("Analyse wird abgebrochen …"));return
         super().reject()

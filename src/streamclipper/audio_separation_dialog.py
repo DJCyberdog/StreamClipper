@@ -1,5 +1,6 @@
 """M15b optional local voice isolation worker; never auto-import estimates."""
 from threading import Event
+from .m18_language import tr,trf
 from PySide6.QtCore import QThread,Signal
 from PySide6.QtWidgets import (QDialog,QVBoxLayout,QFormLayout,QLabel,QLineEdit,QPushButton,
     QComboBox,QFileDialog,QProgressBar,QHBoxLayout,QCheckBox)
@@ -31,43 +32,43 @@ class SeparationDialog(QDialog):
     def __init__(self,selection,parent=None):
         super().__init__(parent)
         self.selection=selection;self.worker=None;self.closing=False
-        self.setWindowTitle("KI-Audiotrennung · Pilot")
+        self.setWindowTitle(tr("KI-Audiotrennung · Pilot"))
         self.resize(690,340)
         layout=QVBoxLayout(self)
-        hint=QLabel("Vordergrundsprache oder gezielte Schätzung anhand einer Stimmreferenz. "
+        hint=QLabel(tr("Vordergrundsprache oder gezielte Schätzung anhand einer Stimmreferenz. "
                     "NPC-Dialoge können erhalten bleiben. 8–192 kHz Mono/Stereo, Ausgabe 48 kHz, maximal 6 Stunden; lange Aufnahmen benötigen viel freien Speicher. "
-                    "Originalaufnahme bleibt unverändert. Lokales Modell, kein automatischer Download.")
+                    "Originalaufnahme bleibt unverändert. Lokales Modell, kein automatischer Download."))
         hint.setWordWrap(True);layout.addWidget(hint)
         form=QFormLayout()
-        self.kind=QComboBox();self.kind.addItem('Vordergrundsprache · Inworld','foreground');self.kind.addItem('Referenzstimme · VoxLock (CPU)','target')
-        form.addRow('Modus',self.kind)
+        self.kind=QComboBox();self.kind.addItem(tr('Vordergrundsprache · Inworld'),'foreground');self.kind.addItem(tr('Referenzstimme · VoxLock (CPU)'),'target')
+        form.addRow(tr('Modus'),self.kind)
         self.checkpoint=QLineEdit();self.checkpoint.setReadOnly(True)
-        choose=QPushButton("Modell auswählen …");choose.clicked.connect(self.choose_model)
+        choose=QPushButton(tr("Modell auswählen …"));choose.clicked.connect(self.choose_model)
         row=QHBoxLayout();row.addWidget(self.checkpoint);row.addWidget(choose)
-        form.addRow("Lokales Modell",row)
+        form.addRow(tr("Lokales Modell"),row)
         self.reference=QLineEdit();self.reference.setReadOnly(True)
-        self.reference_button=QPushButton("Stimmreferenz auswählen …");self.reference_button.clicked.connect(self.choose_reference)
+        self.reference_button=QPushButton(tr("Stimmreferenz auswählen …"));self.reference_button.clicked.connect(self.choose_reference)
         refrow=QHBoxLayout();refrow.addWidget(self.reference);refrow.addWidget(self.reference_button)
-        form.addRow("Referenz-WAV (3–30 s)",refrow)
-        self.consent=QCheckBox("Meine eigene oder ausdrücklich autorisierte Stimme; nur lokal verwenden")
+        form.addRow(tr("Referenz-WAV (3–30 s)"),refrow)
+        self.consent=QCheckBox(tr("Meine eigene oder ausdrücklich autorisierte Stimme; nur lokal verwenden"))
         form.addRow(self.consent)
-        self.cache=QCheckBox('Vordergrund-Cache behalten (lokale PCM-Ausschnitte, Wiederaufnahme bei erneutem Lauf)')
+        self.cache=QCheckBox(tr('Vordergrund-Cache behalten (lokale PCM-Ausschnitte, Wiederaufnahme bei erneutem Lauf)'))
         form.addRow(self.cache)
-        self.target_resume=QCheckBox('Zielstimmen-Wiederaufnahme (segmentierter Modus, lokale Audio-Cachedateien und referenzgebundene Dateischlüssel)')
-        self.target_resume.setToolTip('Optional: Modellzustand wird je 8-Sekunden-Fenster neu aufgebaut. Kein gespeicherter Voiceprint, aber lokale rekonstruierte Sprachdaten. Qualität kann von kontinuierlicher Inferenz abweichen.')
+        self.target_resume=QCheckBox(tr('Zielstimmen-Wiederaufnahme (segmentierter Modus, lokale Audio-Cachedateien und referenzgebundene Dateischlüssel)'))
+        self.target_resume.setToolTip(tr('Optional: Modellzustand wird je 8-Sekunden-Fenster neu aufgebaut. Kein gespeicherter Voiceprint, aber lokale rekonstruierte Sprachdaten. Qualität kann von kontinuierlicher Inferenz abweichen.'))
         form.addRow(self.target_resume)
         self.device=QComboBox()
-        for label,value in (("Automatisch","auto"),("NVIDIA CUDA","cuda"),("CPU","cpu")):self.device.addItem(label,value)
-        form.addRow("Gerät",self.device);layout.addLayout(form)
+        for label,value in ((tr("Automatisch"),"auto"),("NVIDIA CUDA","cuda"),("CPU","cpu")):self.device.addItem(label,value)
+        form.addRow(tr("Gerät"),self.device);layout.addLayout(form)
         self.progress=QProgressBar();layout.addWidget(self.progress)
         size=round(selection.inventory.duration*48000)*next(s.channels for s in selection.inventory.streams if s.index==selection.index)*4
-        disk=QLabel(f'PCM-Speicher: ca. {3*size/1e9:.2f} GB während der Trennung, {2*size/1e9:.2f} GB Ergebnis (zzgl. Reserve).')
+        disk=QLabel(trf('PCM-Speicher: ca. {working:.2f} GB während der Trennung, {result:.2f} GB Ergebnis (zzgl. Reserve).',working=3*size/1e9,result=2*size/1e9))
         disk.setWordWrap(True);layout.addWidget(disk)
-        self.status=QLabel("Lokalen denoiser.safetensors-Checkpoint auswählen.")
+        self.status=QLabel(tr("Lokalen denoiser.safetensors-Checkpoint auswählen."))
         self.status.setWordWrap(True);layout.addWidget(self.status)
-        self.start_button=QPushButton("Trennen und WAV speichern …");self.start_button.clicked.connect(self.start_job)
+        self.start_button=QPushButton(tr("Trennen und WAV speichern …"));self.start_button.clicked.connect(self.start_job)
         layout.addWidget(self.start_button)
-        close=QPushButton("Schließen / Abbrechen");close.clicked.connect(self.reject);layout.addWidget(close)
+        close=QPushButton(tr("Schließen / Abbrechen"));close.clicked.connect(self.reject);layout.addWidget(close)
         self.kind.currentIndexChanged.connect(self.mode_changed)
         self.consent.toggled.connect(self.controls)
         self.mode_changed()
@@ -82,29 +83,29 @@ class SeparationDialog(QDialog):
 
     def mode_changed(self):
         self.checkpoint.clear();self.reference.clear();self.consent.setChecked(False);self.cache.setChecked(False);self.target_resume.setChecked(False)
-        self.status.setText('Lokalen VoxLock-Ordner mit enroll.onnx und chunk_int8.onnx wählen.' if self.kind.currentData()=='target' else 'Lokalen denoiser.safetensors-Checkpoint auswählen.')
+        self.status.setText(tr('Lokalen VoxLock-Ordner mit enroll.onnx und chunk_int8.onnx wählen.') if self.kind.currentData()=='target' else tr('Lokalen denoiser.safetensors-Checkpoint auswählen.'))
         self.controls()
 
     def choose_reference(self):
         if self.worker:return
-        path,_=QFileDialog.getOpenFileName(self,'Autorisierte Stimmreferenz','','WAV (*.wav)')
+        path,_=QFileDialog.getOpenFileName(self,tr('Autorisierte Stimmreferenz'),'','WAV (*.wav)')
         if path:self.reference.setText(path);self.consent.setChecked(False);self.target_resume.setChecked(False);self.controls()
 
     def choose_model(self):
         if self.worker:return
-        if self.kind.currentData()=="target":path=QFileDialog.getExistingDirectory(self,"Lokaler VoxLock-Ordner")
-        else:path,_=QFileDialog.getOpenFileName(self,"Lokales Offline-Modell","","Safetensors (*.safetensors)")
+        if self.kind.currentData()=="target":path=QFileDialog.getExistingDirectory(self,tr("Lokaler VoxLock-Ordner"))
+        else:path,_=QFileDialog.getOpenFileName(self,tr("Lokales Offline-Modell"),"","Safetensors (*.safetensors)")
         if path:self.checkpoint.setText(path);self.controls()
 
     def start_job(self):
         if self.worker or not self.start_button.isEnabled():return
-        folder=QFileDialog.getExistingDirectory(self,"Ordner für rekonstruierte Audiospuren")
+        folder=QFileDialog.getExistingDirectory(self,tr("Ordner für rekonstruierte Audiospuren"))
         if not folder:return
-        self.progress.setValue(0);self.status.setText("Prüfe Modell und trenne Audio …")
+        self.progress.setValue(0);self.status.setText(tr("Prüfe Modell und trenne Audio …"))
         self.worker=SeparationWorker(self.selection,self.checkpoint.text(),folder,self.device.currentData(),self,kind=self.kind.currentData(),reference=self.reference.text(),consent=self.consent.isChecked(),use_cache=(self.cache.isChecked() if self.kind.currentData()=='foreground' else self.target_resume.isChecked()),resume_target=self.kind.currentData()=='target' and self.target_resume.isChecked())
         self.worker.progress.connect(self.progress.setValue)
-        self.worker.ready.connect(lambda p:self.status.setText("Gespeichert: "+str(p)+" · voice_estimate.wav / residual.wav"))
-        self.worker.failed.connect(self.status.setText)
+        self.worker.ready.connect(lambda p:self.status.setText(tr("Gespeichert: ")+str(p)+" · voice_estimate.wav / residual.wav"))
+        self.worker.failed.connect(lambda message:self.status.setText(tr(message)))
         self.worker.finished.connect(self.done)
         self.controls();self.worker.start()
 
@@ -115,5 +116,5 @@ class SeparationDialog(QDialog):
 
     def reject(self):
         if self.worker:
-            self.closing=True;self.worker.stop.set();self.status.setText("Abbruch nach laufendem Modellaufruf …");return
+            self.closing=True;self.worker.stop.set();self.status.setText(tr("Abbruch nach laufendem Modellaufruf …"));return
         super().reject()
