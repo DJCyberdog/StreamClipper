@@ -58,7 +58,16 @@ jobs:
           Write-Host "M15 pytest exit: $testExit"
           if ($testExit -ne 0) { throw "M15 pytest exited $testExit" }
       - name: Build portable Windows executable
-        run: pyinstaller --noconfirm --clean --onedir --windowed --name StreamClipper --paths src scripts/launch.py
+        shell: pwsh
+        run: |
+          $iconArgs = @()
+          if (Test-Path assets/StreamClipper.ico) { $iconArgs = @('--icon','assets/StreamClipper.ico') }
+          pyinstaller --noconfirm --clean --onedir --windowed --name StreamClipper --paths src @iconArgs scripts/launch.py
+          if ($LASTEXITCODE -ne 0) { throw 'Build failed' }
+          if (Test-Path assets/StreamClipper.ico) {
+            New-Item -ItemType Directory -Force dist/StreamClipper/assets | Out-Null
+            Copy-Item assets/StreamClipper.ico dist/StreamClipper/assets/
+          }
       - name: Include startup notes
         shell: pwsh
         run: |
