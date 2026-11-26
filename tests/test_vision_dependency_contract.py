@@ -14,7 +14,7 @@ def test_vision_extra_includes_timm():
     assert any(package.lower().startswith("timm") for package in vision)
 
 
-def test_detector_reports_missing_timm_with_local_venv_command(tmp_path):
+def test_detector_reports_missing_timm_with_local_runtime_command(tmp_path):
     class RequiresTimm:
         @staticmethod
         def from_pretrained(path, *, local_files_only):
@@ -28,7 +28,7 @@ def test_detector_reports_missing_timm_with_local_venv_command(tmp_path):
         _load_detector_model(RequiresTimm, tmp_path)
 
     assert "timm" in str(caught.value)
-    assert ".venv" in str(caught.value)
+    assert r".\runtime\python.exe" in str(caught.value)
     assert str(tmp_path) not in str(caught.value)
 
 
