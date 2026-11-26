@@ -175,9 +175,12 @@ def test_detection_adapter_uses_local_transformers_and_three_neighbor_frames(tmp
         def to(self, device):
             assert device == 'cpu'
             return self
+        def float(self): return self
+        def all(self): return True
     torch = ModuleType('torch')
     torch.cuda = SimpleNamespace(is_available=lambda: False)
     torch.no_grad = nullcontext
+    torch.isfinite = lambda tensor: tensor
     monkeypatch.setitem(sys.modules, 'torch', torch)
 
     class Box(list):
@@ -202,7 +205,7 @@ def test_detection_adapter_uses_local_transformers_and_three_neighbor_frames(tmp
             return cls()
         def to(self, device): return self
         def eval(self): return self
-        def __call__(self, **kwargs): return object()
+        def __call__(self, **kwargs): return SimpleNamespace(logits=Tensor(),pred_boxes=Tensor())
     fake = ModuleType('transformers')
     fake.AutoImageProcessor = Processor
     fake.AutoModelForObjectDetection = Detector
