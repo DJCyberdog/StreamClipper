@@ -21,7 +21,7 @@ def setup(root, *, consent, execute=run, installed=is_installed):
     if not py.is_file():
         print("Portable Runtime fehlt. Zuerst setup_windows.bat ausführen.")
         return 1
-    pip = [py, "-m", "pip", "--isolated", "install"]
+    pip = [py, "-m", "pip", "--isolated", "install", "--cache-dir", root / "data" / "cache" / "pip", "--no-user"]
     # Model consent happens before the inference test, never silently.
     has_model = installed("whisper-small", root / "data" / "models")
     if not has_model and consent():
@@ -34,7 +34,7 @@ def setup(root, *, consent, execute=run, installed=is_installed):
             print("Whisper-Modell nach Download weiterhin unvollständig.")
             return 1
     print("Installiere lokale Whisper-CUDA-12-Bibliotheken.", flush=True)
-    if execute(pip + ["-r", root / "requirements-gpu-windows.txt"]):
+    if execute(pip + ["--index-url", "https://pypi.org/simple", "-r", root / "requirements-gpu-windows.txt"]):
         return 1
     print("Installiere PyTorch/TorchVision mit CUDA 13.2 (mehrere GB).", flush=True)
     if execute(pip + [TORCH, VISION, "--index-url", INDEX]):
