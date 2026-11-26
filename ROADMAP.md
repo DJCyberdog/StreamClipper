@@ -710,7 +710,8 @@ Dieses Paket gehört zu **M17 (Montage/Clip-Varianten)**, nutzt **M16-Ereignisze
 
 - B-B1 geordnete Montage; #21 Hook-Vorschläge; #22 grobe Kapitel; #31 Längenvarianten und #32 A/B-Einstiege.
 - #24 editierbare abschnittsweise Tempo-Rampe mit Tonhöhenkorrektur; #25 Standbild am Abschnittsende mit statischem Zoom und optionalem Text; #27 eigene/lizenzierte lokale Sounds; #29 Farblooks und lokale .cube-LUT.
-- Erste Integration als separater Originalmedien-Export mit expliziter Warnung: vorhandene Projektspuren, Untertitel und Szenenpläne nicht automatisch übernommen. Vollständige Integration in bestehende Editor-/Render-Queue und speicherbare Montagepläne bleiben offen.
+- Versionierte Montagepläne mit Medienbindung (Pfad, Größe, mtime) speichern/laden; optional Editor-Komposition je Abschnitt vor Effekten rendern (aktuelle Exportkonfiguration oder gespeicherter Snapshot), Originalmedienmodus ausdrücklich bestätigen. Bestehende Renderqueue, MP4-QA und Wiederanlaufbelege verwenden. Eigene/lizenzierte Sounds lokal mit Rechtehinweis importieren.
+- Tempo-Rampen: editierbare lineare oder geglättete diskrete Annäherung (2–32 Stützstellen); echte kontinuierliche A/V-Zeitverzerrung ist noch nicht implementiert. Montagepläne sind eigenständige JSON-Dateien, kein eingebetteter Timeline-Montagetrack.
 - Native Export-/A/V-Zeitbasis- und GUI-Abnahme, unabhängige M17a-Clipgrenzen-Validierung. Keine Qualitätsbehauptung aus synthetischen Tests.
 
 ### 5.8 M18a – Plattformübergreifender Videoimport (verbindlicher Erweiterungsauftrag)
