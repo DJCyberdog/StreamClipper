@@ -64,12 +64,16 @@ def adaptive_samples(events, duration, budget=180):
     return sorted({min(round(max(0., min(max(0.,duration-.03), t+o)),3),math.nextafter(duration,0.))
                    for t in picks for o in (-2.,-1.,0.,1.,2.)})[:budget]
 
-def rank(events, duration, clip_seconds=25, max_clips=8, profile="generic", preferences=None):
+def rank(events, duration, clip_seconds=25, max_clips=8, profile="generic", preferences=None, weights_override=None):
     """Group dependent observations before scoring; never infer an action label."""
     from .analyze import _bounds
     if profile not in PROFILES or clip_seconds < 5 or not 1 <= max_clips <= 1000:
         raise ValueError("Invalid rank configuration")
-    weights = PROFILES[profile]
+    weights = dict(PROFILES[profile])
+    if weights_override is not None:
+        if set(weights_override)!=set(weights) or any(not math.isfinite(v) or not 0<=v<=1 for v in weights_override.values()):
+            raise ValueError("Invalid ranking weights")
+        weights=dict(weights_override)
     valid = checked_events(events,duration)
     times = [e.at for e in valid]
     proposals=[]
@@ -96,7 +100,9 @@ def rank(events, duration, clip_seconds=25, max_clips=8, profile="generic", pref
             score+=max(-10,min(10,float(preferences.get(anchor.kind,0))))
         # One observation family can never independently score as several.
         reasons=[f"{e.kind} {e.at:.1f}s ({e.at-anchor.at:+.1f}s): {e.description}"
-                 for _,e in sorted(best.values(),key=lambda pair:-pair[0])]
+                 for group,(_,e) in sorted(best.items(),key=lambda item:-item[1][0])
+                 if not (group=="audio" and "speech" in best)]
+        if "speech" in best and "audio" in best: reasons.append("Audiopegel (abhängig von Sprache, nicht zusätzlich gewertet)")
         context=[e.description for e in nearby if e.kind=="speech_context"]
         if context: reasons.append("Kontext (nicht unabhängig): "+context[0])
         if any(e.kind=="chat" for e in nearby): reasons.append("Chat-Aktivität (nur Kontext)")
