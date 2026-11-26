@@ -140,3 +140,39 @@ search quality or external Twitch helper run supplied. Native GPU speed and
 FP16 parity are NOT MEASURED. Camera zoom/rotation and HUD false positives
 remain limitations; the tracker estimates shared translation only. No
 quality acceptance, release, automatic merge to main or M17 start.
+
+
+## Third implementation pass — M16g and owner M15 feedback (26.11.2026)
+
+Owner reports M15 works locally. This is a successful functional user report,
+not independently reproduced six-hour native or annotated quality evidence.
+M16 inherits M15 commit 0aec35ee (all five hosted workflows PASS).
+
+M16g is now in ROADMAP.md and integrated. The visible controls beneath the
+preview distinguish Auto, GPU-preferred and CPU for M16 analysis and new
+proxies. Export uses the existing explicit encoder choice. Real decode/scale
+probe tests the source before enabling NVDEC; Auto accelerates the full
+motion scan but leaves sparse seek extraction on CPU. GPU-preferred can use
+NVDEC/scale_cuda for individual frames. Frames are copied to CPU for JPEG
+and existing image preprocessing; no zero-copy claim. GPU errors restart
+the scan or retry the failed frame on CPU, explicitly reported. New preview
+proxies use probed H.264 NVENC with one CPU retry, preserving existing
+timing validation and atomic publication. Existing H.264/HEVC export remains.
+
+The UI shows actual system CPU/RAM, GPU/VRAM and decoder/encoder telemetry
+where exposed by psutil and nvidia-smi, plus current stage, selected vision
+inference device, elapsed time and a phase-only ETA when measurable.
+Missing metrics are n/a. GPU percentages are system-wide, not per-process.
+No unsupported total-analysis ETA claim. The hardware preference is scoped
+to analysis/proxy; existing export policy is separate.
+
+Regression tests: tests/test_m16_hardware.py and revised DETR mock contract.
+Prior M16 CI found a fake detector image/tensor contract mismatch; corrected.
+Another CI run timed out while installing FFmpeg, before tests; CI now uses
+Ubuntu 24.04 and longer bounded provisioning. Latest exact-head tests must
+still be verified. Native test script scripts/validate_m16_native.py runs
+real decode/scale and NVENC probes plus local full analysis and resource
+sampling; --compare-cpu additionally runs the CPU baseline. It does not
+claim quality improvement. Real annotated corpus, native GPU/FP16/NVDEC
+performance and parity, external chat helper validation and final CI are
+not waived by implementation. PR remains draft until gates are satisfied.
