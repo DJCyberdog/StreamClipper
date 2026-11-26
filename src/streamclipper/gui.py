@@ -86,6 +86,7 @@ def display_time(seconds: float) -> str:
 class AnalysisThread(QThread):
     progress_changed = Signal(int)
     backend_notice = Signal(str)
+    phase_changed = Signal(str)
     done = Signal(object)
     failed = Signal(str)
 
@@ -109,7 +110,9 @@ class AnalysisThread(QThread):
 
     def run(self) -> None:
         from .vision_device import device_notice
+        from .hardware_media import phase_notice
         token = device_notice.set(self.backend_notice.emit)
+        phase_token = phase_notice.set(self.phase_changed.emit)
         try:
             if self.m16_options is not None:
                 from .m16_pipeline import analyze_m16
@@ -148,6 +151,7 @@ class AnalysisThread(QThread):
             self.failed.emit(str(exc))
         finally:
             device_notice.reset(token)
+            phase_notice.reset(phase_token)
 
 
 class M16ReviewThread(QThread):
@@ -361,22 +365,34 @@ class WaveformThread(QThread):
             self.failed.emit(self.filename, str(exc))
 
 
+class LiveResourcesThread(QThread):
+    sampled = Signal(object)
+    def run(self):
+        from .live_resources import sample
+        try:self.sampled.emit(sample())
+        except Exception:self.sampled.emit(None)
+
+
 class ProxyThread(QThread):
     """Small preview transcode stays off the Qt UI thread."""
     progress_changed = Signal(int)
     done = Signal(str, object)
     failed = Signal(str, str)
     was_cancelled = Signal(str)
+    phase_changed = Signal(str)
 
-    def __init__(self, video: VideoInfo, parent=None) -> None:
+    def __init__(self, video: VideoInfo, parent=None, hardware_mode="legacy") -> None:
         super().__init__(parent)
         self.video = video
+        self.hardware_mode=hardware_mode
         self._cancelled = threading.Event()
 
     def cancel(self) -> None:
         self._cancelled.set()
 
     def run(self) -> None:
+        from .hardware_media import mode,phase_notice
+        token=mode.set(self.hardware_mode); notice=phase_notice.set(self.phase_changed.emit)
         try:
             result = ensure_proxy(
                 self.video, cancelled=self._cancelled.is_set,
@@ -389,6 +405,8 @@ class ProxyThread(QThread):
             self.was_cancelled.emit(self.video.path)
         except (OSError, ValueError, RuntimeError) as exc:
             self.failed.emit(self.video.path, str(exc))
+        finally:
+            mode.reset(token);phase_notice.reset(notice)
 
 
 class RenderPreviewThread(QThread):
@@ -1440,7 +1458,28 @@ class MainWindow(QMainWindow):
 
         self.progress = QProgressBar()
         self.progress.setValue(0)
+        self.hardware_mode=QComboBox()
+        self.hardware_mode.addItem('Auto · NVDEC Szenenscan / NVENC Proxy','auto')
+        self.hardware_mode.addItem('GPU bevorzugen · auch Einzelbilder','gpu')
+        self.hardware_mode.addItem('Nur CPU · Analyse / Proxy','cpu')
+        self.hardware_mode.setToolTip('Gilt für M16-Analyse und neue Vorschau-Proxys; Export hat eigene Encoderwahl. Auto hält sparse CPU-Seeks bei. Hardware-Fallback sichtbar.')
+        self.phase_status=QLabel('Bereit');self.phase_status.setWordWrap(True)
+        self.backend_status=QLabel('Inferenzgerät: noch kein Modell aktiv')
+        self.resource_cpu=QLabel('CPU / RAM: n/a')
+        self.resource_gpu=QLabel('NVIDIA: n/a');self.resource_gpu.setWordWrap(True)
+        self.resource_clock=QLabel('Analysezeit: –')
+        preview_layout.addWidget(self.hardware_mode)
+        preview_layout.addWidget(self.phase_status)
+        preview_layout.addWidget(self.backend_status)
+        preview_layout.addWidget(self.resource_cpu)
+        preview_layout.addWidget(self.resource_gpu)
+        preview_layout.addWidget(self.resource_clock)
         main.addWidget(self.progress)
+        self._analysis_started=None
+        self._resource_worker=LiveResourcesThread(self)
+        self._resource_worker.sampled.connect(self._show_resource_sample)
+        self._resource_timer=QTimer(self);self._resource_timer.setInterval(2000)
+        self._resource_timer.timeout.connect(self._poll_resources);self._resource_timer.start()
         self.statusBar().showMessage("Bereit")
         self._timeline_buttons = (self.timeline_in, self.timeline_out,
                                   self.timeline_play, self.timeline_add,
@@ -1449,6 +1488,27 @@ class MainWindow(QMainWindow):
         self._busy(False)
         self.setStyleSheet(EDITOR_STYLESHEET)
         self._load_workspace_on_start()
+
+    def _poll_resources(self):
+        import time
+        if not self._resource_worker.isRunning():self._resource_worker.start()
+        if self._analysis_started is not None:
+            elapsed=time.monotonic()-self._analysis_started
+            p=self.progress.value()
+            # Stages have very different cost; percentage is not a linear clock.
+            self.resource_clock.setText(f'Analysezeit: {display_time(elapsed)} · Restzeit: nicht belastbar' if p<100 else f'Analysezeit: {display_time(elapsed)}')
+
+    def _show_resource_sample(self,row):
+        if row is None:
+            self.resource_cpu.setText('CPU / RAM: n/a');self.resource_gpu.setText('NVIDIA: n/a');return
+        from .live_resources import format_sample
+        cpu,gpu=format_sample(row)
+        self.resource_cpu.setText(cpu+' (System)');self.resource_gpu.setText(gpu+' (System)')
+
+    def _analysis_stopped(self):
+        self._poll_resources()
+        self._analysis_started=None
+        self._busy(False)
 
     _WORKSPACE_TABS = {
         "Highlights": 0, "Schnitt": 3, "Audio": 3,
@@ -1984,7 +2044,8 @@ class MainWindow(QMainWindow):
             return
         self.proxy_progress.setValue(0)
         self.proxy_status.setText("Proxy wird im Hintergrund erstellt …")
-        worker = ProxyThread(self._video_info, self)
+        worker = ProxyThread(self._video_info, self, hardware_mode=self.hardware_mode.currentData())
+        worker.phase_changed.connect(self.phase_status.setText)
         self.proxy_worker = worker
         worker.progress_changed.connect(
             lambda value, w=worker: self._proxy_worker_progress(w, value))
@@ -2113,6 +2174,7 @@ class MainWindow(QMainWindow):
         self.render_preview_button.setEnabled(
             bool(self._video_info) and not busy)
         self.encoder_mode.setEnabled(not busy)
+        self.hardware_mode.setEnabled(not busy)
         ready = self.analysis is not None and not busy
         self.single_export.setEnabled(ready and bool(self.table.selectedItems()))
         self.all_export.setEnabled(ready and bool(self.analysis.candidates if self.analysis else []))
@@ -3571,7 +3633,7 @@ class MainWindow(QMainWindow):
         m16_options = None
         if self.m16_action.isChecked():
             m16_options = {"profile":self.m16_profile,"fast_vision":self.m16_fast_action.isChecked(),
-                           "reaction_model":self.m16_reaction_model}
+                           "reaction_model":self.m16_reaction_model,"hardware_mode":self.hardware_mode.currentData()}
             if self.m16_chat_action.isChecked() and self.m16_remote_chat_action.isChecked():
                 QMessageBox.warning(self,"Chat","Bitte genau eine Chat-Quelle auswählen.");return
             if self.m16_remote_chat_action.isChecked():
@@ -3609,10 +3671,15 @@ class MainWindow(QMainWindow):
                                      asr_cache_root=installation_directory()/ "data"/"projects"/"asr_windows" if speech and self.speech_source and self.asr_cache_action.isChecked() else None,
                                      m16_options=m16_options)
         self.worker.progress_changed.connect(self.progress.setValue)
-        self.worker.backend_notice.connect(lambda message: self.statusBar().showMessage(message))
+        self.worker.backend_notice.connect(self.backend_status.setText)
+        self.worker.phase_changed.connect(self.phase_status.setText)
         self.worker.done.connect(self.analysis_finished)
         self.worker.failed.connect(self.job_failed)
-        self.worker.finished.connect(lambda: self._busy(False))
+        self.worker.finished.connect(self._analysis_stopped)
+        import time
+        self._analysis_started=time.monotonic()
+        self.progress.setRange(0,100);self.progress.setFormat('Analyse · %p %')
+        self.phase_status.setText('Analyse wird vorbereitet …');self.backend_status.setText('Inferenzgerät: ausstehend')
         self._busy(True)
         self.statusBar().showMessage("Analyse läuft lokal (Audio / optionale Modelle) …" + (' · Whisper: '+getattr(self.speech_source,'label',f'Stream {self.speech_source.index}') if speech and self.speech_source else ''))
         self.worker.start()
@@ -4526,6 +4593,9 @@ class MainWindow(QMainWindow):
         self.player.setSource(QUrl())
         self.player.setVideoOutput(None)
         self.player.setAudioOutput(None)
+        self._resource_timer.stop()
+        if not self._resource_worker.wait(3000):
+            self._resource_timer.start();event.ignore();return
         self._save_workspace_layout(quiet=True)
         event.accept()
 
