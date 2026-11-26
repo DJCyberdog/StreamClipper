@@ -1,0 +1,14 @@
+name: True portable runtime
+on:
+  pull_request:
+  workflow_dispatch:
+jobs:
+  relocation:
+    runs-on: windows-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Standalone bootstrap and relocation
+        shell: powershell
+        run: .\scripts\test_portable_relocation.ps1
