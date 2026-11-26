@@ -72,3 +72,78 @@ def test_real_montage_order_speed_freeze_and_audio(tmp_path,monkeypatch):
     assert source.read_bytes()==original
     second=render_montage(probe_video(source),plan,tmp_path/"out.mp4")
     assert second!=output and output.exists()
+
+
+def test_plan_roundtrip_and_changed_media(tmp_path):
+    from streamclipper.montage_request import MontageRequest,save_plan,load_plan
+    src=tmp_path/"original.mp4";src.write_bytes(b"source")
+    video=VideoInfo(str(src),10,1920,1080,30,True)
+    req=MontageRequest.create(video,Montage((Beat(0,3),Beat(5,7,speed=2)),encoder="cpu_h264"))
+    path=tmp_path/"montage.json";save_plan(path,req)
+    assert load_plan(path)==req
+    src.write_bytes(b"changed source")
+    with pytest.raises(ValueError,match="geändert"):load_plan(path)
+    assert path.exists()
+
+def test_sound_library_content_addressed(tmp_path,monkeypatch):
+    from streamclipper import sound_library as lib
+    monkeypatch.setattr(lib,"probe_audio_duration",lambda p:1.25)
+    src=tmp_path/"effect.wav";src.write_bytes(b"test waveform")
+    root=tmp_path/"sounds"
+    item=lib.import_sound(src,"Own effect","Self recorded",root=root)
+    assert lib.entries(root)==[item]
+    assert lib.import_sound(src,"Second name","Own",root=root)==item
+    assert Path(item["path"]).read_bytes()==src.read_bytes()
+    with pytest.raises(ValueError,match="Rechtehinweis"):lib.import_sound(src,"No rights","",root=root)
+
+def test_montage_queue_snapshot_recovery(tmp_path,monkeypatch):
+    from streamclipper import montage as m
+    from streamclipper import montage_request as mr
+    from streamclipper.render_queue import RenderQueue
+    from streamclipper.render_contract import RenderRequest
+    from streamclipper.media import tool_path,probe_video
+    from streamclipper.export_qa import read_report
+    source=tmp_path/"source.mp4"
+    subprocess.run([tool_path("ffmpeg"),"-v","error","-y","-f","lavfi","-i",
+        "testsrc2=s=96x54:r=30:d=4","-f","lavfi","-i","sine=frequency=440:duration=4",
+        "-c:v","libx264","-pix_fmt","yuv420p","-c:a","aac",str(source)],check=True)
+    video=probe_video(source)
+    monkeypatch.setattr(m,"dimensions",lambda aspect:(96,54))
+    monkeypatch.setattr(mr,"dimensions",lambda aspect:(96,54))
+    plan=Montage((Beat(2,3),Beat(0,1)), "16:9","cpu_h264")
+    comps=tuple(RenderRequest(video,b.start,b.end,"crop",width=96,height=54,
+                              encoder="cpu_h264") for b in plan.beats)
+    req=mr.MontageRequest.create(video,plan,comps)
+    saved=tmp_path/"project.json";mr.save_plan(saved,req)
+    assert mr.load_plan(saved)==req
+    root=tmp_path/"queue";output=tmp_path/"output";output.mkdir()
+    queue=RenderQueue(root=root)
+    try:
+        job=queue.enqueue(req,output,label="M17 Montage")
+        assert job.request["kind"]=="montage-v1"
+    finally:queue.close()
+    queue=RenderQueue(root=root)
+    try:
+        done=queue.run_next()
+        assert done.status=="COMPLETE",done.detail
+        assert read_report(done.result).status=="PASS"
+        assert queue.run_next() is None
+    finally:queue.close()
+    queue=RenderQueue(root=root)
+    try:assert queue.jobs()[0].status=="COMPLETE"
+    finally:queue.close()
+
+def test_queue_modified_source_fails_closed(tmp_path):
+    from streamclipper.montage_request import MontageRequest
+    from streamclipper.render_queue import RenderQueue
+    src=tmp_path/"source.mp4";src.write_bytes(b"source")
+    video=VideoInfo(str(src),10,1920,1080,30,True)
+    req=MontageRequest.create(video,Montage((Beat(0,3),),encoder="cpu_h264"))
+    queue=RenderQueue(root=tmp_path/"queue")
+    try:
+        job=queue.enqueue(req,tmp_path,label="Montage")
+        src.write_bytes(b"modified original")
+        result=queue.run_next()
+        assert result.status=="FAILED" and "geändert" in result.detail
+        assert not Path(job.destination).exists()
+    finally:queue.close()
