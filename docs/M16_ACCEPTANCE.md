@@ -70,3 +70,73 @@ Synthetic tests are implementation regression evidence, not gaming data.
 - No real six-hour Windows RTX measurement: BLOCKED.
 - No final model/search/profile validation or statistically defensible quality gain: OPEN.
 - No M16 freeze or release. No automatic merge or start of M17.
+
+
+## Second implementation pass — 2026-11-26
+
+Owner requested full M16 continuation. M15 portability fixes are merged:
+M15 0aec35eebb27cd03bbb1e995cd674b9a48a213d5 has CI, Windows portable build,
+True portable runtime relocation, real ASR CPU and neural CPU workflows PASS.
+This verifies M15 hosted checks, not native NVIDIA inference or M16 quality.
+
+- M16a: fully-reviewed flag for fixed top-eight precision and full-VOD false
+  alarms/hour (unreviewed/uncertain data remain unknown); creator-cluster
+  paired bootstrap intervals. Benchmark optionally tunes only development
+  data before holdout inference. Record exact corpus/model/settings and
+  actual runtime/RAM/VRAM. No corpus has been fabricated.
+- M16b: optional fast vision via CUDA autocast FP16 and automatic bounded
+  CLIP batches of four / object batches of two, one image per batch on CPU;
+  nonfinite outputs retried in FP32, recognized CUDA failure retried on CPU.
+  Completed stage cache versioned; optional ASR window cache supports both
+  default first audio stream (aligned) and selected/reconstructed speech.
+  Native parity/speed still unmeasured. NVDEC experiment is deliberately
+  separate: single-frame seeking can be slower on GPU due to initialization.
+  Run scripts/benchmark_m16_nvdec.py on a local authorized video.
+- M16c: explain excluded dependent audio separately; optional validated
+  rank weight overrides and deterministic finite development-only grid.
+  No learned probability calibration; quality gain requires holdout.
+- M16d: bounded pitch-change proxy and optional local Hugging Face audio
+  classifier with named laugh/scream/shout classes, on an explicitly
+  designated original microphone stream only. Add soundfile and soxr to
+  speech extras. No automatic classifier download, no speaker identity,
+  no emotion assertion; mixed game audio is not treated as a microphone.
+- M16e: previous local accept/reject/reset and optional reranking remain.
+  Corrected times are recorded, not applied automatically; M17 owns dynamic
+  timing. Verify actual GUI behavior and regression against manual clips.
+- M16f: local CLIP text-to-image search over bounded representative and
+  highlight samples, relative similarity and timestamp navigation. Optional
+  explicit TwitchDownloader JSON import or user-supplied local
+  TwitchDownloaderCLI.exe for chat replay fetch, only for authorized full
+  VODs matching the import ID. No credentials/hidden network activity; raw
+  temporary chat JSON deleted after parse, only time offsets enter analysis.
+  Adapter needs real external-tool compatibility test. Helper is not bundled.
+  Source: https://github.com/lay295/TwitchDownloader/blob/master/TwitchDownloaderCLI/README.md
+  No official Twitch VOD chat retrieval endpoint is assumed.
+
+### How to exercise the new paths
+
+In Gaming Intelligence (M16), enable experimental M16 analysis; optionally
+enable fast vision, choose a compatible local audio classifier, or choose
+one chat source. Existing default analysis remains available. On upgraded
+installations run the portable dependency setup to install new speech
+dependencies; M15 preserves existing CUDA wheel pair. Select visual search
+from menu, enter English description for CLIP. Results are similarities, not
+verified actions. Chat replay download requires explicit selection of a
+trusted local external helper and public authorized VOD URL; offline import
+does not require the helper.
+
+Native commands:
+```powershell
+.\runtime\python.exe scripts\benchmark_m16_nvdec.py "D:\VODs\stream.mp4" data\bench\nvdec.json
+.\runtime\python.exe scripts\run_m16_benchmark.py cases.json cases.lock.json data\bench\m16-02 --commit EXACT_COMMIT --profile open-world --speech-model data\models\whisper-small --vision-model data\models\clip-vit-base-patch32 --tune-development --fast-vision
+```
+
+### Remaining hard gates
+
+Latest M16 CI must be green before a source package is labelled verified.
+No actual >=100-moment authorized corpus, untouched holdout results, 6h native
+RTX 5060 Ti measurement, real acoustic classifier validation, real semantic
+search quality or external Twitch helper run supplied. Native GPU speed and
+FP16 parity are NOT MEASURED. Camera zoom/rotation and HUD false positives
+remain limitations; the tracker estimates shared translation only. No
+quality acceptance, release, automatic merge to main or M17 start.
