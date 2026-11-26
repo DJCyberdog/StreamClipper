@@ -103,3 +103,25 @@ def test_visual_cpu_retry(monkeypatch):
     assert seen==[None,"cpu"]
     with pytest.raises(RuntimeError,match="corrupt"):
         pipeline.visual_retry(lambda d:(_ for _ in ()).throw(RuntimeError("corrupt")))
+
+def test_real_ffmpeg_motion_smoke(tmp_path):
+    import subprocess
+    from streamclipper.media import tool_path
+    source=tmp_path/"sample.mp4"
+    subprocess.run([tool_path("ffmpeg"),"-v","error","-y","-f","lavfi","-i",
+        "color=c=black:s=96x54:r=10:d=2","-f","lavfi","-i","color=c=white:s=96x54:r=10:d=2",
+        "-filter_complex","[0:v][1:v]concat=n=2:v=1:a=0","-c:v","libx264","-pix_fmt","yuv420p",str(source)],check=True)
+    result=pipeline.analyze_m16(str(source),cache_root=tmp_path/"cache")
+    assert result.video.duration>=3.9
+    assert result.candidates and "Heuristik" in result.candidates[0].reason
+    assert result.method.startswith("m16-experimental")
+    assert pipeline.analyze_m16(str(source),cache_root=tmp_path/"cache")==result
+
+def test_relative_motion_rejects_common_translation():
+    from streamclipper.object_tracking import Detection,relative_motion_evidence
+    def box(x):return (x,.1,x+.1,.2)
+    constant=[Detection(t,"car",.9,box(x+.02*t)) for t in (0,1,2) for x in (.1,.35,.6)]
+    assert not relative_motion_evidence(constant)
+    changed=[Detection(t,"car",.9,box(x+.02*t+(.07 if t==2 and x==.6 else 0)))
+             for t in (0,1,2) for x in (.1,.35,.6)]
+    assert relative_motion_evidence(changed)
