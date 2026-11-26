@@ -157,3 +157,21 @@ def test_sampled_ramp_monotone_and_bounded():
     assert [b.speed for b in beats]==sorted(b.speed for b in beats)
     assert all(a.end==b.start for a,b in zip(beats,beats[1:]))
     with pytest.raises(ValueError):sampled_ramp(0,1,steps=32)
+
+
+def test_real_montage_sound_lut_and_freeze_caption(tmp_path,monkeypatch):
+    from streamclipper import montage as m
+    from streamclipper.media import tool_path,probe_video
+    from streamclipper.export_qa import read_report
+    source=tmp_path/"silent.mp4";sound=tmp_path/"own.wav";lut=tmp_path/"identity.cube"
+    ffmpeg=tool_path("ffmpeg")
+    subprocess.run([ffmpeg,"-v","error","-y","-f","lavfi","-i","testsrc2=s=160x90:r=30:d=2",
+                    "-c:v","libx264","-pix_fmt","yuv420p",str(source)],check=True)
+    subprocess.run([ffmpeg,"-v","error","-y","-f","lavfi","-i","sine=frequency=880:duration=0.5",
+                    str(sound)],check=True)
+    lut.write_text("LUT_3D_SIZE 2\n"+"\n".join(f"{r} {g} {b}" for b in (0,1) for g in (0,1) for r in (0,1))+"\n",encoding="ascii")
+    monkeypatch.setattr(m,"dimensions",lambda aspect:(160,90))
+    plan=Montage((Beat(0,1,freeze=.5,zoom=1.1,text="TEST",lut=str(lut),sound=str(sound)),),"16:9","cpu_h264")
+    path=render_montage(probe_video(source),plan,tmp_path/"effects.mp4")
+    qa=read_report(path)
+    assert qa.status=="PASS" and qa.audio_present and qa.duration==pytest.approx(1.5,abs=.4)
