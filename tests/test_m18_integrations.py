@@ -147,3 +147,18 @@ def test_pkce_and_callback_state():
     with pytest.raises(ValueError):authorize_youtube("client","secret")
     assert "secret" not in repr(Token("secret"))
     with pytest.raises(NotImplementedError):PublishAdapter().publish()
+
+
+@pytest.mark.parametrize("suffix",[".gif",".webm"])
+def test_real_alternative_export(tmp_path,suffix):
+    from streamclipper.alternative_export import export_alternative
+    from streamclipper.render_contract import RenderRequest
+    src=tmp_path/"source.mp4"
+    subprocess.run([tool_path("ffmpeg"),"-v","error","-y","-f","lavfi","-i","testsrc2=s=96x54:r=30:d=2",
+        "-f","lavfi","-i","sine=frequency=440:duration=2","-c:v","libx264","-pix_fmt","yuv420p","-c:a","aac",str(src)],check=True)
+    original=src.read_bytes()
+    req=RenderRequest(probe_video(src),0,1,"crop",width=96,height=54)
+    dest=export_alternative(req,tmp_path/("out"+suffix))
+    info=probe_video(dest)
+    assert abs(info.duration-1)<.55
+    assert info.has_audio==(suffix==".webm") and src.read_bytes()==original
