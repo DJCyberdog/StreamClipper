@@ -155,12 +155,12 @@ def analyze_m16(path,clip_seconds=25,max_clips=8,*,progress=None,cancelled=None,
     if vision_model:
         stamps=adaptive_samples(evidence,video.duration,max_visual_frames)
         evidence.extend(EventEvidence(**e) for e in run("visual",lambda p:event_rows(visual_retry(lambda device:recognize_gameplay(
-            video,vision_model,max_frames=max_visual_frames,timestamps=stamps,profile=profile,progress=p,cancelled=cancelled,device_override=device,batch_size=(4 if fast_vision and device!="cpu" else 1),mixed_precision=fast_vision))),stamps))
+            video,vision_model,max_frames=max_visual_frames,timestamps=stamps,profile=profile,progress=p,cancelled=cancelled,device_override=device,batch_size=(None if fast_vision else 1),mixed_precision=fast_vision))),stamps))
     if detector_model:
         anchors=checked_events(evidence,video.duration)
         stamps=adaptive_samples(anchors,video.duration,max(5,max_object_frames))[:max_object_frames]
         evidence.extend(EventEvidence(**e) for e in run("object",lambda p:event_rows(visual_retry(lambda device:detect_and_track(
-            video,detector_model,anchors=anchors,max_frames=max_object_frames,timestamps=stamps,progress=p,cancelled=cancelled,device_override=device,relative_motion=True,batch_size=(2 if fast_vision and device!="cpu" else 1),mixed_precision=fast_vision))),[event_rows(anchors),stamps]))
+            video,detector_model,anchors=anchors,max_frames=max_object_frames,timestamps=stamps,progress=p,cancelled=cancelled,device_override=device,relative_motion=True,batch_size=(None if fast_vision else 1),mixed_precision=fast_vision))),[event_rows(anchors),stamps]))
     if chat_messages is not None:
         from .gaming_intelligence import chat_hints
         evidence.extend(chat_hints(chat_messages,video.duration))
