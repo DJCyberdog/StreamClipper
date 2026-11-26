@@ -219,3 +219,39 @@ before sharing.
 
 No final M15 acceptance, no M16 start and no merge. Remaining quality gates
 cannot be closed by green hosted CI. 
+
+## Consolidated acceptance follow-up (2026-11-26)
+
+Exact head 1a346205: Linux 45651346938 PASS, Windows 45651346920 PASS,
+real neural CPU smoke 45651346962 PASS, real ASR CPU smoke 45651346998 PASS.
+All M15a–f technical paths present, no repeated development of completed work.
+
+New M15f gate: before real model benchmarks, freeze the actual local corpus.
+Use anonymized `speaker_group` and `vod_group` (neither may span development
+and holdout); use condition labels overlapping_speech, game_music,
+target_absent, quiet_voice, code_switching, languages de/en/mixed.
+Reference voice, mix and optional interferer must be aligned 48 kHz WAV;
+reference_wav is a separate authorized 3–30 s enrollment. Empty reference
+cues permitted for target-absent cases. The lock records hashes, geometry,
+annotation hashes and coverage gaps, not audio or transcript text.
+Coverage labels are user annotations, not independently certified; the
+minimum structural coverage is not a statistically sufficient sample size.
+
+```powershell
+.\.venv\Scripts\python.exe -m streamclipper.m15_corpus freeze cases.json cases.lock.json
+.\.venv\Scripts\python.exe scripts/run_m15_benchmark.py cases.json data/bench/m15-voxlock --backend voxlock --model data/models/voxlock/onnx/v2 --whisper PATH_TO_LOCAL_WHISPER --authorized-references --commit EXACT_COMMIT_SHA --corpus-lock cases.lock.json
+.\.venv\Scripts\python.exe scripts/run_m15_benchmark.py cases.json data/bench/m15-inworld --backend inworld --model PATH_TO_DENOISER --device cuda --whisper PATH_TO_LOCAL_WHISPER --commit EXACT_COMMIT_SHA --corpus-lock cases.lock.json
+.\.venv\Scripts\python.exe -m streamclipper.m15_corpus compare data/bench/m15-inworld/metrics.json data/bench/m15-voxlock/metrics.json data/bench/m15-comparison.json
+```
+
+The real benchmark now requires the lock and validates it again before
+publishing metrics; also fingerprints ASR model bytes. Pair comparison
+requires the same source commit, corpus, ASR model and case hashes.
+It reports holdout-only micro-averaged WER/CER, unexpected words in empty
+references, cue matching coverage and weighted timing error, SI-SDR and
+leakage with measured sample counts, by language and condition. It does not
+certify a quality pass or require identical CPU/GPU numerical behavior.
+Do not tune against holdout. Real independent recordings and native local
+RTX/6h listening evidence are still unavailable; distribution review stays
+open, no weights bundled, optional alignment/model selection deferred until
+actual evidence. No merge or M16 start.

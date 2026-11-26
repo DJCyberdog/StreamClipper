@@ -1,3 +1,7 @@
+# NEXT_TASK — M15 unified acceptance
+
+M15a–f technical implementation exists; exact prior 1a346205 all four workflows PASS. M15f now adds frozen audio/annotation/split lock and paired comparison. See docs/M15F_ACCEPTANCE.md. Verify new head CI. Do not repeat passed hosted smokes as a substitute for actual independent gaming benchmark. Remaining work is acquisition of authorized real corpus, native Windows RTX 5060 Ti six-hour evidence and listening, exact distribution/license review, evidence-based ASR/optional alignment choice. No M16 or merge until acceptance; M14 native gate separately open.
+
 # NEXT_TASK — M15 acceptance follow-up
 
 Owner asked to execute docs/M15F_ACCEPTANCE.md. Prior c8f688cb all hosted CI
