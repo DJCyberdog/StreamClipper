@@ -154,7 +154,8 @@ def _load_detector_model(model_class, folder: Path):
 def detect_and_track(video: VideoInfo, model_directory: str | Path, *,
                      anchors: Sequence[EventEvidence], max_frames: int = 90,
                      cancelled: Cancelled | None = None,
-                     progress: Progress | None = None) -> list[EventEvidence]:
+                     progress: Progress | None = None,
+                     timestamps: list[float] | None = None, device_override: str | None = None) -> list[EventEvidence]:
     """Sample <=90 images (default) around interesting timestamps, track locally.
 
     Uses existing optional torch/transformers/Pillow installation. No remote
@@ -173,9 +174,9 @@ def detect_and_track(video: VideoInfo, model_directory: str | Path, *,
         raise RuntimeError('Objekterkennung benötigt das optionale Paket .[vision]') from exc
     processor = AutoImageProcessor.from_pretrained(str(folder), local_files_only=True)
     model = _load_detector_model(AutoModelForObjectDetection, folder)
-    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    device = device_override or ('cuda' if torch.cuda.is_available() else 'cpu')
     model.to(device).eval()
-    stamps = select_scene_timestamps(anchors, video.duration, max_frames=max_frames)
+    stamps = timestamps if timestamps is not None else select_scene_timestamps(anchors, video.duration, max_frames=max_frames)
     detections: list[Detection] = []
     for index, (at, encoded) in enumerate(sampled_jpeg_frames(video, timestamps=stamps,
                                                               max_frames=max_frames,
