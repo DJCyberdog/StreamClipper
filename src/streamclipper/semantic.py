@@ -105,7 +105,8 @@ def transcribe_video(video: VideoInfo, model_directory: str, *,
     if cancelled and cancelled():
         raise CancelledError("Analyse abgebrochen")
 
-    device = os.environ.get("STREAMCLIPPER_WHISPER_DEVICE", "auto").lower()
+    from .hardware_media import mode,notify
+    device = "cpu" if mode.get()=="cpu" else os.environ.get("STREAMCLIPPER_WHISPER_DEVICE", "auto").lower()
     if device not in {"auto", "cuda", "cpu"}:
         raise ValueError("STREAMCLIPPER_WHISPER_DEVICE: auto, cuda oder cpu erwartet")
 
@@ -119,6 +120,8 @@ def transcribe_video(video: VideoInfo, model_directory: str, *,
                                  compute_type="int8" if chosen_device == "cpu" else "default",
                                  local_files_only=True)
             if model_cache is not None:model_cache[key]=model
+        actual=getattr(getattr(model,"model",None),"device",None) or chosen_device
+        notify("Whisper: "+str(actual))
         options={} if quality_options is None else quality_options.whisper_kwargs()
         segments, _ = model.transcribe(
             video.path, beam_size=options.pop('beam_size',2), vad_filter=True,
@@ -277,7 +280,8 @@ def recognize_gameplay(video: VideoInfo, model_directory: str, *,
         raise CancelledError("Analyse abgebrochen")
     processor = AutoProcessor.from_pretrained(str(folder), local_files_only=True)
     model = CLIPModel.from_pretrained(str(folder), local_files_only=True)
-    device = device_override or ("cuda" if torch.cuda.is_available() else "cpu")
+    from .hardware_media import torch_device
+    device = torch_device(torch,device_override)
     model.to(device).eval()
     from .vision_device import report_vision_device
     report_vision_device("CLIP",device)
