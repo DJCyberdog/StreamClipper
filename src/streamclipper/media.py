@@ -784,10 +784,10 @@ def stream_offsets(source: str | Path) -> tuple[float, float]:
     return video_start - format_start, audio_start - video_start
 
 
-def encode_preview_proxy(
+def _encode_preview_proxy(
         video: VideoInfo, target: str | Path, *,
         progress: Progress | None = None,
-        cancelled: Cancelled | None = None) -> None:
+        cancelled: Cancelled | None = None, gpu_encode: bool = False) -> None:
     """Transcode a complete, small MP4 with VFR PTS spacing preserved.
 
     This is a streaming FFmpeg operation: no video/audio bytes are buffered
@@ -807,7 +807,8 @@ def encode_preview_proxy(
                 "scale=854:480:force_original_aspect_ratio=decrease:"
                 "force_divisible_by=2,setsar=1,format=yuv420p"),
         "-fps_mode:v", "passthrough",
-        "-c:v", "libx264", "-preset", "veryfast", "-crf", "29",
+        *(["-c:v","h264_nvenc","-preset","p4","-rc","vbr","-cq","29","-b:v","0"] if gpu_encode else
+          ["-c:v","libx264","-preset","veryfast","-crf","29"]),
         "-pix_fmt", "yuv420p",
     ]
     if video.has_audio:
@@ -864,6 +865,23 @@ def encode_preview_proxy(
             reader.join(timeout=2)
             if proc.stdout:
                 proc.stdout.close()
+
+
+def encode_preview_proxy(video: VideoInfo,target: str | Path,*,progress=None,cancelled=None):
+    from .hardware_media import prefer_gpu,notify
+    from .encoders import probe_nvenc
+    if cancelled and cancelled():raise CancelledError("Proxy-Erstellung abgebrochen")
+    gpu=prefer_gpu() and probe_nvenc(tool_path("ffmpeg"),"h264_nvenc")
+    if prefer_gpu() and not gpu:notify("Proxy: NVENC nicht verfügbar – CPU")
+    notify("Proxy: "+("H.264 NVENC" if gpu else "libx264 CPU"))
+    if gpu:
+        try:return _encode_preview_proxy(video,target,progress=progress,cancelled=cancelled,gpu_encode=True)
+        except CancelledError:raise
+        except RuntimeError:
+            notify("Proxy: NVENC fehlgeschlagen – neuer CPU-Versuch")
+            if cancelled and cancelled():raise CancelledError("Proxy-Erstellung abgebrochen")
+            Path(target).unlink(missing_ok=True)
+    return _encode_preview_proxy(video,target,progress=progress,cancelled=cancelled)
 
 
 def concatenate_scene_parts(parts: list[Path], destination: Path, *, cancelled=None) -> None:
