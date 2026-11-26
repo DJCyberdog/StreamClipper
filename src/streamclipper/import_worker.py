@@ -57,6 +57,8 @@ def guard(proxy,ffmpeg,ffprobe):
 def main():
     if len(sys.argv)<5:raise SystemExit(2)
     proxy,ffmpeg,ffprobe=sys.argv[1:4];args=sys.argv[4:]
+    # Native networking extensions bypass Python socket audit hooks.
+    sys.modules["curl_cffi"]=None
     import yt_dlp
     sys.addaudithook(guard(proxy,ffmpeg,ffprobe))
     yt_dlp.main(args)
