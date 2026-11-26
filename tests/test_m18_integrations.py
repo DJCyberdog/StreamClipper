@@ -68,7 +68,8 @@ def test_import_requires_explicit_consent(monkeypatch):
 def test_real_media_publication_with_fake_downloader(tmp_path,monkeypatch):
     from streamclipper import video_import as vi
     src=parse_source("https://twitch.tv/videos/123")
-    meta=sanitize_metadata(src,info())
+    raw=info();raw["formats"]=[dict(raw["formats"][0],acodec="none")]
+    meta=sanitize_metadata(src,raw)
     monkeypatch.setattr(vi,"preflight",lambda *a,**k:meta)
     monkeypatch.setattr(vi.shutil,"disk_usage",lambda p:SimpleNamespace(free=100*1024**3))
     # Simulate only the external provider. Actual FFmpeg and publication are real.
@@ -86,7 +87,10 @@ def test_real_media_publication_with_fake_downloader(tmp_path,monkeypatch):
     assert p!=previous and previous.read_bytes()==b"original"
     assert not probe_video(p).has_audio
     d=json.loads(p.with_name(p.name+".import.json").read_text())
-    assert d["id"]=="123" and events[-1]["stage"]=="complete"
+    assert d["id"]=="123" and events[-1]["stage"]=="complete" and d["file_bytes"]==p.stat().st_size
+    monkeypatch.setattr(vi,"run_worker",lambda *a,**k:pytest.fail("Completed import must be reused"))
+    assert vi.download(meta,tmp_path,authorized=True,height=720,max_bytes=1024**2)==p
+    assert not list(tmp_path.glob(".sc-import-*/video.mp4"))
 
 def test_cancel_preserves_part(tmp_path,monkeypatch):
     from streamclipper import video_import as vi
@@ -211,3 +215,44 @@ def test_real_worker_option_parser():
         "--no-cookies","--no-cookies-from-browser","--no-netrc","--version"],
         capture_output=True,text=True,timeout=30)
     assert result.returncode==0,result.stderr[-1000:]
+
+
+def test_publication_recovers_after_media_before_receipt(tmp_path,monkeypatch):
+    from streamclipper import import_publication as ip
+    staging=tmp_path/"staging";staging.mkdir();src=staging/"video.mp4";src.write_bytes(b"validated media")
+    sub=staging/"video.en.vtt";sub.write_bytes(b"WEBVTT")
+    target=tmp_path/"youtube_test.mp4";identity={"id":"test"}
+    real=ip.os.link
+    def interrupt(source,dest):
+        if str(dest).endswith(".import.json"):raise RuntimeError("simulated interruption")
+        return real(source,dest)
+    with monkeypatch.context() as patch:
+        patch.setattr(ip.os,"link",interrupt)
+        with pytest.raises(RuntimeError,match="simulated"):
+            ip.begin(staging,tmp_path,src,target,{"id":"test"},[(sub,"en.vtt")],identity)
+    assert target.exists() and not target.with_name(target.name+".import.json").exists()
+    assert ip.finish(staging,tmp_path,identity)==target
+    assert target.read_bytes()==b"validated media" and not src.exists()
+    assert target.with_name(target.stem+".en.vtt").read_bytes()==b"WEBVTT"
+    receipt=json.loads(target.with_name(target.name+".import.json").read_text())
+    assert receipt["file_bytes"]==len(b"validated media")
+    assert ip.finish(staging,tmp_path,identity)==target
+    target.write_bytes(b"modified")
+    with pytest.raises(FileExistsError):ip.finish(staging,tmp_path,identity)
+    assert target.read_bytes()==b"modified"
+
+def test_publication_reserves_receipt_and_subtitle_names(tmp_path):
+    from streamclipper.import_publication import choose_target
+    p=tmp_path/"test.mp4"
+    p.with_name("test.mp4.import.json").write_text("existing")
+    p.with_name("test_2.en.vtt").write_text("existing")
+    assert choose_target(tmp_path,p,["en.vtt"]).name=="test_3.mp4"
+
+def test_changed_preflight_format_is_not_silently_downloaded(tmp_path,monkeypatch):
+    from dataclasses import replace
+    from streamclipper import video_import as vi
+    meta=sanitize_metadata(parse_source("https://twitch.tv/videos/123"),info())
+    fresh=replace(meta,formats=tuple(replace(f,ext="webm") if f.id=="hi" else f for f in meta.formats))
+    monkeypatch.setattr(vi,"preflight",lambda *a,**k:fresh)
+    monkeypatch.setattr(vi,"run_worker",lambda *a,**k:pytest.fail("No silently changed format"))
+    with pytest.raises(ValueError,match="geändert"):vi.download(meta,tmp_path,authorized=True)
