@@ -151,7 +151,8 @@ def preflight(url,*,authorized=False,cancelled=None):
     return sanitize_metadata(source,rows[0])
 
 def download(meta,directory,*,height=None,audio_id=None,subtitles=False,authorized=False,
-             max_bytes=MAX_BYTES,progress=None,cancelled=None):
+             max_bytes=MAX_BYTES,progress=None,cancelled=None,container="native"):
+    if container not in ("native","mkv","mp4"):raise ValueError("Ungültiger Ausgabecontainer")
     if not authorized or not 1024**2<=max_bytes<=MAX_BYTES:raise ValueError("Berechtigung oder Downloadlimit fehlt")
     # Revalidate current metadata and exact identity before starting any download.
     fresh=preflight(meta.source.url,authorized=True,cancelled=cancelled)
@@ -163,7 +164,7 @@ def download(meta,directory,*,height=None,audio_id=None,subtitles=False,authoriz
     if estimate>max_bytes or shutil.disk_usage(folder).free<max(2*estimate,2*max_bytes)+512*1024**2:
         raise ValueError("Nicht genügend Speicher für Download und Merge; kleineres Limit wählen")
     fmt="+".join(f.id for f in formats)
-    key=hashlib.sha256((fresh.source.url+"|"+fmt+"|"+str(subtitles)).encode()).hexdigest()[:24]
+    key=hashlib.sha256((fresh.source.url+"|"+fmt+"|"+str(subtitles)+"|"+container).encode()).hexdigest()[:24]
     staging=folder/(".sc-import-"+key)
     if staging.is_symlink():raise ValueError("Unsicheres Staging")
     staging.mkdir(exist_ok=True)
@@ -179,10 +180,11 @@ def download(meta,directory,*,height=None,audio_id=None,subtitles=False,authoriz
               "--max-filesize",str(max_bytes),"--format",fmt,
               "--break-match-filters",f"id = {fresh.id} & !is_live & !has_drm & age_limit <=? 17",
               "--max-downloads","1",
-              "--merge-output-format","mkv","--windows-filenames","--output","video.%(ext)s",
+              "--merge-output-format","mp4" if container=="mp4" else "mkv","--windows-filenames","--output","video.%(ext)s",
               "--progress-template","download:SC_PROGRESS:%(progress)j",
               "--progress-template","postprocess:SC_MERGE:%(progress.status)s",
               "--print","after_move:SC_DONE:%(filepath)s"]
+        if container!="native":args+=["--remux-video",container]
         if subtitles and fresh.subtitles:args+=["--write-subs","--sub-langs",",".join(fresh.subtitles),"--sub-format","vtt/srt/best"]
         finished=[]
         def report(line):
@@ -208,13 +210,22 @@ def download(meta,directory,*,height=None,audio_id=None,subtitles=False,authoriz
         else:valid=False
         if not valid:raise ValueError("Importdatei enthält keinen unterstützten lokalen Mediencontainer")
         video=probe_video(path)
+        # Verify an actual decoded frame from the start and near the end.
+        for t in (0.,max(0.,video.duration-1.)):
+            if cancelled and cancelled():raise CancelledError("Import abgebrochen")
+            result=subprocess.run([tool_path("ffmpeg"),"-hide_banner","-nostdin","-v","error","-xerror",
+                "-protocol_whitelist","file,pipe","-format_whitelist","mov,matroska,webm,mpegts",
+                "-ss",f"{t:.3f}","-i",str(path),"-map","0:v:0","-frames:v","1","-f","null","-"],
+                stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=45)
+            if result.returncode:raise ValueError("Importdatei lässt sich nicht zuverlässig dekodieren")
         if video.duration<=0 or video.width<=0 or video.height<=0:raise ValueError("Keine dekodierbare Videoquelle")
         if fresh.duration and abs(video.duration-fresh.duration)>max(3,fresh.duration*.02):raise ValueError("Importdauer stimmt nicht")
+        if container!="native" and path.suffix.lower()!="."+container:raise ValueError("Gewünschtes Containerformat nicht erreichbar")
         target=folder/f"{fresh.source.provider}_{fresh.id}{path.suffix.lower()}"
         result=_publish_without_overwrite(path,target)
         record={"schema_version":1,"provider":fresh.source.provider,"url":fresh.source.url,"id":fresh.id,
                 "title":fresh.title,"channel":fresh.channel,"duration":video.duration,"has_audio":video.has_audio,
-                "formats":[f.id for f in formats],"downloaded_utc":__import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat(),"subtitles":[]}
+                "formats":[f.id for f in formats],"container":path.suffix.lower()[1:],"downloaded_utc":__import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat(),"subtitles":[]}
         for sidecar in sorted(staging.glob("video.*")):
             if sidecar.suffix.lower() in (".srt",".vtt",".ass",".ttml") and sidecar.is_file():
                 suffix=sidecar.name.removeprefix("video.")
