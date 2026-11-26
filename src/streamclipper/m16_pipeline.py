@@ -64,6 +64,8 @@ def analyze_m16(path,clip_seconds=25,max_clips=8,*,progress=None,cancelled=None,
     if vision_model:validate_clip_model(vision_model)
     if detector_model:validate_model_dir("detector",detector_model)
     if speech_model:validate_model_dir("speech",speech_model)
+    if reaction_model and not (isinstance(speech_source,SpeechSource) and speech_source.role=="microphone"):
+        raise ValueError("Akustisches Modell benötigt eine ausdrücklich zugeordnete Original-Mikrofonspur")
     rules=merged_rules(load_custom_rules()) if speech_model else ()
     video=probe_video(path)
     def check():
@@ -130,11 +132,16 @@ def analyze_m16(path,clip_seconds=25,max_clips=8,*,progress=None,cancelled=None,
     evidence.extend(EventEvidence(**e) for e in run("motion",lambda p:event_rows(scan_temporal_activity(video,progress=p,cancelled=cancelled))))
     if "reaction" in stages:
         def reaction(p):
+            from .m16_reactions import analyze_reactions
             with tempfile.TemporaryDirectory(prefix="m16-mic-") as folder:
-                wav=extract_audio_stream(speech_source.inventory,speech_source.index,folder,role="microphone",cancelled=cancelled)
-                levels=audio_levels(replace(video,path=str(wav),has_audio=True),progress=p,cancelled=cancelled)
-            return event_rows(speech_reaction_hints(levels,video.duration,designated_microphone=True))
-        evidence.extend(EventEvidence(**e) for e in run("reaction",reaction))
+                wav=extract_audio_stream(speech_source.inventory,speech_source.index,folder,role="microphone",
+                                         cancelled=cancelled,output_rate=16000)
+                levels=audio_levels(replace(video,path=str(wav),has_audio=True),progress=lambda n:p(round(n*.4)),cancelled=cancelled)
+                hints=speech_reaction_hints(levels,video.duration,designated_microphone=True)
+                extra=analyze_reactions(wav,video.duration,reaction_model,anchors=hints+evidence,
+                                        cancelled=cancelled,progress=lambda n:p(40+round(n*.6)))
+            return event_rows(hints+extra)
+        evidence.extend(EventEvidence(**e) for e in run("reaction",reaction,event_rows(evidence)))
     if vision_model:
         stamps=adaptive_samples(evidence,video.duration,max_visual_frames)
         evidence.extend(EventEvidence(**e) for e in run("visual",lambda p:event_rows(visual_retry(lambda device:recognize_gameplay(
