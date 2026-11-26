@@ -1,3 +1,7 @@
+# NEXT_TASK — M16g integrated, acceptance outstanding
+
+Owner confirms M15 works locally. M16a–g implementation paths integrated; hardware preferences, actual FFmpeg probes, CPU fallback, NVENC proxy, live resource monitoring and phase ETA now included. See docs/M16_ACCEPTANCE.md. Verify latest exact-head CI and native GPU diagnostic; use authorized annotated independent corpus for quality gate. No M17 or release until remaining gates resolved or explicitly changed by owner.
+
 # NEXT_TASK — M16 second implementation pass
 
 M15 hosted workflows all green at 0aec35ee and merged into M16. New M16 paths: CUDA FP16/batching, ASR window resume, acoustic classifier and pitch, visual search, explicit local Twitch chat helper/export, development-only weight search and grouped confidence intervals. See appended docs/M16_ACCEPTANCE.md. Check exact latest CI, fix any concrete failures. Native model/GUI/6h RTX tests and >=100 independently annotated authorized gaming moments with holdout remain hard gates. No synthetic quality claims, automatic release/merge, or M17 until acceptance.
