@@ -1508,6 +1508,7 @@ class MainWindow(QMainWindow):
     def _analysis_stopped(self):
         self._poll_resources()
         self._analysis_started=None
+        self.phase_status.setText('Analyse abgeschlossen' if self.progress.value()==100 else 'Analyse beendet / abgebrochen')
         self._busy(False)
 
     _WORKSPACE_TABS = {
