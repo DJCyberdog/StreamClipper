@@ -51,9 +51,19 @@ if (!(Test-Path -LiteralPath $python)) {
 }
 & $python -I -c "import sys; assert sys.version_info[:2]==(3,12); assert sys.prefix==sys.base_prefix"
 if ($LASTEXITCODE -ne 0) { throw 'Standalone runtime check failed' }
+# The runtime is our private copy, not uv's managed installation.
+# Explicitly allow package installation only after checking its actual prefix.
+$actualPrefix = & $python -I -c "import sys; print(sys.prefix)"
+if ($LASTEXITCODE -ne 0 -or !$actualPrefix -or [IO.Path]::GetFullPath([string]$actualPrefix) -ne [IO.Path]::GetFullPath($runtime)) { throw 'External runtime prefix rejected' }
+# Remove the copied PEP 668 marker only inside our verified private runtime,
+# so later local pip commands (GPU and optional extras) work as well.
+$stdlib = & $python -I -c "import sysconfig; print(sysconfig.get_path('stdlib'))"
+if ($LASTEXITCODE -ne 0 -or !$stdlib -or !([IO.Path]::GetFullPath([string]$stdlib).StartsWith($runtime + '\', [StringComparison]::OrdinalIgnoreCase))) { throw 'External stdlib rejected' }
+$marker = Join-Path $stdlib 'EXTERNALLY-MANAGED'
+if (Test-Path -LiteralPath $marker -PathType Leaf) { Remove-Item -LiteralPath $marker -Force }
 # Non-editable wheels for dependencies; current source is loaded via relative .pth.
 $extras = if ($Minimal) { 'gui' } else { 'gui,speech,vision,models,twitch' }
-& $uv pip install --python $python --no-config --link-mode copy --system ".[${extras}]"
+& $uv pip install --python $python --no-config --link-mode copy --system --break-system-packages ".[${extras}]"
 if ($LASTEXITCODE -ne 0) { throw 'Dependency installation failed' }
 & $python -I -m ensurepip --upgrade
 if ($LASTEXITCODE -ne 0) { throw 'Local pip bootstrap failed' }
