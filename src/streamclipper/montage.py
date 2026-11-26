@@ -28,7 +28,7 @@ class Beat:
     lut:str=""
     sound:str=""
     sound_gain:float=-12.
-    def validate(self,duration):
+    def validate(self,duration,*,verify_media=True):
         if not all(math.isfinite(v) for v in (self.start,self.end,self.speed,self.freeze,self.zoom,self.sound_gain)):
             raise ValueError("Ungültige Effektparameter")
         if not 0<=self.start<self.end<=duration or self.end-self.start<.2:
@@ -37,9 +37,9 @@ class Beat:
             raise ValueError("Ungültige Effektparameter")
         if self.look not in LOOKS or len(self.text)>120 or (self.text and not self.freeze):
             raise ValueError("Standbildtext benötigt Standbild")
-        if self.lut and (Path(self.lut).suffix.lower()!=".cube" or not Path(self.lut).is_file() or Path(self.lut).stat().st_size>16*1024*1024):
+        if self.lut and (Path(self.lut).suffix.lower()!=".cube" or (verify_media and (not Path(self.lut).is_file() or Path(self.lut).stat().st_size>16*1024*1024))):
             raise ValueError("Lokale .cube-LUT fehlt oder ist zu groß")
-        if self.sound and not Path(self.sound).is_file():raise ValueError("Lokaler Sound fehlt")
+        if verify_media and self.sound and not Path(self.sound).is_file():raise ValueError("Lokaler Sound fehlt")
         return self
     @property
     def duration(self):return (self.end-self.start)/self.speed+self.freeze
@@ -54,7 +54,7 @@ class Montage:
             raise ValueError("Ungültiger Montageplan")
         if self.encoder not in ("auto_h264","cpu_h264","nvenc_h264"):
             raise ValueError("Montage unterstützt H.264")
-        for b in self.beats:b.validate(duration)
+        for b in self.beats:b.validate(duration,verify_media=verify_media)
         if not .2<=sum(b.duration for b in self.beats)<=900:raise ValueError("Montage maximal 15 Minuten")
         return self
 
@@ -154,7 +154,7 @@ def render_montage(video,plan,destination,*,cancelled=None,progress=None,notice=
         else:prepared=[(video,beat) for beat in plan.beats]
         expected=sum(b.duration for _,b in prepared)
         for profile in (enc.primary,)+((enc.fallback,) if enc.fallback else ()):
-            parts=[]
+            parts=[];published=False
             try:
                 if notice:notice("Montage: "+profile)
                 for i,(part_video,beat) in enumerate(prepared):
@@ -187,12 +187,13 @@ def render_montage(video,plan,destination,*,cancelled=None,progress=None,notice=
                 quality=inspect_export(final,expected_codec="h264",width=w,height=h,duration=expected,audio_expected=True)
                 if cancelled and cancelled():raise CancelledError("Montage abgebrochen")
                 result=_publish_without_overwrite(final,dest)
+                published=True
                 write_report(quality,result)
                 if progress:progress(100)
                 return result
             except CancelledError:raise
             except RuntimeError:
-                if profile==enc.fallback or not enc.fallback:raise
+                if published or profile==enc.fallback or not enc.fallback:raise
                 if notice:notice("NVENC fehlgeschlagen – kompletter CPU-Neuversuch")
                 for part in work.glob("part-*.mp4"):part.unlink(missing_ok=True)
                 (work/"montage.mp4").unlink(missing_ok=True)
