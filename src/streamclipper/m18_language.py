@@ -245,7 +245,7 @@ _english=False
 
 def tr(value,english=None):
     if not isinstance(value,str):return value
-    return (CATALOG if (_english if english is None else english) else REVERSE).get(value,value)
+    return CATALOG.get(value,value) if (_english if english is None else english) else value
 
 def preference_path():
     return installation_directory()/"data"/"settings"/"language.json"
@@ -265,30 +265,43 @@ def apply_language(window,english,*,persist=True):
     from PySide6.QtWidgets import QAbstractButton,QLabel,QComboBox,QTabWidget,QGroupBox,QDockWidget,QTableWidget,QLineEdit,QTextEdit,QPlainTextEdit
     from PySide6.QtGui import QAction
     _english=bool(english)
-    window.setWindowTitle(tr(window.windowTitle()))
+    def present(obj,key,value,setter):
+        prop="_sc_lang_"+key
+        original=obj.property(prop)
+        if original is None:
+            if value not in CATALOG:return
+            original=value;obj.setProperty(prop,original)
+        # Do not rewrite dynamic state or user-supplied data when it changed.
+        if value in (original,CATALOG[original]):
+            setter(CATALOG[original] if _english else original)
+    present(window,"title",window.windowTitle(),window.setWindowTitle)
     for obj in window.findChildren(QAbstractButton):
-        obj.setText(tr(obj.text()))
+        present(obj,"text",obj.text(),obj.setText)
     for obj in window.findChildren(QLabel):
-        # Existing dynamic media/transcript labels must not be reinterpreted.
-        if obj in (getattr(window,"caption_overlay",None),):continue
-        obj.setText(tr(obj.text()))
+        if obj in (getattr(window,"caption_overlay",None),getattr(window,"source_label",None)):continue
+        present(obj,"text",obj.text(),obj.setText)
     for obj in window.findChildren(QAction):
-        obj.setText(tr(obj.text()))
+        present(obj,"text",obj.text(),obj.setText)
     for typ in (QGroupBox,QDockWidget):
         for obj in window.findChildren(typ):
-            if typ is QGroupBox:obj.setTitle(tr(obj.title()))
-            else:obj.setWindowTitle(tr(obj.windowTitle()))
+            if typ is QGroupBox:present(obj,"title",obj.title(),obj.setTitle)
+            else:present(obj,"title",obj.windowTitle(),obj.setWindowTitle)
     for obj in window.findChildren(QTabWidget):
-        for i in range(obj.count()):obj.setTabText(i,tr(obj.tabText(i)))
-    for obj in window.findChildren(QComboBox):
-        # Only translate exact catalog matches. User-data and indexes unchanged.
-        for i in range(obj.count()):obj.setItemText(i,tr(obj.itemText(i)))
+        for i in range(obj.count()):present(obj,"tab"+str(i),obj.tabText(i),lambda s,i=i:obj.setTabText(i,s))
+    # Only static combos with stable userData; workspace uses German keys.
+    for attr in ("hardware_mode","mode","encoder_mode","proxy_mode"):
+        obj=getattr(window,attr,None)
+        if obj is None:continue
+        blocked=obj.blockSignals(True)
+        try:
+            for i in range(obj.count()):present(obj,"item"+str(i),obj.itemText(i),lambda s,i=i:obj.setItemText(i,s))
+        finally:obj.blockSignals(blocked)
     for obj in window.findChildren(QTableWidget):
         for i in range(obj.columnCount()):
             item=obj.horizontalHeaderItem(i)
-            if item:item.setText(tr(item.text()))
+            if item:present(obj,"header"+str(i),item.text(),item.setText)
     for typ in (QLineEdit,QTextEdit,QPlainTextEdit):
-        for obj in window.findChildren(typ):obj.setPlaceholderText(tr(obj.placeholderText()))
+        for obj in window.findChildren(typ):present(obj,"placeholder",obj.placeholderText(),obj.setPlaceholderText)
     if persist:save_preference(_english)
     window.statusBar().showMessage("English interface (partial)" if _english else "Deutsche Oberfläche")
 
