@@ -120,7 +120,8 @@ def _analyze_m16(path,clip_seconds=25,max_clips=8,*,progress=None,cancelled=None
             cache=None
             if cache_root is not None:
                 from .asr_window_cache import ASRWindowCache
-                cache=ASRWindowCache.for_whisper(Path(cache_root)/"asr_windows",speech_model,cancelled=cancelled)
+                from .hardware_media import mode
+                cache=ASRWindowCache.for_whisper(Path(cache_root)/"asr_windows"/mode.get(),speech_model,cancelled=cancelled)
                 if selection is None and video.has_audio:
                     snapshot=inventory(video.path)
                     if snapshot.streams:
