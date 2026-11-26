@@ -50,11 +50,19 @@ def tool_path(name: str) -> str:
 
 
 def probe_video(path: str | Path) -> VideoInfo:
+    return _probe_video(path,local_container=False)
+
+
+def probe_video_local_container(path: str | Path) -> VideoInfo:
+    return _probe_video(path,local_container=True)
+
+
+def _probe_video(path: str | Path, *, local_container: bool) -> VideoInfo:
     source = Path(path).resolve()
     if not source.is_file():
         raise FileNotFoundError(f"Videodatei fehlt: {source}")
     result = subprocess.run(
-        [tool_path("ffprobe"), "-v", "error", "-show_entries", "format=duration:stream=codec_type,width,height,avg_frame_rate", "-of", "json", str(source)],
+        [tool_path("ffprobe"), "-v", "error", *(["-protocol_whitelist","file,pipe","-format_whitelist","mov,matroska,webm,mpegts"] if local_container else []), "-show_entries", "format=duration:stream=codec_type,width,height,avg_frame_rate", "-of", "json", str(source)],
         check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
         timeout=40,
     )
