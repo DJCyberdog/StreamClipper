@@ -51,7 +51,8 @@ def visual_retry(fn):
 def analyze_m16(path,clip_seconds=25,max_clips=8,*,progress=None,cancelled=None,
                 speech_model=None,vision_model=None,max_visual_frames=180,
                 detector_model=None,max_object_frames=90,speech_source=None,
-                cache_root=None,profile="generic",preferences=None,chat_messages=None):
+                cache_root=None,profile="generic",preferences=None,chat_messages=None,
+                fast_vision=False,reaction_model=None):
     from .analyze import find_candidates
     from .audio_sources import inventory,SpeechSource,extract_audio_stream,transcribe_selected_stream
     from .reconstructed_speech import ReconstructedSpeech,transcribe_reconstructed
@@ -77,12 +78,12 @@ def analyze_m16(path,clip_seconds=25,max_clips=8,*,progress=None,cancelled=None,
         else:speech_source.validate()
     identity=None
     if cache_root is not None:
-        identity={"schema":1,"engine":"m16-pilot-1","source":sha256_file(video.path,cancelled=cancelled),
+        identity={"schema":1,"engine":"m16-pilot-2","source":sha256_file(video.path,cancelled=cancelled),
                   "duration":video.duration,"speech_source":speech_source.method_suffix if speech_source else None,
                   "models":[fingerprint_model(m,cancelled) for m in (speech_model,vision_model,detector_model)],
                   "versions":{m:package_version(m) for m in ("faster-whisper","ctranslate2","torch","transformers","av")},
                   "requested_device":os.environ.get("STREAMCLIPPER_WHISPER_DEVICE","auto"),
-                  "profile":profile,"visual_budget":max_visual_frames,"object_budget":max_object_frames,
+                  "profile":profile,"fast_vision":bool(fast_vision),"reaction_model":fingerprint_model(reaction_model,cancelled),"visual_budget":max_visual_frames,"object_budget":max_object_frames,
                   "rules":[asdict(r) for r in rules]}
     stages=["audio"]+(["speech"] if speech_model else [])+["motion"]+(["reaction"] if isinstance(speech_source,SpeechSource) and speech_source.role=="microphone" else [])+(["visual"] if vision_model else [])+(["object"] if detector_model else [])
     def run(name,fn,dependency=None):
@@ -137,12 +138,12 @@ def analyze_m16(path,clip_seconds=25,max_clips=8,*,progress=None,cancelled=None,
     if vision_model:
         stamps=adaptive_samples(evidence,video.duration,max_visual_frames)
         evidence.extend(EventEvidence(**e) for e in run("visual",lambda p:event_rows(visual_retry(lambda device:recognize_gameplay(
-            video,vision_model,max_frames=max_visual_frames,timestamps=stamps,profile=profile,progress=p,cancelled=cancelled,device_override=device))),stamps))
+            video,vision_model,max_frames=max_visual_frames,timestamps=stamps,profile=profile,progress=p,cancelled=cancelled,device_override=device,batch_size=(4 if fast_vision and device!="cpu" else 1),mixed_precision=fast_vision))),stamps))
     if detector_model:
         anchors=checked_events(evidence,video.duration)
         stamps=adaptive_samples(anchors,video.duration,max(5,max_object_frames))[:max_object_frames]
         evidence.extend(EventEvidence(**e) for e in run("object",lambda p:event_rows(visual_retry(lambda device:detect_and_track(
-            video,detector_model,anchors=anchors,max_frames=max_object_frames,timestamps=stamps,progress=p,cancelled=cancelled,device_override=device,relative_motion=True))),[event_rows(anchors),stamps]))
+            video,detector_model,anchors=anchors,max_frames=max_object_frames,timestamps=stamps,progress=p,cancelled=cancelled,device_override=device,relative_motion=True,batch_size=(2 if fast_vision and device!="cpu" else 1),mixed_precision=fast_vision))),[event_rows(anchors),stamps]))
     if chat_messages is not None:
         from .gaming_intelligence import chat_hints
         evidence.extend(chat_hints(chat_messages,video.duration))
