@@ -36,7 +36,7 @@ class MontageRequest:
     compositions:tuple[RenderRequest,...]=()
     media_bindings:tuple[tuple[str,int,int],...]=()
     def validate(self,*,verify_media=False):
-        self.plan.validate(self.video.duration)
+        self.plan.validate(self.video.duration,verify_media=verify_media)
         if self.compositions and len(self.compositions)!=len(self.plan.beats):
             raise ValueError("Montage-Kompositionen fehlen")
         for beat,req in zip(self.plan.beats,self.compositions):
@@ -84,7 +84,9 @@ def save_plan(path,request):
         old=json.loads(path.read_text(encoding="utf-8"))
         if old.get("schema")!="streamclipper-montage-1":raise ValueError("Keine Montageplandatei: Überschreiben verweigert")
     doc=snapshot(request)
-    atomic_json(path,{"schema":"streamclipper-montage-1","request":doc,"sha256":digest(doc)})
+    payload={"schema":"streamclipper-montage-1","request":doc,"sha256":digest(doc)}
+    if len(json.dumps(payload,ensure_ascii=False).encode("utf-8"))>20*1024*1024:raise ValueError("Montageplan zu groß")
+    atomic_json(path,payload)
 
 def load_plan(path):
     path=Path(path)
