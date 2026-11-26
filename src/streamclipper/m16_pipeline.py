@@ -142,7 +142,7 @@ def analyze_m16(path,clip_seconds=25,max_clips=8,*,progress=None,cancelled=None,
         anchors=checked_events(evidence,video.duration)
         stamps=adaptive_samples(anchors,video.duration,max(5,max_object_frames))[:max_object_frames]
         evidence.extend(EventEvidence(**e) for e in run("object",lambda p:event_rows(visual_retry(lambda device:detect_and_track(
-            video,detector_model,anchors=anchors,max_frames=max_object_frames,timestamps=stamps,progress=p,cancelled=cancelled,device_override=device))),[event_rows(anchors),stamps]))
+            video,detector_model,anchors=anchors,max_frames=max_object_frames,timestamps=stamps,progress=p,cancelled=cancelled,device_override=device,relative_motion=True))),[event_rows(anchors),stamps]))
     if chat_messages is not None:
         from .gaming_intelligence import chat_hints
         evidence.extend(chat_hints(chat_messages,video.duration))
