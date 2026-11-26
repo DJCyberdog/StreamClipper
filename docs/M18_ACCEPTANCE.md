@@ -73,3 +73,36 @@ messages and specialist dialogs; approved provider auth integration and
 permitted authenticated import paths; no bypass or confidential credentials
 in the client. Real provider/OBS/Deck/NLE/native security and quality gates
 remain. No main merge, release or M19 start.
+
+
+## Third M18 pass — import recovery and remaining provider contracts
+
+Exact prior head 116c30d: CI, Windows portable build, true portable
+runtime all PASS. New implementation:
+- import_publication.py journals exact validated files and hashes before
+  publication. Existing media, subtitle and receipt names reserved as a
+  bundle, no overwrite; conflicting bytes fail closed. Recovery after
+  interruption between media and receipt publication is supported. Same
+  source/format/subtitle/container request reuses the validated existing
+  bundle. Staged large links removed after receipt completion. Journal
+  retained for dedup; deleted or modified output requires manual conflict
+  resolution rather than silent overwrite. This is recoverable multi-file
+  publication, not a single atomic multi-file filesystem transaction.
+- Disk monitoring continues while downloader produces no progress lines.
+  Local probe now requires four actual decoded gray pixels, not just
+  FFmpeg exit zero, from start and near end. Expected audio must exist;
+  genuinely silent sources are permitted. GUI displays verification stage.
+- Instagram Business Login and Snapchat Public Profile OAuth request,
+  redirect/state/expiry and token-response contracts added. Confidential
+  backend owns grants and secrets. No real registered app or live OAuth
+  exchange supplied. Scope references:
+  https://developers.facebook.com/docs/instagram-platform/instagram-api-with-instagram-login/business-login/
+  https://developers.snap.com/marketing-api/Public-Profile-API/GetStarted
+  Snapchat requires allowlisting; neither local grant nor token parsing
+  proves provider access. No upload/publish implemented.
+- DE/EN import preflight and dynamic progress text expanded. Full app-wide
+  localization remains incomplete.
+- Regression tests for interrupted receipt recovery, collision detection,
+  reused imports, changed preflight, and provider grants. New exact-head
+  CI still required. Real provider downloads, native integrations and
+  adversarial security acceptance remain open. No M19 start.
