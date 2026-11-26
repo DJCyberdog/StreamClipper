@@ -81,7 +81,7 @@ def _missing_cuda_library(exc: BaseException) -> bool:
 
 def transcribe_video(video: VideoInfo, model_directory: str, *,
                      progress: Progress | None = None,
-                     cancelled: Cancelled | None = None) -> list[TranscriptSegment]:
+                     cancelled: Cancelled | None = None, quality_options=None, model_cache=None) -> list[TranscriptSegment]:
     """Transcribe locally, retrying on CPU only for missing NVIDIA DLLs.
 
     A CTranslate2 model may construct successfully and fail *during generator
@@ -112,12 +112,17 @@ def transcribe_video(video: VideoInfo, model_directory: str, *,
     def transcribe_on(chosen_device: str) -> list[TranscriptSegment]:
         if cancelled and cancelled():
             raise CancelledError("Analyse abgebrochen")
-        model = WhisperModel(str(folder), device=chosen_device,
-                             compute_type="int8" if chosen_device == "cpu" else "default",
-                             local_files_only=True)
+        key=(str(folder.resolve()),chosen_device)
+        model=model_cache.get(key) if model_cache is not None else None
+        if model is None:
+            model = WhisperModel(str(folder), device=chosen_device,
+                                 compute_type="int8" if chosen_device == "cpu" else "default",
+                                 local_files_only=True)
+            if model_cache is not None:model_cache[key]=model
+        options={} if quality_options is None else quality_options.whisper_kwargs()
         segments, _ = model.transcribe(
-            video.path, beam_size=2, vad_filter=True,
-            condition_on_previous_text=False, word_timestamps=True,
+            video.path, beam_size=options.pop('beam_size',2), vad_filter=True,
+            condition_on_previous_text=False, word_timestamps=True, **options,
         )
         spans: list[TranscriptSegment] = []
         try:
@@ -136,7 +141,11 @@ def transcribe_video(video: VideoInfo, model_directory: str, *,
                     if word_cues:
                         start = min(start, *(word.start for word in word_cues))
                         end = max(end, *(word.end for word in word_cues))
-                    spans.append(TranscriptSegment(start, end, phrase, tuple(word_cues)))
+                    def metric(name):
+                        value=getattr(seg,name,None)
+                        return float(value) if isinstance(value,(int,float)) and math.isfinite(value) else None
+                    spans.append(TranscriptSegment(start,end,phrase,tuple(word_cues),"asr",
+                        metric("avg_logprob"),metric("no_speech_prob"),metric("compression_ratio")))
                 if progress:
                     progress(min(100, int(100 * seg.end / video.duration)))
         except TypeError as exc:
@@ -148,6 +157,9 @@ def transcribe_video(video: VideoInfo, model_directory: str, *,
             ) from exc
         return spans
 
+    requested_device=device
+    if model_cache is not None and model_cache.get(("fallback",str(folder.resolve()),device)):
+        device="cpu"
     try:
         spans = transcribe_on(device)
     except (RuntimeError, OSError) as exc:
@@ -160,6 +172,9 @@ def transcribe_video(video: VideoInfo, model_directory: str, *,
             "(langsamer). GPU-Betrieb benötigt CUDA 12 und passende cuDNN-Bibliotheken.",
             RuntimeWarning, stacklevel=2,
         )
+        if model_cache is not None:
+            model_cache.pop((str(folder.resolve()),requested_device),None)
+            model_cache[("fallback",str(folder.resolve()),requested_device)]=True
         spans = transcribe_on("cpu")
 
     if progress:
@@ -262,6 +277,8 @@ def recognize_gameplay(video: VideoInfo, model_directory: str, *,
     model = CLIPModel.from_pretrained(str(folder), local_files_only=True)
     device = "cuda" if torch.cuda.is_available() else "cpu"
     model.to(device).eval()
+    from .vision_device import report_vision_device
+    report_vision_device("CLIP",device)
     labels = [name for name, _, _ in _VISUAL_LABELS]
     prompts = [prompt for _, prompt, _ in _VISUAL_LABELS]
     results = []

@@ -22,15 +22,16 @@ def main() -> int:
     enable_local_cuda_runtime()
     absent = missing_runtime_dlls()
     if absent:
-        print("Fehlende CUDA-Laufzeit-DLLs in der lokalen .venv:", ", ".join(absent))
+        print("Fehlende CUDA-Laufzeit-DLLs in der lokalen Runtime:", ", ".join(absent))
         for folder in runtime_directories():
             print("Pruefen:", folder)
         return 2
     model_path = default_models_directory() / "whisper-small"
-    if not model_path.is_dir():
-        print("Lokales Whisper-Modell fehlt:", model_path)
-        print("Erst setup_windows.bat ausfuehren.")
-        return 2
+    from streamclipper.model_catalog import is_installed
+    if not is_installed("whisper-small", model_path.parent):
+        print("Lokales Whisper-Modell fehlt oder ist unvollständig:", model_path)
+        print("Whisper-CUDA-Inferenztest ausstehend; Modell im GUI oder GPU-Setup laden.")
+        return 3
     try:
         import ctranslate2
         import numpy as np

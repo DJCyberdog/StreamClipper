@@ -1,0 +1,41 @@
+name: M15 real ASR CPU smoke
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'scripts/m15_asr_smoke.py'
+      - '.github/workflows/m15-asr-smoke.yml'
+      - 'src/streamclipper/asr_window_cache.py'
+      - 'src/streamclipper/reconstructed_speech.py'
+      - 'src/streamclipper/audio_sources.py'
+permissions:
+  contents: read
+jobs:
+  speech:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install system test tools
+        run: |
+          sudo apt-get -o Acquire::Retries=2 update
+          sudo apt-get -o Acquire::Retries=2 install -y espeak-ng ffmpeg
+      - name: Install dependencies and pinned public ASR test model
+        run: |
+          python -m pip install -e '.[dev,speech,models]'
+          python -c "from huggingface_hub import snapshot_download; snapshot_download('Systran/faster-whisper-tiny',revision='d90ca5f',local_dir='$RUNNER_TEMP/whisper',allow_patterns=['config.json','model.bin','tokenizer.json','vocabulary.txt'])"
+      - name: Test local actual ASR, VAD and restart cache
+        env:
+          HF_HUB_OFFLINE: '1'
+          TRANSFORMERS_OFFLINE: '1'
+          HF_HUB_DISABLE_TELEMETRY: '1'
+          STREAMCLIPPER_WHISPER_DEVICE: cpu
+        run: python scripts/m15_asr_smoke.py "$RUNNER_TEMP/whisper" "$RUNNER_TEMP/asr-smoke"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: m15-asr-smoke
+          path: ${{ runner.temp }}/asr-smoke/asr_smoke.json
+          if-no-files-found: error

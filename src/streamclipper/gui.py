@@ -12,7 +12,7 @@ from .portable import configure_portable_environment
 configure_portable_environment()
 
 from PySide6.QtCore import QByteArray, QEvent, Qt, QThread, QTimer, QUrl, Signal
-from PySide6.QtGui import QColor, QKeySequence, QShortcut
+from PySide6.QtGui import QColor, QKeySequence, QShortcut, QIcon
 from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
 from PySide6.QtMultimediaWidgets import QVideoWidget
 from PySide6.QtWidgets import (
@@ -85,13 +85,16 @@ def display_time(seconds: float) -> str:
 
 class AnalysisThread(QThread):
     progress_changed = Signal(int)
+    backend_notice = Signal(str)
     done = Signal(object)
     failed = Signal(str)
 
     def __init__(self, source: str, length: int, parent=None,
                  speech_model: str | None = None, vision_model: str | None = None,
-                 detector_model: str | None = None):
+                 detector_model: str | None = None, speech_source=None, asr_cache_root=None):
         super().__init__(parent)
+        self.speech_source=speech_source
+        self.asr_cache_root=asr_cache_root
         self.source = source
         self.length = length
         self.speech_model = speech_model
@@ -103,18 +106,28 @@ class AnalysisThread(QThread):
         self._cancelled.set()
 
     def run(self) -> None:
+        from .vision_device import device_notice
+        token = device_notice.set(self.backend_notice.emit)
         try:
             result = analyze(self.source, clip_seconds=self.length,
                              progress=self.progress_changed.emit,
                              cancelled=self._cancelled.is_set,
                              speech_model=self.speech_model,
                              vision_model=self.vision_model,
-                             detector_model=self.detector_model)
+                             detector_model=self.detector_model,
+                             **({'speech_source':self.speech_source} if self.speech_source is not None else {}),
+                             **({'asr_cache_root':self.asr_cache_root} if self.asr_cache_root is not None else {}))
             if self._cancelled.is_set():
                 raise CancelledError("Analyse abgebrochen")
+            if result.transcript:
+                from .asr_quality import archive_raw
+                from .portable import installation_directory
+                archive_raw(result,installation_directory()/"data"/"projects"/"raw_asr")
             self.done.emit(result)
         except Exception as exc:
             self.failed.emit(str(exc))
+        finally:
+            device_notice.reset(token)
 
 
 class ExportThread(QThread):
@@ -472,6 +485,8 @@ class MainWindow(QMainWindow):
         self.render_queue: RenderQueue | None = None
         self.queue_worker: QueueRunThread | None = None
         self.source: str | None = None
+        self.speech_source=None
+        self._speech_source_error=None
         self.analysis: AnalysisResult | None = None
         self.worker: AnalysisThread | ExportThread | TwitchImportThread | RenderPreviewThread | None = None
         self._render_preview_dialog: RenderedClipDialog | None = None
@@ -1427,6 +1442,16 @@ class MainWindow(QMainWindow):
     def _install_workspace_controls(self) -> None:
         scene_menu = self.menuBar().addMenu("Szenen")
         scene_menu.addAction("Highlight in Szenen bearbeiten …", self._edit_scene_selection)
+        audio_menu = self.menuBar().addMenu("Audio")
+        audio_menu.addAction("Audioquellen / Originalspuren …", self._inspect_audio_sources)
+        audio_menu.addAction("Originalton in Komposition ein-/ausschalten", self._toggle_base_audio)
+        audio_menu.addAction("Untertitel-Zeitstempel prüfen …",self._review_speech_timing)
+        audio_menu.addAction("ASR-Qualität prüfen …",self._review_asr_quality)
+        self.asr_cache_action=audio_menu.addAction("ASR-Zwischenstände lokal behalten (explizite Sprachspur)")
+        self.asr_cache_action.setCheckable(True)
+        self.asr_cache_action.setToolTip("Speichert rohe Transkriptfenster lokal; nach Abbruch mit gleicher Quelle und Modell wiederverwendbar.")
+        audio_menu.addAction("KI-Stems / Audio-Mix …",self._edit_stem_mix)
+        audio_menu.addAction("Voice-over-Datei auf ausgewählte Audiospur …",self._add_audio_file_to_track)
         branding = self.menuBar().addMenu("Branding")
         branding.addAction("Untertitel gestalten …", self._edit_caption_style)
         branding.addAction("Untertitel übersetzen …", self._edit_translations)
@@ -1450,6 +1475,84 @@ class MainWindow(QMainWindow):
         for dock in (self.project_dock, self.timeline_dock, self.inspector_dock):
             menu.addAction(dock.toggleViewAction())
         self.tabs.currentChanged.connect(lambda _index: self._update_inspector())
+
+    def _inspect_audio_sources(self):
+        if not self.source or self._history_blocked or (self.worker and self.worker.isRunning()) or (self.queue_worker and self.queue_worker.isRunning()):
+            return
+        from .audio_sources_dialog import AudioSourcesDialog
+        dialog=AudioSourcesDialog(self.source,self)
+        if dialog.exec()!=QDialog.DialogCode.Accepted:return
+        if dialog.action=='speech':
+            from .speech_selection import save_selection
+            try:save_selection(self.source,dialog.selection)
+            except Exception as exc:QMessageBox.warning(self,'Sprachquellenwahl',str(exc));return
+            self.speech_source=dialog.selection
+            self._speech_source_error=None
+            self.statusBar().showMessage('Whisper: '+(getattr(self.speech_source,'label',f'Stream {self.speech_source.index} ({self.speech_source.role})') if self.speech_source else 'Standardspur')+' · nächste Analyse')
+        elif dialog.action=='timeline':
+            self._import_extracted_audio(dialog.extracted)
+
+    def _edit_stem_mix(self):
+        if not self.editor_project or self._history_blocked or (self.worker and self.worker.isRunning()) or (self.queue_worker and self.queue_worker.isRunning()):return
+        path,_=QFileDialog.getOpenFileName(self,"KI-Sprachspur mit zugehörigem Restton","","WAV (*.wav)")
+        if not path:return
+        from .audio_mix_dialog import AudioMixDialog
+        dialog=AudioMixDialog(self.editor_project,path,self)
+        if dialog.exec()==QDialog.DialogCode.Accepted and self._apply_project_edit(lambda p:dialog.value):
+            self.include_track_audio.setChecked(True)
+            self.statusBar().showMessage("Audio-Mix übernommen · Originalton aus · Render-Vorschau prüfen")
+
+    def _review_asr_quality(self):
+        if not self.analysis or not self.analysis.transcript or self._history_blocked or (self.worker and self.worker.isRunning()) or (self.queue_worker and self.queue_worker.isRunning()):return
+        selection=self.speech_source
+        if selection is None or not self.analysis.method.endswith(selection.method_suffix) or not self.speech_path.text().strip():
+            QMessageBox.warning(self,"ASR-Qualität","Passende Sprachquelle und lokales Whisper-Modell benötigt.");return
+        if not self.apply_word_editor() or not self.apply_transcript_editor():return
+        from .asr_review_dialog import ASRReviewDialog
+        dialog=ASRReviewDialog(self.analysis,selection,self.speech_path.text().strip(),self)
+        if dialog.exec()==QDialog.DialogCode.Accepted:
+            before=self.analysis
+            self.analysis_finished(dialog.value,preserve_history=True)
+            self._register_edit(before)
+
+    def _review_speech_timing(self):
+        if not self.analysis or not self.analysis.transcript or self._history_blocked or (self.worker and self.worker.isRunning()):return
+        selection=self.speech_source
+        if selection is None or not self.analysis.method.endswith(selection.method_suffix):
+            QMessageBox.warning(self,"Sprachzeiten","Bitte zuerst mit der gewählten Mikrofon- oder KI-Sprachspur analysieren. Alte Berichte ohne passende Provenienz bleiben unverändert.");return
+        if not self.apply_word_editor() or not self.apply_transcript_editor():return
+        from .timing_review_dialog import TimingReviewDialog
+        dialog=TimingReviewDialog(self.analysis,selection,self)
+        if dialog.exec()==QDialog.DialogCode.Accepted:
+            before=self.analysis
+            self.analysis_finished(dialog.value,preserve_history=True)
+            self._register_edit(before)
+
+    def _toggle_base_audio(self):
+        if not self.editor_project or self._history_blocked:return
+        from dataclasses import replace
+        enabled=not self.editor_project.base_audio_enabled
+        if enabled and QMessageBox.question(self,'Originalton','Originalmix wieder zuschalten? Bereits hinzugefügte Spuren können den Mix verdoppeln.')!=QMessageBox.StandardButton.Yes:return
+        if self._apply_project_edit(lambda p:replace(p,base_audio_enabled=enabled)):
+            self.include_track_audio.setEnabled(True)
+            self.include_track_audio.setChecked(True)
+            self.statusBar().showMessage('Originalton in Komposition: '+('an' if enabled else 'aus'))
+
+    def _import_extracted_audio(self,path):
+        if not self.editor_project:return
+        from .audio_sources import import_extracted_audio
+        tracks=[t for t in self.editor_project.tracks if t.kind=="audio" and not t.locked and not t.muted]
+        if not tracks:
+            QMessageBox.warning(self,"Audio","Aktive, entsperrte Audiospur benötigt.");return
+        labels=[f"{t.name} ({t.id})" for t in tracks]
+        choice,ok=QInputDialog.getItem(self,"Extrahierte Audiospur","Zielspur:",labels,0,False)
+        if not ok:return
+        if QMessageBox.question(self,"Originalton ersetzen",
+            "Extrahierte Spur synchron auf die Timeline übernehmen und den bisherigen Originalton in der Komposition deaktivieren? "
+            "So wird der Mix nicht doppelt abgespielt. Weitere Spuren können danach ergänzt werden.")!=QMessageBox.StandardButton.Yes:return
+        if self._apply_project_edit(import_extracted_audio,path,tracks[labels.index(choice)].id):
+            self.include_track_audio.setChecked(True)
+            self.statusBar().showMessage("Audio übernommen · Originalton in Komposition deaktiviert · Render-Vorschau prüfen.")
 
     def _edit_translations(self):
         if not self.analysis or not self.analysis.transcript or self._history_blocked:
@@ -2351,7 +2454,7 @@ class MainWindow(QMainWindow):
                  and not clip_track.locked))
         if hasattr(self, "include_track_audio"):
             has_layers = bool(self.editor_project and any(
-                i.id != "source" for i in self.editor_project.items))
+                i.id != "source" for i in self.editor_project.items) or self.editor_project and not self.editor_project.base_audio_enabled)
             # Busy disables changes but must NOT clear the opt-in choice.
             # Unsupported legacy metadata-only clips remain fail-closed if
             # the user deliberately enables project rendering.
@@ -2649,6 +2752,11 @@ class MainWindow(QMainWindow):
         self._refresh_track_tables()
         self._update_checkpoint_actions()
         self.source = source
+        self.speech_source=None
+        self._speech_source_error=None
+        from .speech_selection import load_selection
+        try:self.speech_source=load_selection(source)
+        except Exception as exc:self._speech_source_error=str(exc)
         self._source_duration = 0.0
         self.caption_overlay.hide()
         self._active_caption = None
@@ -3255,6 +3363,8 @@ class MainWindow(QMainWindow):
         except FileNotFoundError as exc:
             QMessageBox.critical(self, "FFmpeg fehlt", str(exc))
             return
+        if self.speech_enabled.isChecked() and self._speech_source_error:
+            QMessageBox.warning(self,'Sprachquellenwahl','Gespeicherte Sprachquelle ungültig: '+self._speech_source_error+'\nBitte unter Audio → Audioquellen erneut wählen oder explizit die Standardspur wählen.');return
         speech = self.speech_path.text().strip() if self.speech_enabled.isChecked() else None
         vision = self.vision_path.text().strip() if self.vision_enabled.isChecked() else None
         detector = self.detector_path.text().strip() if self.detector_enabled.isChecked() else None
@@ -3293,13 +3403,15 @@ class MainWindow(QMainWindow):
         self.progress.setValue(0)
         self.worker = AnalysisThread(self.source, self.length.value(), self,
                                      speech_model=speech, vision_model=vision,
-                                     detector_model=detector)
+                                     detector_model=detector,speech_source=self.speech_source if speech else None,
+                                     asr_cache_root=installation_directory()/ "data"/"projects"/"asr_windows" if speech and self.speech_source and self.asr_cache_action.isChecked() else None)
         self.worker.progress_changed.connect(self.progress.setValue)
+        self.worker.backend_notice.connect(lambda message: self.statusBar().showMessage(message))
         self.worker.done.connect(self.analysis_finished)
         self.worker.failed.connect(self.job_failed)
         self.worker.finished.connect(lambda: self._busy(False))
         self._busy(True)
-        self.statusBar().showMessage("Analyse läuft lokal (Audio / optionale Modelle) …")
+        self.statusBar().showMessage("Analyse läuft lokal (Audio / optionale Modelle) …" + (' · Whisper: '+getattr(self.speech_source,'label',f'Stream {self.speech_source.index}') if speech and self.speech_source else ''))
         self.worker.start()
 
     def refresh_highlight_table(self) -> None:
@@ -4216,8 +4328,14 @@ class MainWindow(QMainWindow):
 
 
 def main() -> None:
+    if sys.platform == 'win32':
+        import ctypes
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID('StreamClipper.Studio')
     application = QApplication(sys.argv)
     application.setApplicationName("StreamClipper")
+    icon_path = installation_directory() / "assets" / "StreamClipper.ico"
+    if icon_path.is_file():
+        application.setWindowIcon(QIcon(str(icon_path)))
     window = MainWindow()
     window.show()
     sys.exit(application.exec())

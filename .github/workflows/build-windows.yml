@@ -48,8 +48,26 @@ jobs:
           $testExit = $LASTEXITCODE
           Write-Host "Core pytest exit: $testExit"
           if ($testExit -ne 0) { throw "Core pytest exited $testExit" }
+      - name: Verify M15 original audio and remix in separate Python process
+        if: ${{ always() }}
+        shell: pwsh
+        run: |
+          $env:PYTHONFAULTHANDLER = "1"
+          python -m pytest -q tests/test_m15_audio_sources.py tests/test_m15_speech_timing.py tests/test_m15_audio_separation.py tests/test_m15_target_speaker.py tests/test_m15_review_editor_benchmark.py tests/test_m15_corpus.py
+          $testExit = $LASTEXITCODE
+          Write-Host "M15 pytest exit: $testExit"
+          if ($testExit -ne 0) { throw "M15 pytest exited $testExit" }
       - name: Build portable Windows executable
-        run: pyinstaller --noconfirm --clean --onedir --windowed --name StreamClipper --paths src scripts/launch.py
+        shell: pwsh
+        run: |
+          $iconArgs = @()
+          if (Test-Path assets/StreamClipper.ico) { $iconArgs = @('--icon','assets/StreamClipper.ico') }
+          pyinstaller --noconfirm --clean --onedir --windowed --name StreamClipper --paths src @iconArgs scripts/launch.py
+          if ($LASTEXITCODE -ne 0) { throw 'Build failed' }
+          if (Test-Path assets/StreamClipper.ico) {
+            New-Item -ItemType Directory -Force dist/StreamClipper/assets | Out-Null
+            Copy-Item assets/StreamClipper.ico dist/StreamClipper/assets/
+          }
       - name: Include startup notes
         shell: pwsh
         run: |

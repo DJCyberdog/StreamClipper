@@ -61,7 +61,7 @@ def analyze(path: str, clip_seconds: int = 25, max_clips: int = 8,
             cancelled: Callable[[], bool] | None = None,
             speech_model: str | None = None, vision_model: str | None = None,
             max_visual_frames: int = 180, detector_model: str | None = None,
-            max_object_frames: int = 90) -> AnalysisResult:
+            max_object_frames: int = 90, speech_source=None, asr_cache_root=None) -> AnalysisResult:
     """Analyze audio and, when requested, local transcript / gameplay images.
 
     No model downloads and no external API calls. Model paths are opt-in.
@@ -74,6 +74,8 @@ def analyze(path: str, clip_seconds: int = 25, max_clips: int = 8,
     if detector_model:
         validate_model_dir('detector', detector_model)
     video = probe_video(path)
+    if speech_source is not None and not speech_model:
+        raise ValueError('Gewählte Sprachspur benötigt aktiviertes Whisper')
     use_models = bool(speech_model or vision_model or detector_model)
     visual_activity = bool(vision_model or detector_model)
     if not use_models:
@@ -112,8 +114,21 @@ def analyze(path: str, clip_seconds: int = 25, max_clips: int = 8,
                 for c in peak_candidates if c.score > 30]
     transcript = []
     if speech_model:
-        transcript = transcribe_video(video, speech_model, progress=stage('speech'),
-                                      cancelled=cancelled)
+        if speech_source is None:
+            transcript = transcribe_video(video, speech_model, progress=stage('speech'),
+                                          cancelled=cancelled)
+        else:
+            from .audio_sources import transcribe_selected_stream
+            from .reconstructed_speech import ReconstructedSpeech,transcribe_reconstructed
+            transcribe = transcribe_reconstructed if isinstance(speech_source,ReconstructedSpeech) else transcribe_selected_stream
+            from functools import partial
+            session_transcriber=partial(transcribe_video,model_cache={})
+            cache=None
+            if asr_cache_root is not None:
+                from .asr_window_cache import ASRWindowCache
+                cache=ASRWindowCache.for_whisper(asr_cache_root,speech_model,cancelled=cancelled)
+            transcript = transcribe(video,speech_model,speech_source,
+                transcriber=session_transcriber,progress=stage('speech'),cancelled=cancelled,window_cache=cache)
         evidence.extend(transcript_cues(((s.start, s.end, s.text) for s in transcript),
                                         rules=speech_rules))
     if visual_activity:
@@ -135,4 +150,4 @@ def analyze(path: str, clip_seconds: int = 25, max_clips: int = 8,
     return AnalysisResult(video, ranked or baseline,
         method=('multimodal-object-tracklets-v3' if detector_model else
                 'multimodal-temporal-evidence-v2' if vision_model else
-                'multimodal-evidence-v1'), transcript=transcript)
+                'multimodal-evidence-v1') + (speech_source.method_suffix if speech_source is not None else ''), transcript=transcript)

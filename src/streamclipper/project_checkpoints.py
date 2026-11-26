@@ -152,7 +152,7 @@ def load_checkpoint(video: VideoInfo, checkpoint_id: str, *,
             source, tuple(Track(**t) for t in data["project"]["tracks"]),
             tuple(item_from_dict(item) for item in data["project"]["items"]),
             tuple(selection_from_dict(p) for p in data["project"].get("scene_plans", [])),
-            caption_style_from_dict(data["project"].get("caption_style")))
+            caption_style_from_dict(data["project"].get("caption_style")),data["project"].get("base_audio_enabled",True))
         project.validate()
         if not _matches(source, video):
             raise ValueError("Projektstand gehört zu einer anderen Aufnahme")
@@ -161,7 +161,8 @@ def load_checkpoint(video: VideoInfo, checkpoint_id: str, *,
         if a is not None:
             cues = [TranscriptSegment(
                 float(cue["start"]), float(cue["end"]), str(cue["text"]),
-                tuple(TranscriptWord(**word) for word in cue.get("words", [])))
+                tuple(TranscriptWord(**word) for word in cue.get("words", [])),
+                cue.get("review_origin","legacy"),cue.get("avg_logprob"),cue.get("no_speech_prob"),cue.get("compression_ratio"))
                 for cue in a.get("transcript", [])]
             analysis = AnalysisResult(VideoInfo(**a["video"]),
                                       [Candidate(**clip) for clip in a.get("candidates", [])],

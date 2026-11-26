@@ -1278,3 +1278,74 @@ Die Farben des Untertitelstils stehen auch im Thumbnail-Dialog als
 Startwerte zur Verfügung. Callouts und Titel nutzen derzeit Pillow-
 Standardschrift. Neue Regressionen inkl. realer umsortierter MP4-Frames
 vorhanden; neue CI und native GUI-/Modellabnahme offen.
+
+
+### M15 – Audioquellen (erster Entwicklungsstand)
+
+**Audio → Audioquellen / Originalspuren …** listet die im Container tatsächlich
+vorhandenen Audio-Streams und ihre Metadaten. Eine Spur bewusst wählen und
+optional als Mikrofon, Spielton, Musik oder Mix zuordnen. Die Zuordnung ist
+eine Nutzerangabe, keine Erkennung. Exportiert eine lokale Float32-PCM-WAV
+in einem eindeutigen Ordner mit provenance.json. Sample-Rate/Kanäle bleiben
+erhalten, Zeitbasis ist der Containerstart; FFmpeg kann zum Zeiterhalt
+Samples auffüllen bzw. kompensieren. Das ist keine verlustlose Paketkopie.
+Lange Aufnahmen benötigen entsprechend freien Speicherplatz. WAV und
+Provenienz werden erst nach erfolgreicher Prüfung fertiggestellt; keine
+Originaldatei wird überschrieben. Bei einem gemischten Audio-Stream wird
+noch keine KI-Trennung durchgeführt. Analyse, Timeline-Integration,
+Source Separation, Target Speaker Extraction und VAD/ASR/Alignment
+folgen gemäß ROADMAP.md M15a–M15f. Neue CI noch offen.
+
+
+#### M15a – Sprachspur und Remix (Entwicklungsstand)
+
+Im Audioquellen-Dialog **Für Whisper wählen** aktiviert den ausdrücklich
+ausgewählten Stream für die nächste Analyse dieser geöffneten Aufnahme.
+**Whisper: Standardspur** setzt die Wahl zurück. Der Worker extrahiert eine
+temporäre zeitbasierte WAV, nutzt den vorhandenen lokalen Whisper-Adapter
+und räumt temporäre Dateien auf; Originalvideo bleibt Analysequelle für
+RMS/Gameplay. Stream-ID, manuelle Rolle und Quellgröße/mtime stehen im
+Analyse-method-Feld. Die Auswahl ist sitzungslokal und wird beim Öffnen
+einer anderen Aufnahme zurückgesetzt. Kein stiller Fallback bei geänderter
+Quelle. Keine zusätzliche VAD-/Alignment-Korrektur oder KI-Stem-Trennung.
+
+Nach WAV-Extraktion **Extrahierte WAV auf Timeline** wählen, Zielspur
+angeben und Ersetzung des Originalmixes bestätigen. Der gespeicherte
+Projekt-Schalter deaktiviert Originalton nur in aktivierter Komposition.
+Mit **Audio → Originalton in Komposition ein-/ausschalten** wieder ändern.
+Der Quellplayer spielt unverändert die Originalaufnahme. Die neue WAV
+bleibt lokale externe Referenz; nicht löschen, solange Projekte/Queue
+sie verwenden. Mehrere gewünschte Originalspuren einzeln übernehmen;
+nicht zugleich Mix und seine Bestandteile hinzufügen. Alte Projekte
+laden mit Originalton an. Tests für ASR-Routing (Mock-Modell, echtes
+Audio), fehlenden Mix, persistente Render-Requests und MP4-Vorschau
+hinzugefügt. Echte Whisper-/GPU-Abnahme offen.
+
+
+### M15b – experimentelle lokale KI-Audiotrennung
+
+Audio → Audioquellen → KI-Audiotrennung. Optionales Extra `.[separation]` und separat bereitgestellter, geprüfter Offline-Checkpoint erforderlich. Erste Stufe: Vordergrundsprache und Restton als WAV, maximal zehn Minuten, 48 kHz Mono/Stereo. Kein automatischer Download, keine Sprecheridentifikation oder automatische Übernahme in Whisper. Details und Modellquellen: [M15b-Kandidatenentscheidung](docs/M15B_SEPARATION.md). Echte Modell-/GPU-Abnahme noch offen.
+
+
+M15b: zusätzlich experimenteller Modus **Referenzstimme · VoxLock (CPU)**. Mit eigener/autorisierter sauberer WAV (3–30 s) und lokalem INT8-Modell; Installationsanleitung in [M15b](docs/M15B_SEPARATION.md). Keine automatische Stimmwahl, kein Upload. Qualitätsabnahme offen.
+
+
+M15b/c: Trennläufe bis 6 Stunden (48 kHz Mono/Stereo, RF64 bei großen
+Dateien). Über **Audio → Audioquellen → KI-Sprachspur für Whisper wählen …**
+eine zum Original passende voice_estimate.wav auswählen. Prüfsumme und
+Zeitbasis werden beim Analysieren geprüft; Whisper verarbeitet 5-Minuten-
+Fenster mit Kontext und Originalzeitstempeln. VAD-Kern ebenfalls fensterweise.
+Kein automatisches Ersetzen des Originaltons. 6h-Nativtest, Resume,
+Modellqualität und Timing-Review-GUI offen.
+
+
+### M15 Audio & Speech Intelligence — review / evaluation
+
+Full implementation and explicit remaining acceptance gates:
+[docs/M15F_ACCEPTANCE.md](docs/M15F_ACCEPTANCE.md).
+
+Audio menu: persisted speech-source choice, KI-Audiotrennung, KI-Stems /
+Audio-Mix, Untertitel-Zeitstempel prüfen, ASR-Qualität prüfen and voice-over
+file import. Raw ASR reports remain separate; VAD proposals require approval.
+Real model smoke CI uses generated TTS, not user recordings. Gaming holdout
+and 6h RTX acceptance remain open. This is not an official 0.9 release.

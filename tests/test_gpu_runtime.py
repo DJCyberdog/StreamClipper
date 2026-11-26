@@ -63,6 +63,12 @@ def test_wheel_requirements_are_pinned_and_local():
     assert "nvidia-cuda-runtime-cu12==12.9.79" in reqs
     setup = (root / "setup_gpu_windows.bat").read_text()
     assert "portable_env.bat" in setup
-    assert ".venv\\Scripts\\python.exe -m pip install" in setup
-    assert "scripts\\check_gpu_runtime.py" in setup
+    assert "runtime\\python.exe" in setup
+    assert "scripts\\setup_gpu_runtime.py" in setup
+    installer = (root / "scripts" / "setup_gpu_runtime.py").read_text(encoding="utf-8")
+    assert 'root / "runtime" / "python.exe"' in installer
+    assert '"-m", "pip"' in installer
+    assert '"check_gpu_runtime.py"' in installer
+    assert '"check_torch_gpu.py"' in installer
+    assert "torch==2.15.0+cu132" in installer
     assert "setx" not in setup.lower()

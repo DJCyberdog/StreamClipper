@@ -2,13 +2,13 @@
 setlocal
 cd /d "%~dp0"
 call "%~dp0portable_env.bat"
-if not exist ".venv\Scripts\python.exe" (
+if not exist "%~dp0runtime\python.exe" (
   echo StreamClipper-Umgebung fehlt. Bitte zuerst setup_windows.bat ausfuehren.
   pause
   exit /b 1
 )
-echo Installiere lokalen Twitch-VOD-Import in die vorhandene .venv ...
-.venv\Scripts\python.exe -m pip install -e ".[twitch]"
+echo Installiere lokalen Twitch-VOD-Import in die vorhandene runtime ...
+"%~dp0runtime\python.exe" -m pip install ".[twitch]"
 if errorlevel 1 (
   echo Twitch-Import konnte nicht eingerichtet werden.
   pause

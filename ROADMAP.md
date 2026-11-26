@@ -158,7 +158,7 @@ Vorhandene *experimentelle* Implementierungen umfassen Audio-Highlighting, nicht
 | **M17** | Montage, Effekte & Clip-Varianten | B: B-B1, #21, #22, #24, #25, #27, #29, #31, #32 | Story-aware Clipgrenzen (Aufbau → Ereignis → Reaktion), mehrere Highlights und Exportvarianten mit kontrollierbaren manuellen Korrekturen zusammenstellen. |
 | **M18** | Stream-Workflow, **Multi-Plattform-Videoimport** & Integrationen | C: #34, #35, #37, #41, #42, #43 · D: #48 | Einzelauswahl per URL für Twitch, YouTube, Kick und weitere validierte Quellen; Import/Marker/Exporte mit Fortschritt, Abbruch und klarer Rechte-/Fehlerbehandlung. Automatischer Kanalimport bleibt getrennt, opt-in. |
 | **M19** | Publishing, Zusammenarbeit & Reichweite | B: B-B2 · D: #44, #45, #46, #47 | Bewusste Veröffentlichung, nachvollziehbare Freigaben, Rechte- und Datenschutzkontrollen; offline vollständig nutzbare Basis. |
-| **M20** | Feature Freeze, Gesamt-Abnahme & 1.0 | F: #49, #50 | Alle 58 umsetzbaren Features aus S–D abgenommen oder ausdrücklich durch Owner neu beschlossen; beide F-Prinzipien nachweislich nicht implementiert; erst dann 1.0 Stable. |
+| **M20** | Premium-GUI, Easy/Studio-Modus, Feature Freeze, Gesamt-Abnahme & 1.0 | F: #49, #50 | Alle 58 umsetzbaren Features aus S–D abgenommen oder ausdrücklich durch Owner neu beschlossen; beide F-Prinzipien nachweislich nicht implementiert; erst dann 1.0 Stable. |
 
 **Vollständigkeitsnachweis:** 11 S-Features, 14 A-Features, 15 B-Features, 10 C-Features, 8 D-Features und 2 F-Ausschlüsse = **60 eindeutige Kennungen**. **58 zu implementierende** Funktionen + **2 dauerhaft ausgeschlossene** Funktionen. Jeder Hauptfeature-ID ist **genau ein führender Milestone** zugewiesen; Vorarbeiten und Integration dürfen milestoneübergreifend stattfinden, ohne die Zuordnung zu doppeln. Alle S–D-Features sind im Scope von **StreamClipper 1.0**.
 
@@ -169,7 +169,7 @@ Vorhandene *experimentelle* Implementierungen umfassen Audio-Highlighting, nicht
 3. **M14 (Captions) und M15 (Audio) → M16 (Intelligence) → M17 (Montage):** Wortkorrekturen und Audiosignale in die zweistufige Erkennung übernehmen, dann die Ereignisfenster in Story-aware Clipgrenzen überführen. Vor dem Ausbau der KI steht immer ein unabhängiger Qualitäts-Benchmark; Qualitätsgewinn wird nicht allein aus Modellgröße abgeleitet.
 4. **M17 (Montage) → M19 (Publishing):** Clips müssen vollständig bearbeitbar und exportierbar sein, bevor sie über Dienste veröffentlicht werden.
 5. **M18 (Integrationen) und M19 (Online):** Netzwerkabhängige D-Tier-Funktionen sind **opt-in**. Keine verpflichtende Kontoverknüpfung, keine Cloud-Abhängigkeit der Basisapp.
-6. **M20 ist kein zusätzlicher Feature-Bucket:** Erst ein Gesamt-Regressionstest, Windows-End-to-End-Abnahme und nachweislich bestandene F-Tier-Schutzregeln erlauben den Release.
+6. **M20 ist die verbindliche finale UX-Integration, kein zusätzlicher Engine-Feature-Bucket:** Premium-GUI und Easy-/Studio-Modus müssen abgenommen sein; erst Gesamt-Regressionstest, Windows-End-to-End-Abnahme und bestandene F-Tier-Schutzregeln erlauben den Release.
 7. **Kein D-Tier-Schlupfloch:** Ein niedrig priorisiertes Feature bleibt zwar innerhalb seines Milestones nachrangig, wird aber nicht still auf „nach 1.0“ verschoben. Soll es doch entfallen, ist ein **neuer Owner-Beschluss** erforderlich.
 
 ### M10.5-P1-01 – Modelldownload-Fortschritt in der GUI ([Issue #32](https://github.com/DJCyberdog/StreamClipper/issues/32))
@@ -282,7 +282,7 @@ Zwischenlösung, **nicht** die endgültige Informationsarchitektur.
 4. **M16–M19:** KI-Hit-Browser, Varianten/Montage, Quellenimport,
    optionaler Publish-Workflow als zusätzliche Workspaces statt immer
    längerer Tab-Formulare.
-5. **M20:** Verbindliche End-to-End-UX-Abnahme, Accessibility,
+5. **M20:** Premium-GUI, Easy-/Studio-Modus, konsolidierte Fortschrittsanzeige und verbindliche End-to-End-UX-Abnahme, Accessibility,
    Shortcuts, Layoutmigration, Projektkonsistenz und Regression.
 
 **Abnahmekriterien (vor 1.0):**
@@ -739,6 +739,38 @@ Dieses Paket gehört zu **M17 (Montage/Clip-Varianten)**, nutzt **M16-Ereignisze
 - Bereits importierte Video-IDs deduplizieren; klare Pause-/Löschen-/Fehlerfunktionen, keine Endlosschleifen oder ungefragten Downloads.
 - D-Tier bleibt niedriger priorisiert, wird nach dem manuellen M18a-Import umgesetzt und gehört gemäß Owner-Beschluss trotzdem zum 1.0-Umfang.
 
+### 5.10 M20 – Premium-GUI, Easy-/Studio-Modus und Release-Abnahme (Owner-Beschluss 26.11.2026)
+
+Die bisherige funktionale Editor-Shell bleibt bis M19 nutzbar. M20 ist die verbindliche visuelle und ergonomische Produktintegration vor 1.0, keine zweite Anwendung und kein Austausch des Render-/Analyse-Kerns. Alle 58 S–D-Hauptfeatures bleiben im Scope; keine neuen Hauptfeature-IDs und keine Aufweichung der F-Ausschlüsse.
+
+**M20a – Designsystem und Studio-Modus**
+- Eigenständiges, Premiere-inspiriertes Premium-Design mit konsistenten Abständen, Typografie, Icons, Farb- und Zustandsregeln, hochwertigen Monitor-/Timeline-/Inspector-Workspaces, skalierbaren Panels und Tastaturbedienung.
+- Vollständiger Zugriff auf alle vorhandenen Funktionen, Keyframes, Spuren, KI-Konfigurationen, Branding, Import und autorisiertes Publishing; keine bloß kosmetischen Bedienelemente ohne Funktion.
+
+**M20b – Easy-Modus (Standard beim Erststart; umschaltbar)**
+- Geführter Workflow: Aufnahme/URL auswählen → gewünschtes Ergebnis (einzelne Clips, mehrere Highlights, Montage; Zielformat/Plattform) → verständliche Analyse-Einstellungen → Vorschläge sichten und bei Bedarf korrigieren → Vorschau → Export oder ausdrücklich bestätigtes Publishing.
+- Sinnvolle lokale Standardprofile, automatische Hardware-Empfehlung, verständliche Erläuterungen und Fehlerbehebung; keine Kenntnis von ASR, CUDA, Codecs oder Keyframes voraussetzen. Modelle/Downloads, Netzwerkzugriffe und Kontoverknüpfungen nur nach ausdrücklicher Aktion.
+- Alle vorhandenen Fähigkeiten sollen grundsätzlich auch im Easy-Modus erreichbar sein: vereinfachte Aufgaben, Presets, geführte Dialoge und progressive Offenlegung statt ersatzlos ausgeblendeter Features. Erweiterte Einstellungen bei Bedarf aufklappbar; jederzeit verlustfreier Wechsel in Studio. Keine künstliche Funktionsbeschränkung, keine zweite Analyse-/Renderpipeline.
+- Automatische Vorschläge bleiben überprüfbar; Änderungen sind rückgängig machbar. Keine automatische Veröffentlichung oder Veränderung der Originalquelle. Dieselben Projektdateien, Undo-/Redo-Historie, Modellwahl, RenderRequest und Queue in beiden Modi.
+
+**M20c – Einheitliche Vorgangs- und Fortschrittsanzeige (vormals HF2, UX-Wunsch)**
+- Permanente workspaceübergreifende Statusanzeige mit eindeutigem Vorgangsnamen, Fortschritt oder ehrlichem unbestimmtem Zustand, Abbruch soweit unterstützt und verständlichen Fehlern. Für Downloads gemessene Datenmenge, Geschwindigkeit, Restzeit soweit verfügbar; keine erfundenen Werte. Gleichzeitige Jobs unterscheidbar; keine doppelten unbeschrifteten Balken.
+- Relevante Vorgänge: Medien-/Modell-Download, Proxy, Transkription, Trennung, Analyse, Renderqueue und Export. Bestehende Worker-/Cancel-Semantik erhalten.
+
+**M20e – Grafischer Setup Wizard und Portable Lifecycle (Owner-Beschluss 26.11.2026)**
+- Eigenständiger Windows-x64-Setup-Assistent im InstallShield-Stil, ohne vorhandenes Python, FFmpeg, Administratorrechte oder manuelle BAT-/PowerShell-Aufrufe. Eigene kleine Bootstrap-EXE; konkrete Installer-Technologie erst nach Prototyp und Lizenzprüfung auswählen.
+- Geführte Seiten: Willkommen, Lizenz/Drittanbieterhinweise, Zielordner, Installationsumfang, Hardware-/Speicherplatz-Preflight, explizite Downloadfreigabe, Fortschritt mit Bytes/Rate/ETA soweit messbar, Funktionstests und Abschluss mit Startoption.
+- Empfohlene Installation für Einsteiger:innen und benutzerdefinierte Auswahl für Expert:innen. Lokale Runtime und FFmpeg erforderlich, GPU-Bibliotheken und Modellgewichte optional; CPU-Fallback, klare Trennung zwischen installierten Komponenten und tatsächlich bestandenen Inferenztests. Fehlendes Modell vor Selbsttest erkennen und Download anbieten; kein falscher GPU-Fehler.
+- Gemeinsamer Setup-/Repair-/Update-Vertrag mit der bestehenden portablen Architektur; keine zweite Installationslogik. Keine systemweite Python-/CUDA-Installation, kein PATH-/Registry-Zwang, keine verpflichtende Kontoverknüpfung. Optional Desktop-/Startmenü-Verknüpfungen mit freigegebenem Icon; nach Verschieben neu erzeugbar. Entfernen von Verknüpfungen und Programmdateien getrennt von ausdrücklicher Löschung der Nutzerdaten.
+- Vorhandene Modelle, Projekte, Einstellungen und Caches bewahren; Versions-/Integritätsprüfung, kontrollierter Abbruch, fortsetzbare Downloads, sichere Staging-/Rollback-Verfahren, verständliche Fehler und exportierbares lokales Setup-Protokoll. Keine stillen Downloads im normalen App-Start. Online-Bootstrap und optionales vollständiges Offline-Paket mit überprüfter Lizenzkette; Offline-Paket erst nach Größen-/Distributionsprüfung.
+- Pflichtabnahme: echte Windows-Neuinstallation ohne System-Python/FFmpeg, Standardbenutzerkonto, CPU-only und RTX 5060 Ti, fehlende/defekte Modelle, DNS-/Downloadfehler, Speicherplatzmangel, Abbruch/Wiederaufnahme, Update/Repair, Verzeichniswechsel mit Leerzeichen, Offline-Start und Erhalt von data/. Kein Release bei fehlerhaftem Setup. BAT-Dateien bleiben höchstens als dokumentierte Wartungsschnittstelle, nicht als regulärer Benutzerworkflow.
+- Umsetzung vor abschließender M20d-Gesamtabnahme; keine neuen Hauptfeature-IDs.
+
+**M20d – Produktabnahme und Freeze**
+- Erstnutzertest ohne Schnitt-/KI-Vorkenntnisse: lokales Video oder autorisierte URL importieren, passende Highlights finden, Vorschlag überprüfen, korrigieren und Clip exportieren ohne Studio-Modus oder Fachwissen. Beobachtete Fehler, Hilfebedarf und Abbrüche dokumentieren und beheben.
+- Vollständige Feature-Zugänglichkeitsmatrix Easy/Studio für alle 58 Features; beide Modi nutzen identische gespeicherte Parameter und liefern bei identischen Einstellungen denselben Rendervertrag. Wechsel und Neustart erhalten Projekt, Auswahl, Playhead, offene Edits und Undo-Historie.
+- Native Windows-Prüfung 1366×768 und 1920×1080, DPI-Skalierung, Tastatur/Fokus, Offline-Start, Lang-VOD, Abbruch, Fehlerzustände, True-Portable-Relocation, Regression und F-Tier-Negativprüfung. Kein 1.0-Release ohne diese und die bestehenden Fachabnahmen.
+
 ## 6. Ein einziger Release-Pfad: Alles vor 1.0
 
 | Zielmarke | Zugehörige Meilensteine | Auslieferungszustand |
@@ -746,7 +778,7 @@ Dieses Paket gehört zu **M17 (Montage/Clip-Varianten)**, nutzt **M16-Ereignisze
 | **0.x – Engineering Preview** | M0–M10.5 | Experimenteller Bestand + konsolidierte, geprüfte Baseline |
 | **0.8 – Editor Preview** | M11–M14 | Editor, Rendering, Smart Director inkl. A-11d, Branding und Untertitel |
 | **0.9 – Production Preview** | M15–M19 | Audio, Gameplay-KI, Montage, Integrationen, Publishing **einschließlich D-Tier** |
-| **1.0 – Stable** | **Erst nach M20** | Vollständige S–D-Abnahme und geprüfte F-Tier-Ausschlüsse |
+| **1.0 – Stable** | **Erst nach M20** | Premium-GUI mit Easy-/Studio-Modus, vollständige S–D-Abnahme und geprüfte F-Tier-Ausschlüsse |
 
 **Keine bislang geplante Implementierung für M21 oder eine exklusive Post-1.0-/2.0-Featureliste.** Spätere Produktversionen sind offen und werden erst mit neuer Owner-Entscheidung geplant. Diese Roadmap ist ein **Scope-Beschluss**, keine Terminzusage.
 

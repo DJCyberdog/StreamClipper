@@ -92,9 +92,9 @@ class RenderRequest:
             raise ValueError("Render-Vorschau muss auf maximal 60 Sekunden begrenzt sein")
         if self.scene_plan is not None:
             compose = self.preview_composition or len(self.scene_plan.output_scenes)>1
-            audio = self.preview_audio or self.video.has_audio or (
-                self.project is not None and any(build_render_graph(self.project,self.video,s.start,s.end).audio_layers
-                    for s in self.scene_plan.output_scenes))
+            audio = self.preview_audio or (self.video.has_audio if self.project is None else any(
+                g.base_audio_enabled or bool(g.audio_layers) for g in (build_render_graph(self.project,self.video,s.start,s.end)
+                    for s in self.scene_plan.output_scenes)))
             return replace(self, scene_plan=excerpt_selection(self.scene_plan, maximum),
                            preview_composition=compose,preview_audio=bool(compose and audio)).validate()
         return replace(self, end=min(self.end, self.start + maximum)).validate()
@@ -126,6 +126,7 @@ def render_request(
         graph = build_render_graph(
             request.project, request.video, request.start, request.end)
         options["audio_layers"] = graph.audio_layers
+        options["base_audio_enabled"] = graph.base_audio_enabled
         options["visual_layers"] = graph.visual_layers
     return export_clip(
         request.video, request.start, request.end, destination,
@@ -153,14 +154,14 @@ def _render_scenes(request, destination, progress, cancelled, encoder_notice):
     destination.parent.mkdir(parents=True, exist_ok=True)
     graphs = [build_render_graph(request.project, request.video, s.start, s.end)
               if request.project is not None else None for s in scenes]
-    any_audio = request.preview_audio or request.video.has_audio or any(g and g.audio_layers for g in graphs)
+    any_audio = request.preview_audio or any((g.base_audio_enabled or bool(g.audio_layers)) if g else request.video.has_audio for g in graphs)
     def check_cancel():
         if cancelled and cancelled():
             raise CancelledError("Szenenrendering abgebrochen")
     def render_part(scene, graph, target, encoder, callback, normalize):
         check_cancel()
         mode = ("smart16" if width >= height else "smart9") if scene.mode == "automatic" else "crop"
-        options = dict(audio_layers=graph.audio_layers, visual_layers=graph.visual_layers) if graph else {}
+        options = dict(audio_layers=graph.audio_layers, visual_layers=graph.visual_layers,base_audio_enabled=graph.base_audio_enabled) if graph else {}
         # Manual: preserve entire marked rectangle, pad to aspect ratio.
         # Fixed: center-crop the marked rectangle to output aspect ratio.
         safe_region = crop_for_scene(scene, request.video, width, height)

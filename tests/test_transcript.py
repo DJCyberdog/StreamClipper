@@ -76,8 +76,8 @@ def test_whisper_video_transcribes_once_and_cues_reuse_segments(monkeypatch, tmp
     monkeypatch.setitem(sys.modules, "faster_whisper", mod)
     vid = VideoInfo("aufnahme.mkv", 10, 1920, 1080, 60, True)
     spans = transcribe_video(vid, str(path))
-    assert spans == [TranscriptSegment(1.5, 3, "Hallo ihr Lieben"),
-                     TranscriptSegment(5, 7, "Wow, Alter!")]
+    assert spans == [TranscriptSegment(1.5, 3, "Hallo ihr Lieben",review_origin="asr"),
+                     TranscriptSegment(5, 7, "Wow, Alter!",review_origin="asr")]
     assert len(transcript_cues((s.start, s.end, s.text) for s in spans)) == 1
     assert recorded == {"model": 1, "transcribe": 1}
 
