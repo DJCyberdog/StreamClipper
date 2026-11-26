@@ -53,7 +53,7 @@ def story_bounds(candidate,duration,transcript=(),events=(),options=StoryOptions
     spans=speech_spans(transcript,duration)
     # A nearby complete utterance is a useful context/reaction boundary.
     for a,z in spans:
-        if a<=start<z or (start-3<=a<=t and z>=start):
+        if a<=start<z or (start-3<=a<=t and z>=start-2):
             if end-a<=budget:start=min(start,a)
         if a<=end<z or (end<=a<=end+2 and a<=t+options.reaction+5):
             if z-start<=budget:end=max(end,z)
@@ -100,7 +100,7 @@ def refine_result(result,events=(),options=StoryOptions()):
                     autos[i]=combined
             continue
         autos.append(new)
-    return replace(result,candidates=autos+manual,method=result.method+"|m17-story-v1")
+    return replace(result,candidates=autos+manual,method=result.method if "|m17-story-v1" in result.method else result.method+"|m17-story-v1")
 
 def length_variants(candidate,duration,transcript=()):
     """Exact 15/30/60 second budgets where possible, prioritizing complete speech."""
