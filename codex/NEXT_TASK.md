@@ -1,3 +1,7 @@
+# NEXT_TASK — M17 second implementation pass
+
+M17 initial commit 811efbd: CI, Windows build and portable runtime PASS. Second pass integrates separate versioned montage JSON plans, optional existing editor composition per beat, durable queue/QA receipt, local sound library with rights metadata, and adjustable sampled linear/ease speed ramps (not true continuous). Source/effect bindings use resolved path/size/mtime, checked before and after rendering, not full content hashes. Verify exact latest CI and fix failures. Remaining native GUI/render/A-V timing, richer montage timeline/preview, genuine continuous speed curves, annotated M16/M17 quality evidence. Do not label M17 complete or merge automatically.
+
 # NEXT_TASK — M17 integrated pilot
 
 Owner authorizes stacked M17 development on M16 commit 6e4865f (CI, Windows build and portable runtime PASS). M16 native and independent quality gates remain open. M17 story clipping, variants, hooks, chapters and separate source-only montage/effects rendering are implemented; verify exact-head CI including real FFmpeg montage test. Remaining: native GUI/export/AV timing, full editor/queue and persistent montage plan integration, licensed sound library management, true continuous speed curves if required, independent frozen holdout boundary evaluation. Do not claim release or quality gain.
